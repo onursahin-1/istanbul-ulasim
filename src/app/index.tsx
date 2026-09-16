@@ -10,7 +10,7 @@ import { Dakika, HataKutusu, HatRozeti, Ikon, Yukleniyor } from '@/components/ul
 import { useKayitlar, type YerTuru } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
 import { OtpHatasi, yakinDuraklariGetir, type YakinDurak } from '@/lib/otp';
-import { baslikYap, renk } from '@/lib/tema';
+import { baslikYap, renk, yonYaz } from '@/lib/tema';
 import { kacDakikaSonra, mesafeYaz } from '@/lib/zaman';
 
 const YENILEME_ARALIGI = 30_000;
@@ -76,6 +76,7 @@ export default function AnaEkran() {
       <MapView
         ref={harita}
         style={StyleSheet.absoluteFill}
+        userInterfaceStyle="light"
         initialRegion={{ latitude, longitude, latitudeDelta: 0.02, longitudeDelta: 0.02 }}
         showsUserLocation={konum.tur === 'gercek'}
         showsMyLocationButton={false}
@@ -91,6 +92,7 @@ export default function AnaEkran() {
               key={durak.gtfsId}
               coordinate={{ latitude: durak.lat, longitude: durak.lon }}
               title={baslikYap(durak.name)}
+              description={yonYaz(durak.desc)}
               pinColor={renk.vurgu}
               onCalloutPress={() => router.push({ pathname: '/durak/[id]', params: { id: durak.gtfsId } })}
             />
@@ -158,9 +160,16 @@ export default function AnaEkran() {
               onPress={() => router.push({ pathname: '/durak/[id]', params: { id: durak.gtfsId } })}
             >
               <View style={s.durakAd}>
-                <Text style={s.durakAdYazi} numberOfLines={1}>
-                  {baslikYap(durak.name)}
-                </Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.durakAdYazi} numberOfLines={1}>
+                    {baslikYap(durak.name)}
+                  </Text>
+                  {!!yonYaz(durak.desc) && (
+                    <Text style={s.durakYon} numberOfLines={1}>
+                      {yonYaz(durak.desc)}
+                    </Text>
+                  )}
+                </View>
                 <Text style={s.durakMesafe}>{mesafeYaz(mesafe)}</Text>
               </View>
               {durak.kalkislar.length === 0 && <Text style={s.seferYok}>Yakın zamanda sefer yok</Text>}
@@ -264,7 +273,8 @@ const s = StyleSheet.create({
   bos: { color: renk.soluk, paddingVertical: 16, textAlign: 'center' },
   durakBlok: { paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: renk.cizgi },
   durakAd: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 6 },
-  durakAdYazi: { flex: 1, fontSize: 14.5, fontWeight: '700', color: renk.yazi },
+  durakAdYazi: { fontSize: 14.5, fontWeight: '700', color: renk.yazi },
+  durakYon: { fontSize: 12, color: renk.soluk, marginTop: 1 },
   durakMesafe: { fontSize: 12, color: renk.soluk },
   seferYok: { fontSize: 12.5, color: renk.soluk },
   sefer: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 3 },

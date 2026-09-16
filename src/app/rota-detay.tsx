@@ -151,6 +151,7 @@ export default function RotaDetayEkrani() {
       <MapView
         ref={harita}
         style={{ height: haritaYuksekligi }}
+        userInterfaceStyle="light"
         onMapReady={haritayiSigdir}
         showsUserLocation={takipAcik}
         showsPointsOfInterests={false}

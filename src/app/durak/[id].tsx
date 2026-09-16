@@ -84,6 +84,7 @@ export default function DurakEkrani() {
       {durak?.lat != null && durak.lon != null ? (
         <MapView
           style={s.harita}
+          userInterfaceStyle="light"
           initialRegion={{ latitude: durak.lat, longitude: durak.lon, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
           showsPointsOfInterests={false}
           toolbarEnabled={false}

@@ -144,7 +144,7 @@ query DurakAra($ad: String!) {
 
 const ROTA_PLANLA = `
 query RotaPlanla($nereden: PlanLabeledLocationInput!, $nereye: PlanLabeledLocationInput!, $zaman: OffsetDateTime!) {
-  planConnection(origin: $nereden, destination: $nereye, dateTime: { earliestDeparture: $zaman }, first: 6) {
+  planConnection(origin: $nereden, destination: $nereye, dateTime: { earliestDeparture: $zaman }, first: 12) {
     routingErrors { code description }
     edges {
       node {

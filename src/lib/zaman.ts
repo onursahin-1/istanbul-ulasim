@@ -31,6 +31,13 @@ export function kacDakikaSonra(serviceDay: number, saniye: number): number {
   return Math.round((serviceDay + saniye - Date.now() / 1000) / 60);
 }
 
+/** ISO saatin şu andan kaç dakika sonra olduğunu verir ("2026-09-17T20:04:00+03:00"). */
+export function isoDakikaSonra(iso?: string | null): number | null {
+  if (!iso) return null;
+  const zaman = Date.parse(iso);
+  return Number.isNaN(zaman) ? null : Math.round((zaman - Date.now()) / 60000);
+}
+
 /** Saniye → "59 dk" ya da "1 sa 5 dk". */
 export function sureYaz(saniye?: number | null): string {
   if (saniye == null) return '';

@@ -9,9 +9,41 @@ import { BacakZinciri, GeriCubugu, HataKutusu, Ikon, SureSeridi, Yukleniyor } fr
 import { OtpHatasi, rotaPlanla, type Guzergah, type Konum } from '@/lib/otp';
 import { guzergahlariSakla } from '@/lib/secim';
 import { baslikYap, renk } from '@/lib/tema';
-import { istanbulSaat, istanbulSimdi, saatYaz, sureYaz } from '@/lib/zaman';
+import { isoDakikaSonra, istanbulSaat, istanbulSimdi, saatYaz, sureYaz } from '@/lib/zaman';
 
 type Parametreler = { kLat: string; kLon: string; kAd: string; vLat: string; vLon: string; vAd: string };
+type Sirali = { g: Guzergah; sira: number };
+type Grup = { ana: Sirali; sonrakiler: Sirali[] };
+
+const SONRAKI_SAYISI = 3;
+
+/**
+ * Aynı hatları aynı sırayla ve aynı duraklardan binerek kullanan güzergâhlar "aynı rota" sayılır.
+ * Yalnızca yürüyüşten oluşan güzergâhlar kendi başına kalır.
+ */
+function rotaAnahtari(g: Guzergah): string {
+  const araclar = g.legs.filter((b) => b.transitLeg);
+  if (!araclar.length) return `yuru-${g.start}`;
+  return araclar.map((b) => `${b.route?.gtfsId ?? b.route?.shortName}@${b.from.stop?.gtfsId ?? b.from.name}`).join('|');
+}
+
+function binisSaati(g: Guzergah): string | null {
+  const ilk = g.legs.find((b) => b.transitLeg);
+  return ilk ? (ilk.start.estimated?.time ?? ilk.start.scheduledTime) : g.start;
+}
+
+function gruplandir(guzergahlar: Guzergah[]): Grup[] {
+  const gruplar = new Map<string, Sirali[]>();
+  guzergahlar.forEach((g, sira) => {
+    const anahtar = rotaAnahtari(g);
+    gruplar.set(anahtar, [...(gruplar.get(anahtar) ?? []), { g, sira }]);
+  });
+  return [...gruplar.values()].map((liste) => {
+    const siralanmis = [...liste].sort((a, b) => Date.parse(a.g.start ?? '') - Date.parse(b.g.start ?? ''));
+    return { ana: siralanmis[0], sonrakiler: siralanmis.slice(1, 1 + SONRAKI_SAYISI) };
+  });
+}
+
 type Siralama = 'hizli' | 'aktarma' | 'yurume';
 
 const SIRALAMALAR: { anahtar: Siralama; ad: string }[] = [
@@ -74,13 +106,14 @@ export default function RotaEkrani() {
     return () => iptal.abort();
   }, [ara]);
 
-  const sirali = useMemo(() => {
+  const gruplar = useMemo(() => {
     if (!guzergahlar) return [];
-    const liste = guzergahlar.map((g, sira) => ({ g, sira }));
-    const sure = (g: Guzergah) => g.duration ?? Infinity;
-    if (siralama === 'aktarma') liste.sort((a, b) => a.g.numberOfTransfers - b.g.numberOfTransfers || sure(a.g) - sure(b.g));
-    else if (siralama === 'yurume') liste.sort((a, b) => (a.g.walkTime ?? 0) - (b.g.walkTime ?? 0) || sure(a.g) - sure(b.g));
-    else liste.sort((a, b) => sure(a.g) - sure(b.g));
+    const liste = gruplandir(guzergahlar);
+    const sure = (x: Grup) => x.ana.g.duration ?? Infinity;
+    const erken = (x: Grup) => Date.parse(x.ana.g.start ?? '') || 0;
+    if (siralama === 'aktarma') liste.sort((a, b) => a.ana.g.numberOfTransfers - b.ana.g.numberOfTransfers || sure(a) - sure(b));
+    else if (siralama === 'yurume') liste.sort((a, b) => (a.ana.g.walkTime ?? 0) - (b.ana.g.walkTime ?? 0) || sure(a) - sure(b));
+    else liste.sort((a, b) => sure(a) - sure(b) || erken(a) - erken(b));
     return liste;
   }, [guzergahlar, siralama]);
 
@@ -141,7 +174,7 @@ export default function RotaEkrani() {
         {hata && <HataKutusu mesaj={hata} tekrarDene={() => ara()} />}
         {!hata && !guzergahlar && <Yukleniyor metin="En uygun rotalar hesaplanıyor…" />}
         {bilgi && <Text style={s.bilgi}>{bilgi}</Text>}
-        {sirali.map(({ g, sira }, i) => {
+        {gruplar.map(({ ana: { g, sira }, sonrakiler }, i) => {
           const ilkArac = g.legs.find((b) => b.transitLeg);
           const oneri = i === 0 && siralama === 'hizli' && g.duration === enHizli;
           return (
@@ -161,6 +194,29 @@ export default function RotaEkrani() {
                 <Text style={s.ilkArac}>
                   {`${ilkArac.route?.shortName ?? ''} · ${baslikYap(ilkArac.from.name)} durağından ${saatYaz(ilkArac.start.estimated?.time ?? ilkArac.start.scheduledTime)}`}
                 </Text>
+              )}
+              {sonrakiler.length > 0 && (
+                <View style={s.sonraki}>
+                  <Text style={s.sonrakiBaslik}>{ilkArac ? 'AYNI ROTADA SONRAKİ KALKIŞLAR' : 'SONRAKİ SEÇENEKLER'}</Text>
+                  <View style={s.hapiSatiri}>
+                    {sonrakiler.map((x) => {
+                      const saat = binisSaati(x.g);
+                      const dakika = isoDakikaSonra(saat);
+                      return (
+                        <Pressable
+                          key={x.sira}
+                          style={s.hap}
+                          onPress={() => detayaGit(x.sira)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${saatYaz(saat)} kalkışının detayını aç`}
+                        >
+                          <Text style={s.hapSaat}>{saatYaz(saat)}</Text>
+                          {dakika != null && dakika > 0 && <Text style={s.hapDakika}>{sureYaz(dakika * 60)}</Text>}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
               )}
             </Pressable>
           );
@@ -201,4 +257,10 @@ const s = StyleSheet.create({
   kalin: { color: renk.yazi, fontWeight: '700' },
   ilkArac: { fontSize: 12.5, color: renk.vurgu, fontWeight: '600' },
   not: { fontSize: 12, color: renk.soluk, textAlign: 'center', paddingTop: 6 },
+  sonraki: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: renk.cizgi, paddingTop: 10, gap: 7 },
+  sonrakiBaslik: { fontSize: 11, letterSpacing: 0.6, color: renk.soluk, fontWeight: '700' },
+  hapiSatiri: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  hap: { flexDirection: 'row', alignItems: 'baseline', gap: 4, borderWidth: 1, borderColor: renk.cizgi, backgroundColor: renk.zemin, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 5 },
+  hapSaat: { fontSize: 13, fontWeight: '700', color: renk.yazi, fontVariant: ['tabular-nums'] },
+  hapDakika: { fontSize: 11, color: renk.soluk },
 });
