@@ -5,10 +5,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { BacakZinciri, GeriCubugu, HataKutusu, Ikon, SureSeridi, Yukleniyor } from '@/components/ulasim';
+import { BacakZinciri, GeriCubugu, HataKutusu, Ikon, SureSeridi, useStiller, Yukleniyor } from '@/components/ulasim';
 import { OtpHatasi, rotaPlanla, type Guzergah, type Konum } from '@/lib/otp';
 import { guzergahlariSakla } from '@/lib/secim';
-import { baslikYap, renk } from '@/lib/tema';
+import { aracAdi, baslikYap, useTema, type Tema } from '@/lib/tema';
 import { isoDakikaSonra, istanbulSaat, istanbulSimdi, saatYaz, sureYaz } from '@/lib/zaman';
 
 type Parametreler = { kLat: string; kLon: string; kAd: string; vLat: string; vLon: string; vAd: string };
@@ -65,6 +65,8 @@ const HATA_METINLERI: Record<string, string> = {
 
 export default function RotaEkrani() {
   const kenar = useSafeAreaInsets();
+  const tema = useTema();
+  const s = useStiller(stiller);
   const p = useLocalSearchParams<Parametreler>();
   const [siralama, setSiralama] = useState<Siralama>('hizli');
   const [guzergahlar, setGuzergahlar] = useState<Guzergah[] | null>(null);
@@ -147,12 +149,12 @@ export default function RotaEkrani() {
             </Text>
           </View>
           <Pressable style={s.degistir} onPress={yerDegistir} accessibilityLabel="Başlangıç ve varışı değiştir">
-            <Ikon ad="swap-vertical" boyut={18} renkKodu={renk.soluk} />
+            <Ikon ad="swap-vertical" boyut={18} renkKodu={tema.soluk} />
           </Pressable>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filtreler}>
           <Pressable style={[s.filtre, s.filtreKoyu]} onPress={() => ara()}>
-            <Text style={[s.filtreYazi, { color: '#fff' }]}>Şimdi · {aramaSaati}</Text>
+            <Text style={[s.filtreYazi, { color: tema.zemin }]}>Şimdi · {aramaSaati}</Text>
           </Pressable>
           {SIRALAMALAR.map((x) => (
             <Pressable
@@ -161,7 +163,7 @@ export default function RotaEkrani() {
               onPress={() => setSiralama(x.anahtar)}
               accessibilityState={{ selected: siralama === x.anahtar }}
             >
-              <Text style={[s.filtreYazi, siralama === x.anahtar && { color: renk.vurgu }]}>{x.ad}</Text>
+              <Text style={[s.filtreYazi, siralama === x.anahtar && { color: tema.vurgu }]}>{x.ad}</Text>
             </Pressable>
           ))}
         </ScrollView>
@@ -169,7 +171,7 @@ export default function RotaEkrani() {
 
       <ScrollView
         contentContainerStyle={[s.sonuclar, { paddingBottom: kenar.bottom + 20 }]}
-        refreshControl={<RefreshControl refreshing={false} onRefresh={() => ara()} tintColor={renk.vurgu} />}
+        refreshControl={<RefreshControl refreshing={false} onRefresh={() => ara()} tintColor={tema.vurgu} />}
       >
         {hata && <HataKutusu mesaj={hata} tekrarDene={() => ara()} />}
         {!hata && !guzergahlar && <Yukleniyor metin="En uygun rotalar hesaplanıyor…" />}
@@ -192,7 +194,9 @@ export default function RotaEkrani() {
               </View>
               {ilkArac && (
                 <Text style={s.ilkArac}>
-                  {`${ilkArac.route?.shortName ?? ''} · ${baslikYap(ilkArac.from.name)} durağından ${saatYaz(ilkArac.start.estimated?.time ?? ilkArac.start.scheduledTime)}`}
+                  {`${[aracAdi(ilkArac.route?.mode ?? ilkArac.mode), ilkArac.route?.shortName]
+                    .filter(Boolean)
+                    .join(' ')} · ${baslikYap(ilkArac.from.name)} durağından ${saatYaz(ilkArac.start.estimated?.time ?? ilkArac.start.scheduledTime)}`}
                 </Text>
               )}
               {sonrakiler.length > 0 && (
@@ -229,38 +233,39 @@ export default function RotaEkrani() {
   );
 }
 
-const s = StyleSheet.create({
-  kok: { flex: 1, backgroundColor: renk.zemin },
-  ust: { backgroundColor: renk.yuzey, paddingHorizontal: 14, paddingBottom: 12, gap: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: renk.cizgi },
+const stiller = (t: Tema) =>
+  StyleSheet.create({
+  kok: { flex: 1, backgroundColor: t.zemin },
+  ust: { backgroundColor: t.yuzey, paddingHorizontal: 14, paddingBottom: 12, gap: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.cizgi },
   nerede: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   noktalar: { width: 18, alignItems: 'center', gap: 3 },
-  baslangicNokta: { width: 11, height: 11, borderRadius: 6, borderWidth: 3, borderColor: renk.vurgu },
-  kesik: { width: 2, height: 18, backgroundColor: '#c5cfca' },
-  bitisNokta: { width: 10, height: 10, borderRadius: 3, backgroundColor: renk.yazi },
-  alan: { backgroundColor: renk.zemin, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontWeight: '600', fontSize: 14, color: renk.yazi },
-  degistir: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, borderColor: renk.cizgi, alignItems: 'center', justifyContent: 'center' },
+  baslangicNokta: { width: 11, height: 11, borderRadius: 6, borderWidth: 3, borderColor: t.vurgu },
+  kesik: { width: 2, height: 18, backgroundColor: t.cizgi },
+  bitisNokta: { width: 10, height: 10, borderRadius: 3, backgroundColor: t.yazi },
+  alan: { backgroundColor: t.zemin, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontWeight: '600', fontSize: 14, color: t.yazi },
+  degistir: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, borderColor: t.cizgi, alignItems: 'center', justifyContent: 'center' },
   filtreler: { gap: 6 },
-  filtre: { borderWidth: 1, borderColor: renk.cizgi, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
-  filtreKoyu: { backgroundColor: renk.yazi, borderColor: renk.yazi },
-  filtreSecili: { borderColor: renk.vurgu, backgroundColor: renk.vurguAcik },
-  filtreYazi: { fontSize: 12.5, fontWeight: '600', color: renk.soluk },
+  filtre: { borderWidth: 1, borderColor: t.cizgi, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
+  filtreKoyu: { backgroundColor: t.yazi, borderColor: t.yazi },
+  filtreSecili: { borderColor: t.vurgu, backgroundColor: t.vurguAcik },
+  filtreYazi: { fontSize: 12.5, fontWeight: '600', color: t.soluk },
   sonuclar: { padding: 12, gap: 10 },
-  bilgi: { color: renk.soluk, textAlign: 'center', padding: 20, lineHeight: 20 },
-  kart: { backgroundColor: renk.yuzey, borderRadius: 16, padding: 14, gap: 10, borderWidth: 1, borderColor: renk.cizgi },
-  kartOneri: { borderColor: renk.vurgu, borderWidth: 2 },
+  bilgi: { color: t.soluk, textAlign: 'center', padding: 20, lineHeight: 20 },
+  kart: { backgroundColor: t.yuzey, borderRadius: 16, padding: 14, gap: 10, borderWidth: 1, borderColor: t.cizgi },
+  kartOneri: { borderColor: t.vurgu, borderWidth: 2 },
   kartUst: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  sure: { fontSize: 24, fontWeight: '800', color: renk.yazi, letterSpacing: -0.5 },
-  saat: { fontSize: 13.5, fontWeight: '600', color: renk.soluk, fontVariant: ['tabular-nums'] },
-  etiket: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5, color: renk.vurgu, backgroundColor: renk.vurguAcik, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, overflow: 'hidden' },
+  sure: { fontSize: 24, fontWeight: '800', color: t.yazi, letterSpacing: -0.5 },
+  saat: { fontSize: 13.5, fontWeight: '600', color: t.soluk, fontVariant: ['tabular-nums'] },
+  etiket: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5, color: t.vurgu, backgroundColor: t.vurguAcik, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, overflow: 'hidden' },
   kartAlt: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  altYazi: { fontSize: 12.5, color: renk.soluk, fontVariant: ['tabular-nums'] },
-  kalin: { color: renk.yazi, fontWeight: '700' },
-  ilkArac: { fontSize: 12.5, color: renk.vurgu, fontWeight: '600' },
-  not: { fontSize: 12, color: renk.soluk, textAlign: 'center', paddingTop: 6 },
-  sonraki: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: renk.cizgi, paddingTop: 10, gap: 7 },
-  sonrakiBaslik: { fontSize: 11, letterSpacing: 0.6, color: renk.soluk, fontWeight: '700' },
+  altYazi: { fontSize: 12.5, color: t.soluk, fontVariant: ['tabular-nums'] },
+  kalin: { color: t.yazi, fontWeight: '700' },
+  ilkArac: { fontSize: 12.5, color: t.vurgu, fontWeight: '600' },
+  not: { fontSize: 12, color: t.soluk, textAlign: 'center', paddingTop: 6 },
+  sonraki: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.cizgi, paddingTop: 10, gap: 7 },
+  sonrakiBaslik: { fontSize: 11, letterSpacing: 0.6, color: t.soluk, fontWeight: '700' },
   hapiSatiri: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  hap: { flexDirection: 'row', alignItems: 'baseline', gap: 4, borderWidth: 1, borderColor: renk.cizgi, backgroundColor: renk.zemin, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 5 },
-  hapSaat: { fontSize: 13, fontWeight: '700', color: renk.yazi, fontVariant: ['tabular-nums'] },
-  hapDakika: { fontSize: 11, color: renk.soluk },
+  hap: { flexDirection: 'row', alignItems: 'baseline', gap: 4, borderWidth: 1, borderColor: t.cizgi, backgroundColor: t.zemin, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 5 },
+  hapSaat: { fontSize: 13, fontWeight: '700', color: t.yazi, fontVariant: ['tabular-nums'] },
+  hapDakika: { fontSize: 11, color: t.soluk },
 });

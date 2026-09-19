@@ -38,12 +38,30 @@ async function sorgula<T>(sorgu: string, degiskenler: Record<string, unknown>, s
   }
   if (!yanit.ok) throw new OtpHatasi(`Rota sunucusu hata döndürdü (HTTP ${yanit.status}).`);
   const govde = (await yanit.json()) as { data?: T; errors?: { message: string }[] };
-  if (govde.errors?.length) throw new OtpHatasi(`Rota sunucusu sorguyu reddetti: ${govde.errors[0].message}`);
-  if (!govde.data) throw new OtpHatasi('Rota sunucusundan boş cevap geldi.');
+  // GraphQL tek bir alanda hata verse bile gövdenin geri kalanı geçerli olabilir.
+  // Veri geldiyse onu kullanırız; hata yalnızca hiç veri yoksa yüzeye çıkar.
+  if (!govde.data) {
+    throw new OtpHatasi(
+      govde.errors?.length
+        ? `Rota sunucusu sorguyu reddetti: ${govde.errors[0].message}`
+        : 'Rota sunucusundan boş cevap geldi.',
+    );
+  }
+  if (govde.errors?.length) console.warn('[OTP] kısmi hata:', govde.errors[0].message);
   return govde.data;
 }
 
 // ---------- Tipler ----------
+
+/** Hat bilgisi: renk ve araç tipi, rozetlerin metro/vapur/otobüs ayrımını yapabilmesi için. */
+export type Hat = {
+  gtfsId: string;
+  shortName: string | null;
+  longName?: string | null;
+  mode?: string | null;
+  color?: string | null;
+  textColor?: string | null;
+};
 
 export type Kalkis = {
   scheduledDeparture: number | null;
@@ -51,7 +69,7 @@ export type Kalkis = {
   realtime: boolean | null;
   serviceDay: number | null;
   headsign: string | null;
-  trip: { gtfsId: string; route: { gtfsId: string; shortName: string | null } } | null;
+  trip: { gtfsId: string; route: Hat } | null;
 };
 
 export type Durak = {
@@ -66,7 +84,7 @@ export type Durak = {
 export type YakinDurak = { mesafe: number; durak: Durak & { kalkislar: Kalkis[] } };
 
 export type DurakDetayi = Durak & {
-  routes: { gtfsId: string; shortName: string | null; longName: string | null }[] | null;
+  routes: Hat[] | null;
   kalkislar: Kalkis[];
 };
 
@@ -82,10 +100,12 @@ export type Bacak = {
   end: { scheduledTime: string; estimated: { time: string } | null };
   from: Yer;
   to: Yer;
-  route: { gtfsId: string; shortName: string | null; longName: string | null } | null;
+  route: Hat | null;
   legGeometry: { points: string | null } | null;
-  stopCalls: { stopLocation: { __typename: string; gtfsId?: string; name?: string; lat?: number; lon?: number } }[];
+  trip: { gtfsId: string; pattern: { stops: DurakNoktasi[] | null } | null } | null;
 };
+
+export type DurakNoktasi = { gtfsId: string; name: string | null; lat: number | null; lon: number | null };
 
 export type Guzergah = {
   start: string | null;
@@ -101,13 +121,16 @@ export type Konum = { ad: string; lat: number; lon: number };
 
 // ---------- Sorgular ----------
 
+// Rozetlerin doğru renk ve simgeyi seçebilmesi için hat sorgularında araç tipi ve renk de istenir.
+const HAT_ALANLARI = `gtfsId shortName longName mode color textColor`;
+
 const KALKIS_ALANLARI = `
   scheduledDeparture
   realtimeDeparture
   realtime
   serviceDay
   headsign
-  trip { gtfsId route { gtfsId shortName } }
+  trip { gtfsId route { ${HAT_ALANLARI} } }
 `;
 
 const YAKIN_DURAKLAR = `
@@ -132,8 +155,24 @@ const DURAK_DETAYI = `
 query DurakDetayi($id: String!) {
   stop(id: $id) {
     gtfsId name code desc lat lon
-    routes { gtfsId shortName longName }
+    routes { ${HAT_ALANLARI} }
     kalkislar: stoptimesWithoutPatterns(numberOfDepartures: 20, omitNonPickups: true, timeRange: 7200) { ${KALKIS_ALANLARI} }
+  }
+}`;
+
+// Bir duraktan belirli bir hattın bugünkü kalkışları. Sefer sıklığını ve günün son seferini
+// buradan hesaplıyoruz: OTP'nin GTFS API'sinde frekans (headway) alanı yok, ama frekans tabanlı
+// seferler ayrı ayrı kalkışlar olarak görünüyor; aralarındaki farktan sıklık çıkıyor.
+const HAT_KALKISLARI = `
+query HatKalkislari($durak: String!, $aralik: Int!) {
+  stop(id: $durak) {
+    kalkislar: stoptimesWithoutPatterns(numberOfDepartures: 60, timeRange: $aralik, omitNonPickups: true) {
+      scheduledDeparture
+      realtimeDeparture
+      serviceDay
+      headsign
+      trip { gtfsId route { gtfsId shortName } }
+    }
   }
 }`;
 
@@ -155,9 +194,9 @@ query RotaPlanla($nereden: PlanLabeledLocationInput!, $nereye: PlanLabeledLocati
           end { scheduledTime estimated { time } }
           from { name lat lon stop { gtfsId } }
           to { name lat lon stop { gtfsId } }
-          route { gtfsId shortName longName }
+          route { ${HAT_ALANLARI} }
           legGeometry { points }
-          stopCalls { stopLocation { __typename ... on Stop { gtfsId name lat lon } } }
+          trip { gtfsId pattern { stops { gtfsId name lat lon } } }
         }
       }
     }
@@ -165,7 +204,7 @@ query RotaPlanla($nereden: PlanLabeledLocationInput!, $nereye: PlanLabeledLocati
 }`;
 
 // Sorgu metinleri, geliştirme sırasında şemaya karşı doğrulanabilsin diye dışa açılır.
-export const SORGULAR = { YAKIN_DURAKLAR, DURAK_DETAYI, DURAK_ARA, ROTA_PLANLA };
+export const SORGULAR = { YAKIN_DURAKLAR, DURAK_DETAYI, DURAK_ARA, ROTA_PLANLA, HAT_KALKISLARI };
 
 // ---------- İşlevler ----------
 
@@ -196,6 +235,25 @@ export async function durakAra(ad: string, sinyal?: AbortSignal): Promise<Durak[
   return veri.stops ?? [];
 }
 
+/**
+ * Bir duraktan geçen belirli bir hattın kalkış saatleri (gün başından itibaren saniye).
+ * Kullanıcı bir bacağı açtığında tembel olarak çağrılır.
+ */
+export async function hatKalkislariGetir(
+  durakId: string,
+  hatId: string,
+  aralikSaniye = 8 * 3600,
+  sinyal?: AbortSignal,
+): Promise<{ saniye: number; serviceDay: number }[]> {
+  type Cevap = { stop: { kalkislar: Kalkis[] | null } | null };
+  const veri = await sorgula<Cevap>(HAT_KALKISLARI, { durak: durakId, aralik: aralikSaniye }, sinyal);
+  return (veri.stop?.kalkislar ?? [])
+    .filter((k) => k.trip?.route.gtfsId === hatId)
+    .map((k) => ({ saniye: k.realtimeDeparture ?? k.scheduledDeparture ?? 0, serviceDay: k.serviceDay ?? 0 }))
+    .filter((k) => k.saniye > 0)
+    .sort((a, b) => a.serviceDay + a.saniye - (b.serviceDay + b.saniye));
+}
+
 export type RotaSonucu = { guzergahlar: Guzergah[]; hatalar: { code: string; description: string }[] };
 
 export async function rotaPlanla(nereden: Konum, nereye: Konum, zaman: string, sinyal?: AbortSignal): Promise<RotaSonucu> {
@@ -213,19 +271,30 @@ export async function rotaPlanla(nereden: Konum, nereye: Konum, zaman: string, s
   };
 }
 
-/** Bir toplu taşıma bacağındaki durakları sırasıyla verir (biniş ve iniş dahil, tekrarsız). */
+/**
+ * Bir toplu taşıma bacağındaki durakları sırasıyla verir (biniş ve iniş dahil, tekrarsız).
+ *
+ * Duraklar seferin kendi saatlerinden değil, hattın durak deseninden okunur: metro ve
+ * Marmaray seferleri veride sıklık tabanlı (frequencies.txt) tanımlı olduğu için
+ * tek tek sefer saatleri bulunmuyor ve saat isteyen alanlar hata veriyor.
+ */
 export function bacakDuraklari(bacak: Bacak): { gtfsId: string; ad: string; lat: number; lon: number }[] {
   const liste: { gtfsId: string; ad: string; lat: number; lon: number }[] = [];
-  const ekle = (gtfsId: string | undefined, ad: string | null | undefined, lat?: number, lon?: number) => {
+  const ekle = (gtfsId?: string | null, ad?: string | null, lat?: number | null, lon?: number | null) => {
     if (!gtfsId || lat == null || lon == null) return;
     if (liste.some((d) => d.gtfsId === gtfsId)) return;
     liste.push({ gtfsId, ad: ad ?? '', lat, lon });
   };
-  ekle(bacak.from.stop?.gtfsId, bacak.from.name, bacak.from.lat, bacak.from.lon);
-  for (const cagri of bacak.stopCalls ?? []) {
-    const d = cagri.stopLocation;
-    if (d.__typename === 'Stop') ekle(d.gtfsId, d.name, d.lat, d.lon);
-  }
-  ekle(bacak.to.stop?.gtfsId, bacak.to.name, bacak.to.lat, bacak.to.lon);
+
+  const desen = bacak.trip?.pattern?.stops ?? [];
+  const binis = bacak.from.stop?.gtfsId;
+  const inis = bacak.to.stop?.gtfsId;
+  const bas = binis ? desen.findIndex((d) => d.gtfsId === binis) : -1;
+  // Ring hatlarda aynı durak iki kez geçebilir; iniş durağı biniş durağından sonra aranır.
+  const son = bas >= 0 && inis ? desen.findIndex((d, i) => i > bas && d.gtfsId === inis) : -1;
+
+  ekle(binis, bacak.from.name, bacak.from.lat, bacak.from.lon);
+  if (bas >= 0 && son > bas) for (const d of desen.slice(bas, son + 1)) ekle(d.gtfsId, d.name, d.lat, d.lon);
+  ekle(inis, bacak.to.name, bacak.to.lat, bacak.to.lon);
   return liste;
 }

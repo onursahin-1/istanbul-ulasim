@@ -6,17 +6,19 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'r
 import MapView, { Marker } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Dakika, HataKutusu, HatRozeti, Ikon, Yukleniyor } from '@/components/ulasim';
+import { Dakika, HataKutusu, HatRozeti, Ikon, useStiller, Yukleniyor } from '@/components/ulasim';
 import { favoriDegistir, useKayitlar } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
 import { durakDetayiGetir, OtpHatasi, type DurakDetayi } from '@/lib/otp';
-import { baslikYap, metrobusMu, renk, yonYaz } from '@/lib/tema';
+import { baslikYap, hatRengi, useTema, yonYaz, type Tema } from '@/lib/tema';
 import { kacDakikaSonra, saniyedenSaat } from '@/lib/zaman';
 
 const YENILEME_ARALIGI = 30_000;
 
 export default function DurakEkrani() {
   const kenar = useSafeAreaInsets();
+  const tema = useTema();
+  const s = useStiller(stiller);
   const { id } = useLocalSearchParams<{ id: string }>();
   const konum = useKonum();
   const { favoriler } = useKayitlar();
@@ -77,24 +79,25 @@ export default function DurakEkrani() {
     });
   };
 
-  const metrobusDuragi = hatlar.length > 0 && hatlar.every((h) => metrobusMu(h.shortName));
+  // Harita işareti, duraktan geçen ilk hattın rengini alır (metro durağı mavi, vapur iskelesi lacivert…).
+  const isaretRengi = hatlar.length ? hatRengi(hatlar[0], tema) : tema.vurgu;
 
   return (
     <View style={s.kok}>
       {durak?.lat != null && durak.lon != null ? (
         <MapView
           style={s.harita}
-          userInterfaceStyle="light"
+          userInterfaceStyle={tema.haritaStili}
           initialRegion={{ latitude: durak.lat, longitude: durak.lon, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
           showsPointsOfInterests={false}
           toolbarEnabled={false}
           scrollEnabled={false}
           zoomEnabled={false}
         >
-          <Marker coordinate={{ latitude: durak.lat, longitude: durak.lon }} title={ad} pinColor={metrobusDuragi ? renk.metrobus : renk.vurgu} />
+          <Marker coordinate={{ latitude: durak.lat, longitude: durak.lon }} title={ad} pinColor={isaretRengi} />
         </MapView>
       ) : (
-        <View style={[s.harita, { backgroundColor: '#e6ebe7' }]} />
+        <View style={[s.harita, { backgroundColor: tema.haritaZemin }]} />
       )}
 
       <View style={[s.ustDugmeler, { top: kenar.top + 8 }]}>
@@ -109,7 +112,7 @@ export default function DurakEkrani() {
         refreshControl={
           <RefreshControl
             refreshing={yenileniyor}
-            tintColor={renk.vurgu}
+            tintColor={tema.vurgu}
             onRefresh={async () => {
               setYenileniyor(true);
               await yukle();
@@ -135,12 +138,12 @@ export default function DurakEkrani() {
                 onPress={() => favoriDegistir({ gtfsId: durak.gtfsId, ad })}
                 accessibilityState={{ selected: favoriMi }}
               >
-                <Ikon ad={favoriMi ? 'heart' : 'heart-outline'} boyut={16} renkKodu={renk.vurgu} />
+                <Ikon ad={favoriMi ? 'heart' : 'heart-outline'} boyut={16} renkKodu={tema.vurgu} />
                 <Text style={s.eylemYazi}>{favoriMi ? 'Favorilerde' : 'Favorilere ekle'}</Text>
               </Pressable>
               <Pressable style={[s.eylem, s.eylemDolu]} onPress={yolTarifi}>
-                <Ikon ad="navigate" boyut={16} renkKodu="#fff" />
-                <Text style={[s.eylemYazi, { color: '#fff' }]}>Yol tarifi</Text>
+                <Ikon ad="navigate" boyut={16} renkKodu={tema.vurguYazi} />
+                <Text style={[s.eylemYazi, { color: tema.vurguYazi }]}>Yol tarifi</Text>
               </Pressable>
             </View>
 
@@ -149,7 +152,7 @@ export default function DurakEkrani() {
                 <Text style={s.altBaslik}>BU DURAKTAN GEÇEN HATLAR</Text>
                 <View style={s.hatlar}>
                   {hatlar.map((h) => (
-                    <HatRozeti key={h.gtfsId} kisaAd={h.shortName} />
+                    <HatRozeti key={h.gtfsId} hat={h} />
                   ))}
                 </View>
               </View>
@@ -161,7 +164,7 @@ export default function DurakEkrani() {
               {kalkislar.map((k, i) => (
                 <View key={i} style={s.sefer}>
                   <View style={{ width: 62 }}>
-                    <HatRozeti kisaAd={k.trip?.route.shortName} />
+                    <HatRozeti hat={k.trip?.route} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={s.seferYon} numberOfLines={1}>
@@ -176,7 +179,10 @@ export default function DurakEkrani() {
 
             <View style={s.tarife}>
               <View style={s.tarifeNokta} />
-              <Text style={s.tarifeYazi}>Süreler İETT tarifesine göredir; canlı araç konumu eklendiğinde güncellenecek.</Text>
+              <Text style={s.tarifeYazi}>
+                Süreler tarifeye göredir; metro, Marmaray ve vapur saatleri İBB'nin eski verisinden geldiği için
+                yaklaşıktır. Canlı araç konumu eklendiğinde güncellenecek.
+              </Text>
             </View>
           </>
         )}
@@ -185,15 +191,16 @@ export default function DurakEkrani() {
   );
 }
 
-const s = StyleSheet.create({
-  kok: { flex: 1, backgroundColor: renk.yuzey },
+const stiller = (t: Tema) =>
+  StyleSheet.create({
+  kok: { flex: 1, backgroundColor: t.yuzey },
   harita: { height: 230 },
   ustDugmeler: { position: 'absolute', left: 14 },
   yuvarlak: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: renk.yuzey,
+    backgroundColor: t.yuzey,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
@@ -202,20 +209,20 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 4,
   },
-  govde: { flex: 1, marginTop: -22, backgroundColor: renk.yuzey, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
-  baslik: { fontSize: 23, fontWeight: '800', color: renk.yazi, letterSpacing: -0.3 },
-  bilgi: { fontSize: 12.5, color: renk.soluk },
+  govde: { flex: 1, marginTop: -22, backgroundColor: t.yuzey, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+  baslik: { fontSize: 23, fontWeight: '800', color: t.yazi, letterSpacing: -0.3 },
+  bilgi: { fontSize: 12.5, color: t.soluk },
   eylemler: { flexDirection: 'row', gap: 8 },
-  eylem: { flex: 1, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', height: 40, borderRadius: 11, backgroundColor: renk.vurguAcik },
-  eylemDolu: { backgroundColor: renk.vurgu },
-  eylemYazi: { fontWeight: '700', fontSize: 13, color: renk.vurgu },
-  altBaslik: { fontSize: 11.5, letterSpacing: 0.8, color: renk.soluk, fontWeight: '700' },
+  eylem: { flex: 1, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', height: 40, borderRadius: 11, backgroundColor: t.vurguAcik },
+  eylemDolu: { backgroundColor: t.vurgu },
+  eylemYazi: { fontWeight: '700', fontSize: 13, color: t.vurgu },
+  altBaslik: { fontSize: 11.5, letterSpacing: 0.8, color: t.soluk, fontWeight: '700' },
   hatlar: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  bos: { color: renk.soluk, paddingVertical: 10 },
-  sefer: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: renk.cizgi },
-  seferYon: { fontSize: 13.5, fontWeight: '600', color: renk.yazi },
-  seferSaat: { fontSize: 12, color: renk.soluk, fontVariant: ['tabular-nums'] },
+  bos: { color: t.soluk, paddingVertical: 10 },
+  sefer: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.cizgi },
+  seferYon: { fontSize: 13.5, fontWeight: '600', color: t.yazi },
+  seferSaat: { fontSize: 12, color: t.soluk, fontVariant: ['tabular-nums'] },
   tarife: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  tarifeNokta: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#b5c1bb' },
-  tarifeYazi: { flex: 1, fontSize: 11.5, color: renk.soluk },
+  tarifeNokta: { width: 8, height: 8, borderRadius: 4, backgroundColor: t.yurume },
+  tarifeYazi: { flex: 1, fontSize: 11.5, color: t.soluk },
 });

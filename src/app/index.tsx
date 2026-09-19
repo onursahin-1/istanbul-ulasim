@@ -6,17 +6,19 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'r
 import MapView, { Marker, type LongPressEvent } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Dakika, HataKutusu, HatRozeti, Ikon, Yukleniyor } from '@/components/ulasim';
+import { Dakika, HataKutusu, HatRozeti, Ikon, useStiller, Yukleniyor } from '@/components/ulasim';
 import { useKayitlar, type YerTuru } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
 import { OtpHatasi, yakinDuraklariGetir, type YakinDurak } from '@/lib/otp';
-import { baslikYap, renk, yonYaz } from '@/lib/tema';
+import { baslikYap, useTema, yonYaz, type Tema } from '@/lib/tema';
 import { kacDakikaSonra, mesafeYaz } from '@/lib/zaman';
 
 const YENILEME_ARALIGI = 30_000;
 
 export default function AnaEkran() {
   const kenar = useSafeAreaInsets();
+  const tema = useTema();
+  const s = useStiller(stiller);
   const konum = useKonum();
   const { yerler, favoriler } = useKayitlar();
   const harita = useRef<MapView>(null);
@@ -76,7 +78,7 @@ export default function AnaEkran() {
       <MapView
         ref={harita}
         style={StyleSheet.absoluteFill}
-        userInterfaceStyle="light"
+        userInterfaceStyle={tema.haritaStili}
         initialRegion={{ latitude, longitude, latitudeDelta: 0.02, longitudeDelta: 0.02 }}
         showsUserLocation={konum.tur === 'gercek'}
         showsMyLocationButton={false}
@@ -85,7 +87,7 @@ export default function AnaEkran() {
         onLongPress={haritadanSec}
         mapPadding={{ top: 150, right: 0, bottom: 320, left: 0 }}
       >
-        {konum.tur === 'varsayilan' && <Marker coordinate={konum.nokta} title="Örnek konum" pinColor={renk.konum} />}
+        {konum.tur === 'varsayilan' && <Marker coordinate={konum.nokta} title="Örnek konum" pinColor={tema.konum} />}
         {duraklar?.map(({ durak }) =>
           durak.lat != null && durak.lon != null ? (
             <Marker
@@ -93,7 +95,7 @@ export default function AnaEkran() {
               coordinate={{ latitude: durak.lat, longitude: durak.lon }}
               title={baslikYap(durak.name)}
               description={yonYaz(durak.desc)}
-              pinColor={renk.vurgu}
+              pinColor={tema.vurgu}
               onCalloutPress={() => router.push({ pathname: '/durak/[id]', params: { id: durak.gtfsId } })}
             />
           ) : null,
@@ -109,7 +111,7 @@ export default function AnaEkran() {
           <Ikon ad="search" />
           <Text style={s.aramaYazi}>Nereye gidiyorsun?</Text>
           <Pressable hitSlop={8} onPress={konum.yenile} accessibilityLabel="Konumumu yenile" style={s.konumDugme}>
-            <Ikon ad="locate" renkKodu="#fff" boyut={18} />
+            <Ikon ad="locate" renkKodu={tema.vurguYazi} boyut={18} />
           </Pressable>
         </Pressable>
         <View style={s.kisayollar}>
@@ -118,7 +120,7 @@ export default function AnaEkran() {
         </View>
         {konum.tur === 'varsayilan' && (
           <View style={s.uyari}>
-            <Ikon ad="information-circle" boyut={16} renkKodu={renk.soluk} />
+            <Ikon ad="information-circle" boyut={16} renkKodu={tema.soluk} />
             <Text style={s.uyariYazi}>{konum.neden}</Text>
           </View>
         )}
@@ -132,7 +134,7 @@ export default function AnaEkran() {
         </View>
         <ScrollView
           style={s.liste}
-          refreshControl={<RefreshControl refreshing={yenileniyor} onRefresh={yenile} tintColor={renk.vurgu} />}
+          refreshControl={<RefreshControl refreshing={yenileniyor} onRefresh={yenile} tintColor={tema.vurgu} />}
         >
           {favoriler.length > 0 && (
             <View style={s.favoriler}>
@@ -142,7 +144,7 @@ export default function AnaEkran() {
                   style={s.favori}
                   onPress={() => router.push({ pathname: '/durak/[id]', params: { id: f.gtfsId } })}
                 >
-                  <Ikon ad="heart" boyut={14} renkKodu={renk.vurgu} />
+                  <Ikon ad="heart" boyut={14} renkKodu={tema.vurgu} />
                   <Text style={s.favoriYazi} numberOfLines={1}>
                     {f.ad}
                   </Text>
@@ -176,7 +178,7 @@ export default function AnaEkran() {
               {durak.kalkislar.slice(0, 2).map((k, i) => (
                 <View key={i} style={s.sefer}>
                   <View style={s.seferRozet}>
-                    <HatRozeti kisaAd={k.trip?.route.shortName} />
+                    <HatRozeti hat={k.trip?.route} />
                   </View>
                   <Text style={s.seferYon} numberOfLines={1}>
                     {baslikYap(k.headsign)}
@@ -193,10 +195,12 @@ export default function AnaEkran() {
 }
 
 function Kisayol({ ikon, baslik, alt, onPress }: { ikon: 'home' | 'briefcase'; baslik: string; alt: string; onPress: () => void }) {
+  const tema = useTema();
+  const s = useStiller(stiller);
   return (
     <Pressable style={s.kisayol} onPress={onPress} accessibilityRole="button">
       <View style={s.kisayolIkon}>
-        <Ikon ad={ikon} boyut={15} renkKodu={renk.vurgu} />
+        <Ikon ad={ikon} boyut={15} renkKodu={tema.vurgu} />
       </View>
       <View style={{ flexShrink: 1 }}>
         <Text style={s.kisayolBaslik}>{baslik}</Text>
@@ -216,68 +220,69 @@ const golge = {
   elevation: 4,
 };
 
-const s = StyleSheet.create({
-  kok: { flex: 1, backgroundColor: renk.zemin },
+const stiller = (t: Tema) =>
+  StyleSheet.create({
+  kok: { flex: 1, backgroundColor: t.zemin },
   ust: { position: 'absolute', left: 14, right: 14, top: 0, gap: 10 },
   arama: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: renk.yuzey,
+    backgroundColor: t.yuzey,
     borderRadius: 16,
     height: 52,
     paddingLeft: 14,
     paddingRight: 8,
     ...golge,
   },
-  aramaYazi: { flex: 1, fontSize: 16, color: renk.soluk, fontWeight: '500' },
-  konumDugme: { width: 36, height: 36, borderRadius: 18, backgroundColor: renk.vurgu, alignItems: 'center', justifyContent: 'center' },
+  aramaYazi: { flex: 1, fontSize: 16, color: t.soluk, fontWeight: '500' },
+  konumDugme: { width: 36, height: 36, borderRadius: 18, backgroundColor: t.vurgu, alignItems: 'center', justifyContent: 'center' },
   kisayollar: { flexDirection: 'row', gap: 8 },
   kisayol: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: renk.yuzey,
+    backgroundColor: t.yuzey,
     borderRadius: 12,
     paddingVertical: 7,
     paddingHorizontal: 8,
     ...golge,
   },
-  kisayolIkon: { width: 28, height: 28, borderRadius: 8, backgroundColor: renk.vurguAcik, alignItems: 'center', justifyContent: 'center' },
-  kisayolBaslik: { fontSize: 13, fontWeight: '700', color: renk.yazi },
-  kisayolAlt: { fontSize: 11, color: renk.soluk },
+  kisayolIkon: { width: 28, height: 28, borderRadius: 8, backgroundColor: t.vurguAcik, alignItems: 'center', justifyContent: 'center' },
+  kisayolBaslik: { fontSize: 13, fontWeight: '700', color: t.yazi },
+  kisayolAlt: { fontSize: 11, color: t.soluk },
   uyari: { flexDirection: 'row', gap: 6, alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.94)', borderRadius: 10, padding: 8 },
-  uyariYazi: { flex: 1, fontSize: 12, color: renk.soluk },
+  uyariYazi: { flex: 1, fontSize: 12, color: t.soluk },
   panel: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
     maxHeight: '48%',
-    backgroundColor: renk.yuzey,
+    backgroundColor: t.yuzey,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingTop: 8,
     paddingHorizontal: 16,
     ...golge,
   },
-  tutamac: { width: 38, height: 5, borderRadius: 3, backgroundColor: '#d3dad6', alignSelf: 'center', marginBottom: 10 },
+  tutamac: { width: 38, height: 5, borderRadius: 3, backgroundColor: t.cizgi, alignSelf: 'center', marginBottom: 10 },
   panelBaslik: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 },
-  panelBaslikYazi: { fontSize: 18, fontWeight: '700', color: renk.yazi },
-  ipucu: { fontSize: 11, color: renk.soluk },
+  panelBaslikYazi: { fontSize: 18, fontWeight: '700', color: t.yazi },
+  ipucu: { fontSize: 11, color: t.soluk },
   liste: { flexGrow: 0 },
   favoriler: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingVertical: 6 },
-  favori: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: renk.vurguAcik, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, maxWidth: '100%' },
-  favoriYazi: { fontSize: 12.5, fontWeight: '600', color: renk.yazi, flexShrink: 1 },
-  bos: { color: renk.soluk, paddingVertical: 16, textAlign: 'center' },
-  durakBlok: { paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: renk.cizgi },
+  favori: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: t.vurguAcik, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, maxWidth: '100%' },
+  favoriYazi: { fontSize: 12.5, fontWeight: '600', color: t.yazi, flexShrink: 1 },
+  bos: { color: t.soluk, paddingVertical: 16, textAlign: 'center' },
+  durakBlok: { paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.cizgi },
   durakAd: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 6 },
-  durakAdYazi: { fontSize: 14.5, fontWeight: '700', color: renk.yazi },
-  durakYon: { fontSize: 12, color: renk.soluk, marginTop: 1 },
-  durakMesafe: { fontSize: 12, color: renk.soluk },
-  seferYok: { fontSize: 12.5, color: renk.soluk },
+  durakAdYazi: { fontSize: 14.5, fontWeight: '700', color: t.yazi },
+  durakYon: { fontSize: 12, color: t.soluk, marginTop: 1 },
+  durakMesafe: { fontSize: 12, color: t.soluk },
+  seferYok: { fontSize: 12.5, color: t.soluk },
   sefer: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 3 },
   seferRozet: { width: 62 },
-  seferYon: { flex: 1, fontSize: 13, color: renk.soluk },
+  seferYon: { flex: 1, fontSize: 13, color: t.soluk },
 });

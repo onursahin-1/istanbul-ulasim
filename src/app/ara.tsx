@@ -5,10 +5,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { GeriCubugu, HataKutusu, Ikon, Yukleniyor } from '@/components/ulasim';
+import { GeriCubugu, HataKutusu, Ikon, useStiller, Yukleniyor } from '@/components/ulasim';
+import { mesafeMetre } from '@/lib/cografya';
 import { useKayitlar, yerKaydet, type YerTuru } from '@/lib/kayitlar';
+import { useKonum } from '@/lib/konum';
 import { durakAra, OtpHatasi, type Durak, type Konum } from '@/lib/otp';
-import { baslikYap, renk, trBuyuk, yonYaz } from '@/lib/tema';
+import { baslikYap, trBuyuk, useTema, yonYaz, type Tema } from '@/lib/tema';
+import { mesafeYaz } from '@/lib/zaman';
 
 type Parametreler = { kLat?: string; kLon?: string; kAd?: string; kaydet?: YerTuru };
 
@@ -16,8 +19,11 @@ const YER_ADI: Record<YerTuru, string> = { ev: 'Ev', is: 'İş' };
 
 export default function AraEkrani() {
   const kenar = useSafeAreaInsets();
+  const tema = useTema();
+  const s = useStiller(stiller);
   const p = useLocalSearchParams<Parametreler>();
   const { yerler } = useKayitlar();
+  const konum = useKonum();
   const [metin, setMetin] = useState('');
   const [sonuclar, setSonuclar] = useState<Durak[] | null>(null);
   const [hata, setHata] = useState<string | null>(null);
@@ -49,11 +55,26 @@ export default function AraEkrani() {
     };
   }, [metin]);
 
-  // Aynı addaki duraklar (karşılıklı iki yön gibi) tek satırda gösterilir.
+  // Aramanın ölçüldüğü nokta: rota başlangıcı verilmişse o, yoksa kullanıcının konumu.
+  const merkez = useMemo(() => {
+    const lat = Number(p.kLat);
+    const lon = Number(p.kLon);
+    return Number.isFinite(lat) && Number.isFinite(lon) && lat !== 0
+      ? { latitude: lat, longitude: lon }
+      : konum.nokta;
+  }, [p.kLat, p.kLon, konum.nokta]);
+
+  /**
+   * Sonuçlar önce yakınlığa göre sıralanır, sonra aynı addakiler tek satıra indirilir.
+   * Sıralama önce yapılmalı: "KADIKÖY" adında bir durak Şile'de de var ve sıralama
+   * olmadan o satır listeye girip asıl Kadıköy durağını eliyordu.
+   */
   const tekilSonuclar = useMemo(() => {
     const gorulen = new Set<string>();
     return (sonuclar ?? [])
       .filter((d) => d.lat != null && d.lon != null)
+      .map((d) => ({ ...d, mesafe: mesafeMetre(merkez, { latitude: d.lat!, longitude: d.lon! }) }))
+      .sort((a, b) => a.mesafe - b.mesafe)
       .filter((d) => {
         const anahtar = d.name.trim();
         if (gorulen.has(anahtar)) return false;
@@ -61,7 +82,7 @@ export default function AraEkrani() {
         return true;
       })
       .slice(0, 25);
-  }, [sonuclar]);
+  }, [sonuclar, merkez]);
 
   const hedefSec = async (hedef: Konum) => {
     if (p.kaydet) {
@@ -90,13 +111,13 @@ export default function AraEkrani() {
       <View style={s.ust}>
         <GeriCubugu baslik={baslik} />
         <View style={s.girdi}>
-          <Ikon ad="search" renkKodu={renk.soluk} />
+          <Ikon ad="search" renkKodu={tema.soluk} />
           <TextInput
             id="hedef-arama"
             value={metin}
             onChangeText={setMetin}
             placeholder="Durak adı yaz (ör. Taksim, Mecidiyeköy)"
-            placeholderTextColor={renk.soluk}
+            placeholderTextColor={tema.soluk}
             style={s.girdiYazi}
             autoFocus
             autoCorrect={false}
@@ -118,7 +139,7 @@ export default function AraEkrani() {
                   onPress={() => (yer ? hedefSec(yer) : router.setParams({ kaydet: tur }))}
                 >
                   <View style={s.satirIkon}>
-                    <Ikon ad={tur === 'ev' ? 'home' : 'briefcase'} boyut={18} renkKodu={renk.vurgu} />
+                    <Ikon ad={tur === 'ev' ? 'home' : 'briefcase'} boyut={18} renkKodu={tema.vurgu} />
                   </View>
                   <View style={s.satirMetin}>
                     <Text style={s.satirBaslik}>{YER_ADI[tur]}</Text>
@@ -128,7 +149,7 @@ export default function AraEkrani() {
               );
             })}
           <View style={s.ipucu}>
-            <Ikon ad="bulb-outline" boyut={16} renkKodu={renk.soluk} />
+            <Ikon ad="bulb-outline" boyut={16} renkKodu={tema.soluk} />
             <Text style={s.ipucuYazi}>
               En az 3 harf yaz. Şimdilik yalnızca durak adlarında arama yapılıyor; adres aramak yerine ana ekranda haritaya
               basılı tutarak da hedef seçebilirsin. Bir sonuca basılı tutarsan Ev ya da İş olarak kaydedebilirsin.
@@ -153,11 +174,15 @@ export default function AraEkrani() {
           return (
             <Pressable style={s.satir} onPress={() => hedefSec(hedef)} onLongPress={() => kaydetSor(hedef)}>
               <View style={s.satirIkon}>
-                <Ikon ad="bus-outline" boyut={18} renkKodu={renk.vurgu} />
+                <Ikon ad="bus-outline" boyut={18} renkKodu={tema.vurgu} />
               </View>
               <View style={s.satirMetin}>
                 <Text style={s.satirBaslik}>{hedef.ad}</Text>
-                <Text style={s.satirAlt}>{[yonYaz(item.desc), item.code ? `Durak kodu ${item.code}` : ''].filter(Boolean).join(' · ')}</Text>
+                <Text style={s.satirAlt}>
+                  {[mesafeYaz(item.mesafe), yonYaz(item.desc), item.code ? `Durak kodu ${item.code}` : '']
+                    .filter(Boolean)
+                    .join(' · ')}
+                </Text>
               </View>
               <Ikon ad="chevron-forward" boyut={16} renkKodu="#aab6b0" />
             </Pressable>
@@ -168,18 +193,19 @@ export default function AraEkrani() {
   );
 }
 
-const s = StyleSheet.create({
-  kok: { flex: 1, backgroundColor: renk.zemin },
-  ust: { backgroundColor: renk.yuzey, paddingHorizontal: 14, paddingBottom: 12, gap: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: renk.cizgi },
-  girdi: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: renk.zemin, borderRadius: 12, paddingHorizontal: 12, height: 46 },
-  girdiYazi: { flex: 1, fontSize: 16, color: renk.yazi },
+const stiller = (t: Tema) =>
+  StyleSheet.create({
+  kok: { flex: 1, backgroundColor: t.zemin },
+  ust: { backgroundColor: t.yuzey, paddingHorizontal: 14, paddingBottom: 12, gap: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.cizgi },
+  girdi: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: t.zemin, borderRadius: 12, paddingHorizontal: 12, height: 46 },
+  girdiYazi: { flex: 1, fontSize: 16, color: t.yazi },
   bolum: { paddingTop: 6 },
-  satir: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: renk.yuzey, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: renk.cizgi },
-  satirIkon: { width: 34, height: 34, borderRadius: 10, backgroundColor: renk.vurguAcik, alignItems: 'center', justifyContent: 'center' },
+  satir: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: t.yuzey, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.cizgi },
+  satirIkon: { width: 34, height: 34, borderRadius: 10, backgroundColor: t.vurguAcik, alignItems: 'center', justifyContent: 'center' },
   satirMetin: { flex: 1, gap: 2 },
-  satirBaslik: { fontSize: 15, fontWeight: '600', color: renk.yazi },
-  satirAlt: { fontSize: 12.5, color: renk.soluk },
+  satirBaslik: { fontSize: 15, fontWeight: '600', color: t.yazi },
+  satirAlt: { fontSize: 12.5, color: t.soluk },
   ipucu: { flexDirection: 'row', gap: 8, padding: 16 },
-  ipucuYazi: { flex: 1, fontSize: 13, color: renk.soluk, lineHeight: 19 },
-  bos: { color: renk.soluk, textAlign: 'center', padding: 20 },
+  ipucuYazi: { flex: 1, fontSize: 13, color: t.soluk, lineHeight: 19 },
+  bos: { color: t.soluk, textAlign: 'center', padding: 20 },
 });

@@ -54,3 +54,11 @@ export function mesafeYaz(metre?: number | null): string {
   if (metre < 1000) return `${Math.round(metre / 10) * 10} m`;
   return `${(metre / 1000).toFixed(1).replace('.', ',')} km`;
 }
+
+/** "2026-09-19T18:34:00+03:00" → gün başından itibaren saniye (18*3600 + 34*60). */
+export function isodanSaniye(iso?: string | null): number | null {
+  if (!iso) return null;
+  const e = iso.match(/T(\d{2}):(\d{2}):?(\d{2})?/);
+  if (!e) return null;
+  return Number(e[1]) * 3600 + Number(e[2]) * 60 + Number(e[3] ?? 0);
+}
