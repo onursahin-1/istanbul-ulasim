@@ -35,7 +35,9 @@
             "backgroundColor": "#0e1412"
           }
         }
-      ]
+      ],
+      "expo-sqlite",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,
