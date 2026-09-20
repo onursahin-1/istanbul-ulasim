@@ -549,6 +549,62 @@ function tarihMetni(tarih) {
  * haftanın günleri (pazartesi, cumartesi...) aynı kalır, seferler bugün de geçerli olur.
  * Saatler ve duraklar değişmez; yani eski tarifedeki saatler kullanılmaya devam eder.
  */
+/**
+ * frequencies.txt'te gece yarısını aşan pencereler.
+ *
+ * GTFS'te bir servis gününün 02:00'si "26:00:00" diye yazılır. İBB verisinde bunlar
+ * "02:00:00" olarak yazılmış, yani bitiş başlangıçtan küçük kalıyor ve o pencere hiç
+ * çalışmıyor. Gece metrosunun (M1A, M2, M4… 23:50–02:00) yarısı tam olarak böyle kayboluyordu.
+ */
+async function frekanslariOnar(klasor) {
+  const dosya = path.join(klasor, 'frequencies.txt');
+  let satirlar;
+  try {
+    satirlar = bosSutunlariAt(csvCoz(await dosyaOku(dosya, 'utf-8')));
+  } catch {
+    return null; // bu beslemede frequencies.txt yok
+  }
+  const b = satirlar[0];
+  const iBas = b.indexOf('start_time');
+  const iBit = b.indexOf('end_time');
+  const iAralik = b.indexOf('headway_secs');
+  if (iBas < 0 || iBit < 0) return null;
+
+  const saniye = (t) => {
+    const p = (t ?? '').trim().split(':').map(Number);
+    return p.length === 3 && p.every((x) => Number.isFinite(x)) ? p[0] * 3600 + p[1] * 60 + p[2] : null;
+  };
+  const yaz = (sn) => {
+    const iki = (n) => String(n).padStart(2, '0');
+    return `${iki(Math.floor(sn / 3600))}:${iki(Math.floor((sn % 3600) / 60))}:${iki(sn % 60)}`;
+  };
+
+  const sonuc = [b];
+  let duzeltilen = 0;
+  let atilan = 0;
+  for (const r of satirlar.slice(1)) {
+    const bas = saniye(r[iBas]);
+    let bit = saniye(r[iBit]);
+    const aralik = iAralik >= 0 ? Number(r[iAralik]) : NaN;
+    if (bas === null || bit === null || !Number.isFinite(aralik) || aralik <= 0) { atilan++; continue; }
+    if (bit <= bas) {
+      bit += 24 * 3600;
+      r[iBit] = yaz(bit);
+      duzeltilen++;
+    }
+    if (bit - bas < aralik) { atilan++; continue; } // pencereye tek sefer bile sığmıyor
+    sonuc.push(r);
+  }
+  await dosyaYaz(dosya, csvYaz(sonuc), 'utf-8');
+  if (duzeltilen || atilan) {
+    log(
+      `  frequencies: ${duzeltilen} pencerenin bitişi gece yarısını aşacak biçimde düzeltildi` +
+        (atilan ? `, ${atilan} geçersiz satır atıldı` : ''),
+    );
+  }
+  return { duzeltilen, atilan };
+}
+
 async function takvimiGuncelDonemeKaydir(klasor) {
   const dosya = path.join(klasor, 'calendar.txt');
   const satirlar = csvCoz(await dosyaOku(dosya, 'utf-8'));
@@ -557,36 +613,54 @@ async function takvimiGuncelDonemeKaydir(klasor) {
   const iBit = b.indexOf('end_date');
   if (iBas < 0 || iBit < 0) return null;
 
+  const iId = b.indexOf('service_id');
   const gecerli = (v) => /^\d{8}$/.test((v ?? '').trim());
-  const bitisler = satirlar.slice(1).map((r) => r[iBit]).filter(gecerli);
-  if (!bitisler.length) return null;
-  const enGecBitis = bitisler.sort().at(-1);
-
+  const gun = 86400000;
   const bugun = new Date();
   const bugunUtc = new Date(Date.UTC(bugun.getFullYear(), bugun.getMonth(), bugun.getDate()));
-  if (tarihMetni(bugunUtc) <= enGecBitis) return null; // takvim zaten geçerli
-
-  // Takvim bugünden bir yıl sonrasına kadar geçerli olacak şekilde, tam hafta katı kaydırılır.
-  const gun = 86400000;
   const hedef = new Date(bugunUtc.getTime() + 365 * gun);
-  const hafta = Math.ceil((hedef - tariheCevir(enGecBitis)) / (7 * gun));
-  const kaydirmaGunu = hafta * 7;
+
+  // Süresi bu kadar günden kısa olan servisler mevsimlik sayılır (Lale Festivali vapuru,
+  // Erguvan Turu gibi); onları kaydırmak seferi yanlış mevsime taşır, oldukları yerde bırakılır.
+  const MEVSIMLIK_SINIRI = 60;
+
+  // Her servis KENDİ süresine göre kaydırılır. Tek bir ortak kaydırma kullanılırsa, en yeni
+  // takvimi güncel döneme getiren miktar daha eski takvimleri geçmişte bırakıyor: gece metrosu
+  // (Cmt+Paz seferleri olan servis) tam olarak böyle kaybolmuştu.
+  const kaydirmalar = new Map();
+  let kaydirilan = 0;
+  let mevsimlik = 0;
+  let zatenGecerli = 0;
 
   for (const r of satirlar.slice(1)) {
-    for (const i of [iBas, iBit]) {
-      if (gecerli(r[i])) r[i] = tarihMetni(new Date(tariheCevir(r[i].trim()).getTime() + kaydirmaGunu * gun));
-    }
+    if (!gecerli(r[iBas]) || !gecerli(r[iBit])) continue;
+    const bas = tariheCevir(r[iBas].trim());
+    const bit = tariheCevir(r[iBit].trim());
+    if (bit >= bugunUtc) { zatenGecerli++; continue; }
+    if ((bit - bas) / gun < MEVSIMLIK_SINIRI) { mevsimlik++; continue; }
+    // Tam hafta katı kaydırılır ki hafta içi/hafta sonu düzeni bozulmasın.
+    const kaydirmaGunu = Math.ceil((hedef - bit) / (7 * gun)) * 7;
+    r[iBas] = tarihMetni(new Date(bas.getTime() + kaydirmaGunu * gun));
+    r[iBit] = tarihMetni(new Date(bit.getTime() + kaydirmaGunu * gun));
+    if (iId >= 0) kaydirmalar.set((r[iId] ?? '').trim(), kaydirmaGunu);
+    kaydirilan++;
   }
+
+  if (!kaydirilan) return null;
   await dosyaYaz(dosya, csvYaz(satirlar), 'utf-8');
 
-  // İstisna günleri (varsa) aynı miktarda kaydırılır ki takvimle tutarlı kalsın.
+  // İstisna günleri, ait oldukları servisin kaydırma miktarıyla taşınır.
   const istisnaDosyasi = path.join(klasor, 'calendar_dates.txt');
   try {
     const istisna = csvCoz(await dosyaOku(istisnaDosyasi, 'utf-8'));
     const iTarih = istisna[0].indexOf('date');
+    const iIstisnaId = istisna[0].indexOf('service_id');
     if (iTarih >= 0) {
       for (const r of istisna.slice(1)) {
-        if (gecerli(r[iTarih])) r[iTarih] = tarihMetni(new Date(tariheCevir(r[iTarih].trim()).getTime() + kaydirmaGunu * gun));
+        const kaydirmaGunu = kaydirmalar.get((r[iIstisnaId] ?? '').trim());
+        if (kaydirmaGunu && gecerli(r[iTarih])) {
+          r[iTarih] = tarihMetni(new Date(tariheCevir(r[iTarih].trim()).getTime() + kaydirmaGunu * gun));
+        }
       }
       await dosyaYaz(istisnaDosyasi, csvYaz(istisna), 'utf-8');
     }
@@ -594,8 +668,7 @@ async function takvimiGuncelDonemeKaydir(klasor) {
     // calendar_dates.txt bu veride yok; sorun değil.
   }
 
-  const yeniBitis = tarihMetni(new Date(tariheCevir(enGecBitis).getTime() + kaydirmaGunu * gun));
-  return { kaydirmaGunu, eskiBitis: enGecBitis, yeniBitis };
+  return { kaydirilan, mevsimlik, zatenGecerli };
 }
 
 
@@ -804,7 +877,7 @@ async function iettVerisiniOnar(klasor) {
   }
 }
 
-export { iettVerisiniOnar, butunlukOnar, zorunluAlanlariDoldur, takvimiGuncelDonemeKaydir, koordinatCoz, mojibakeDuzelt };
+export { iettVerisiniOnar, butunlukOnar, zorunluAlanlariDoldur, frekanslariOnar, takvimiGuncelDonemeKaydir, koordinatCoz, mojibakeDuzelt };
 
 // ---------- Ana akış ----------
 
@@ -852,12 +925,17 @@ async function beslemeHazirla(besleme, sira, toplam) {
   log('  4/5 Bilinen veri hataları onarılıyor...');
   await iettVerisiniOnar(cikti);
   await zorunluAlanlariDoldur(cikti);
+  await frekanslariOnar(cikti);
   await butunlukOnar(cikti);
 
   if (besleme.takvimiKaydir) {
     const kaydirma = await takvimiGuncelDonemeKaydir(cikti);
     if (kaydirma) {
-      log(`  Takvim ${kaydirma.kaydirmaGunu / 7} hafta ileri kaydırıldı: ${tarihYaz(kaydirma.eskiBitis)} → ${tarihYaz(kaydirma.yeniBitis)}`);
+      log(
+        `  Takvim: ${kaydirma.kaydirilan} servis güncel döneme kaydırıldı` +
+          (kaydirma.zatenGecerli ? `, ${kaydirma.zatenGecerli} servis zaten geçerliydi` : '') +
+          (kaydirma.mevsimlik ? `, ${kaydirma.mevsimlik} kısa süreli (mevsimlik) servis olduğu gibi bırakıldı` : ''),
+      );
       log('  NOT: Saatler eski tarifeden geliyor; gerçek seferlerden birkaç dakika sapabilir.');
     }
   } else if (takvim.enBuyuk) {

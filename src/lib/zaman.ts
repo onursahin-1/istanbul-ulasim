@@ -62,3 +62,44 @@ export function isodanSaniye(iso?: string | null): number | null {
   if (!e) return null;
   return Number(e[1]) * 3600 + Number(e[2]) * 60 + Number(e[3] ?? 0);
 }
+
+/** Şu anı İstanbul saatine göre tutan bir Date (UTC alanları İstanbul duvar saatini verir). */
+function istanbulAn(): Date {
+  return new Date(Date.now() + 3 * 3600 * 1000);
+}
+
+/**
+ * Seçilen gün ve saatten rota sorgusu için zaman üretir.
+ * @param gunFarki 0 bugün, 1 yarın…
+ */
+export function istanbulZamanYap(gunFarki: number, saat: number, dakika: number): string {
+  const d = istanbulAn();
+  d.setUTCDate(d.getUTCDate() + gunFarki);
+  d.setUTCHours(saat, dakika, 0, 0);
+  return `${d.toISOString().slice(0, 19)}+03:00`;
+}
+
+const GUN_ADLARI = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
+const GUN_KISA = ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'];
+
+/** 0 → "Bugün", 1 → "Yarın", 5 → "Cumartesi". */
+export function gunEtiketi(gunFarki: number, kisa = false): string {
+  if (gunFarki === 0) return 'Bugün';
+  if (gunFarki === 1) return 'Yarın';
+  const d = istanbulAn();
+  d.setUTCDate(d.getUTCDate() + gunFarki);
+  return (kisa ? GUN_KISA : GUN_ADLARI)[d.getUTCDay()];
+}
+
+/** "Cumartesi gecesi" gibi bir seçim gerçekte hangi güne denk geliyor: "26 Eylül Cmt". */
+export function gunTarihi(gunFarki: number): string {
+  const d = istanbulAn();
+  d.setUTCDate(d.getUTCDate() + gunFarki);
+  const aylar = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+  return `${d.getUTCDate()} ${aylar[d.getUTCMonth()]} ${GUN_KISA[d.getUTCDay()]}`;
+}
+
+/** 7 → "07:00" */
+export function saatDakikaYaz(saat: number, dakika: number): string {
+  return `${IKI(saat)}:${IKI(dakika)}`;
+}

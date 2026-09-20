@@ -7,9 +7,13 @@ import type { Konum } from './otp';
 
 export type YerTuru = 'ev' | 'is';
 export type FavoriDurak = { gtfsId: string; ad: string };
+/** Kullanıcının daha önce hedef olarak seçtiği yer. Kayıtlı sekmesinde listelenir. */
+export type SonArama = { ad: string; lat: number; lon: number; alt?: string; zaman: number };
 
 const YER_ANAHTARI = 'kayitli-yerler-v1';
 const FAVORI_ANAHTARI = 'favori-duraklar-v1';
+const ARAMA_ANAHTARI = 'son-aramalar-v1';
+const ARAMA_SINIRI = 12;
 
 type Yerler = Partial<Record<YerTuru, Konum>>;
 
@@ -48,13 +52,34 @@ export async function favoriDegistir(durak: FavoriDurak): Promise<void> {
   haberVer();
 }
 
+/**
+ * Seçilen hedefi son aramalara ekler. Aynı yer tekrar seçilirse başa alınır,
+ * liste belirli bir uzunlukta tutulur.
+ */
+export async function aramaKaydet(yer: { ad: string; lat: number; lon: number; alt?: string }): Promise<void> {
+  if (!yer.ad?.trim()) return;
+  const liste = await oku<SonArama[]>(ARAMA_ANAHTARI, []);
+  const ayni = (a: SonArama) =>
+    a.ad === yer.ad && Math.abs(a.lat - yer.lat) < 1e-5 && Math.abs(a.lon - yer.lon) < 1e-5;
+  const yeni = [{ ...yer, zaman: Date.now() }, ...liste.filter((a) => !ayni(a))].slice(0, ARAMA_SINIRI);
+  await yaz(ARAMA_ANAHTARI, yeni);
+  haberVer();
+}
+
+export async function aramalariTemizle(): Promise<void> {
+  await yaz(ARAMA_ANAHTARI, []);
+  haberVer();
+}
+
 export function useKayitlar() {
   const [yerler, setYerler] = useState<Yerler>({});
   const [favoriler, setFavoriler] = useState<FavoriDurak[]>([]);
+  const [aramalar, setAramalar] = useState<SonArama[]>([]);
 
   const yukle = useCallback(async () => {
     setYerler(await oku<Yerler>(YER_ANAHTARI, {}));
     setFavoriler(await oku<FavoriDurak[]>(FAVORI_ANAHTARI, []));
+    setAramalar(await oku<SonArama[]>(ARAMA_ANAHTARI, []));
   }, []);
 
   useEffect(() => {
@@ -65,5 +90,5 @@ export function useKayitlar() {
     };
   }, [yukle]);
 
-  return { yerler, favoriler };
+  return { yerler, favoriler, aramalar };
 }

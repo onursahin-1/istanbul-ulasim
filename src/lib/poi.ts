@@ -183,3 +183,15 @@ const SIMGELER: Record<string, string> = {
 export function poiSimgesi(tur: string): string {
   return SIMGELER[tur] ?? 'pin';
 }
+
+/** Veritabanındaki kayıt sayısı ve kaynak bilgisi (Ayarlar ekranında gösterilir). */
+export async function poiBilgisi(): Promise<{ nokta: number; kaynak: string } | null> {
+  try {
+    const db = await veritabani();
+    const satirlar = await db.getAllAsync<{ anahtar: string; deger: string }>('SELECT anahtar, deger FROM bilgi');
+    const harita = Object.fromEntries(satirlar.map((r) => [r.anahtar, r.deger]));
+    return { nokta: Number(harita.nokta ?? 0), kaynak: harita.kaynak ?? 'OpenStreetMap' };
+  } catch {
+    return null;
+  }
+}

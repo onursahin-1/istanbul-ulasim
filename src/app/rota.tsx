@@ -2,20 +2,37 @@
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BacakZinciri, GeriCubugu, HataKutusu, Ikon, SureSeridi, useStiller, Yukleniyor } from '@/components/ulasim';
 import { OtpHatasi, rotaPlanla, type Guzergah, type Konum } from '@/lib/otp';
 import { guzergahlariSakla } from '@/lib/secim';
 import { aracAdi, baslikYap, useTema, type Tema } from '@/lib/tema';
-import { isoDakikaSonra, istanbulSaat, istanbulSimdi, saatYaz, sureYaz } from '@/lib/zaman';
+import {
+  gunEtiketi,
+  gunTarihi,
+  isoDakikaSonra,
+  istanbulSaat,
+  istanbulSimdi,
+  istanbulZamanYap,
+  saatDakikaYaz,
+  saatYaz,
+  sureYaz,
+} from '@/lib/zaman';
 
 type Parametreler = { kLat: string; kLon: string; kAd: string; vLat: string; vLon: string; vAd: string };
 type Sirali = { g: Guzergah; sira: number };
 type Grup = { ana: Sirali; sonrakiler: Sirali[] };
 
 const SONRAKI_SAYISI = 3;
+
+/** Zaman seçiminde kaç gün ileri gidilebilir (bugün dahil). */
+const GUN_SAYISI = 7;
+const DAKIKALAR = [0, 15, 30, 45];
+
+/** Kullanıcının seçtiği kalkış zamanı. null ise "şimdi". */
+type ZamanSecimi = { gun: number; saat: number; dakika: number } | null;
 
 /**
  * Aynı hatları aynı sırayla ve aynı duraklardan binerek kullanan güzergâhlar "aynı rota" sayılır.
@@ -73,6 +90,9 @@ export default function RotaEkrani() {
   const [bilgi, setBilgi] = useState<string | null>(null);
   const [hata, setHata] = useState<string | null>(null);
   const [aramaSaati, setAramaSaati] = useState(istanbulSaat());
+  const [zaman, setZaman] = useState<ZamanSecimi>(null);
+  const [zamanAcik, setZamanAcik] = useState(false);
+  const [taslak, setTaslak] = useState({ gun: 0, saat: 8, dakika: 0 });
 
   const nereden: Konum = useMemo(() => ({ ad: p.kAd ?? 'Konumum', lat: Number(p.kLat), lon: Number(p.kLon) }), [p.kAd, p.kLat, p.kLon]);
   const nereye: Konum = useMemo(() => ({ ad: p.vAd ?? 'Hedef', lat: Number(p.vLat), lon: Number(p.vLon) }), [p.vAd, p.vLat, p.vLon]);
@@ -88,7 +108,8 @@ export default function RotaEkrani() {
       setBilgi(null);
       setAramaSaati(istanbulSaat());
       try {
-        const sonuc = await rotaPlanla(nereden, nereye, istanbulSimdi(), sinyal);
+        const zamanMetni = zaman ? istanbulZamanYap(zaman.gun, zaman.saat, zaman.dakika) : istanbulSimdi();
+        const sonuc = await rotaPlanla(nereden, nereye, zamanMetni, sinyal);
         setGuzergahlar(sonuc.guzergahlar);
         if (sonuc.guzergahlar.length === 0) {
           const kod = sonuc.hatalar[0]?.code;
@@ -99,7 +120,7 @@ export default function RotaEkrani() {
         setHata(e instanceof OtpHatasi ? e.message : 'Rota aranırken beklenmeyen bir sorun oluştu.');
       }
     },
-    [nereden, nereye],
+    [nereden, nereye, zaman],
   );
 
   useEffect(() => {
@@ -153,8 +174,20 @@ export default function RotaEkrani() {
           </Pressable>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filtreler}>
-          <Pressable style={[s.filtre, s.filtreKoyu]} onPress={() => ara()}>
-            <Text style={[s.filtreYazi, { color: tema.zemin }]}>Şimdi · {aramaSaati}</Text>
+          <Pressable
+            style={[s.filtre, s.filtreKoyu]}
+            onPress={() => {
+              setTaslak(zaman ?? { gun: 0, saat: Number(istanbulSaat().slice(0, 2)), dakika: 0 });
+              setZamanAcik(true);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Kalkış zamanını seç"
+          >
+            <Text style={[s.filtreYazi, { color: tema.zemin }]}>
+              {zaman
+                ? `${gunEtiketi(zaman.gun, true)} · ${saatDakikaYaz(zaman.saat, zaman.dakika)}`
+                : `Şimdi · ${aramaSaati}`}
+            </Text>
           </Pressable>
           {SIRALAMALAR.map((x) => (
             <Pressable
@@ -226,9 +259,90 @@ export default function RotaEkrani() {
           );
         })}
         {guzergahlar && guzergahlar.length > 0 && (
-          <Text style={s.not}>Süreler İETT tarifesine göredir. Şimdilik yalnızca otobüs ve Metrobüs hatları dahil.</Text>
+          <Text style={s.not}>
+            Otobüs, Metrobüs, minibüs, metro, Marmaray, tramvay, füniküler ve vapur dahildir. Raylı sistem ve vapur
+            saatleri İBB'nin eski verisinden geldiği için yaklaşıktır.
+          </Text>
         )}
       </ScrollView>
+
+      {/* Kalkış zamanı seçimi: gece metrosu gibi ileri saatlere bakabilmek için. */}
+      <Modal visible={zamanAcik} transparent animationType="slide" onRequestClose={() => setZamanAcik(false)}>
+        <Pressable style={s.perde} onPress={() => setZamanAcik(false)} accessibilityLabel="Kapat" />
+        <View style={[s.zamanSayfa, { paddingBottom: kenar.bottom + 16 }]}>
+          <View style={s.zamanTutamac} />
+          <Text style={s.zamanBaslik}>Ne zaman yola çıkıyorsun?</Text>
+
+          <Pressable
+            style={[s.simdiDugme, !zaman && s.simdiSecili]}
+            onPress={() => {
+              setZaman(null);
+              setZamanAcik(false);
+            }}
+            accessibilityRole="button"
+            accessibilityState={{ selected: !zaman }}
+          >
+            <Ikon ad="flash" boyut={16} renkKodu={!zaman ? tema.vurgu : tema.soluk} />
+            <Text style={[s.simdiYazi, !zaman && { color: tema.vurgu }]}>Şimdi</Text>
+          </Pressable>
+
+          <Text style={s.zamanAltBaslik}>GÜN</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.zamanSatiri}>
+            {Array.from({ length: GUN_SAYISI }, (_, g) => (
+              <Pressable
+                key={g}
+                style={[s.zamanHap, taslak.gun === g && s.zamanHapSecili]}
+                onPress={() => setTaslak((t) => ({ ...t, gun: g }))}
+                accessibilityState={{ selected: taslak.gun === g }}
+              >
+                <Text style={[s.zamanHapYazi, taslak.gun === g && { color: tema.vurgu }]}>{gunEtiketi(g, true)}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+
+          <Text style={s.zamanAltBaslik}>SAAT</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.zamanSatiri}>
+            {Array.from({ length: 24 }, (_, h) => (
+              <Pressable
+                key={h}
+                style={[s.zamanHap, taslak.saat === h && s.zamanHapSecili]}
+                onPress={() => setTaslak((t) => ({ ...t, saat: h }))}
+                accessibilityState={{ selected: taslak.saat === h }}
+              >
+                <Text style={[s.zamanHapYazi, taslak.saat === h && { color: tema.vurgu }]}>
+                  {String(h).padStart(2, '0')}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+
+          <Text style={s.zamanAltBaslik}>DAKİKA</Text>
+          <View style={s.zamanSatiri}>
+            {DAKIKALAR.map((d) => (
+              <Pressable
+                key={d}
+                style={[s.zamanHap, taslak.dakika === d && s.zamanHapSecili]}
+                onPress={() => setTaslak((t) => ({ ...t, dakika: d }))}
+                accessibilityState={{ selected: taslak.dakika === d }}
+              >
+                <Text style={[s.zamanHapYazi, taslak.dakika === d && { color: tema.vurgu }]}>
+                  {String(d).padStart(2, '0')}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <Text style={s.zamanOzet}>
+            {`${gunTarihi(taslak.gun)}, ${saatDakikaYaz(taslak.saat, taslak.dakika)}`}
+            {taslak.saat < 5 ? '  ·  gece metrosu Cuma ve Cumartesi gecelerinde çalışır' : ''}
+          </Text>
+
+          <Pressable style={s.zamanOnayla} onPress={() => { setZaman(taslak); setZamanAcik(false); }} accessibilityRole="button">
+            <Text style={s.zamanOnaylaYazi}>Bu saate göre ara</Text>
+          </Pressable>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -268,4 +382,53 @@ const stiller = (t: Tema) =>
   hap: { flexDirection: 'row', alignItems: 'baseline', gap: 4, borderWidth: 1, borderColor: t.cizgi, backgroundColor: t.zemin, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 5 },
   hapSaat: { fontSize: 13, fontWeight: '700', color: t.yazi, fontVariant: ['tabular-nums'] },
   hapDakika: { fontSize: 11, color: t.soluk },
-});
+    perde: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' },
+    zamanSayfa: {
+      backgroundColor: t.yuzey,
+      borderTopLeftRadius: 22,
+      borderTopRightRadius: 22,
+      paddingHorizontal: 16,
+      paddingTop: 8,
+      gap: 4,
+    },
+    zamanTutamac: { width: 38, height: 5, borderRadius: 3, backgroundColor: t.cizgi, alignSelf: 'center', marginBottom: 10 },
+    zamanBaslik: { fontSize: 18, fontWeight: '800', color: t.yazi, marginBottom: 10 },
+    simdiDugme: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 7,
+      height: 44,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: t.cizgi,
+      backgroundColor: t.yuzeyIkincil,
+    },
+    simdiSecili: { borderColor: t.vurgu, backgroundColor: t.vurguAcik },
+    simdiYazi: { fontSize: 15, fontWeight: '700', color: t.soluk },
+    zamanAltBaslik: { fontSize: 11, letterSpacing: 0.8, fontWeight: '700', color: t.soluk, marginTop: 14, marginBottom: 6 },
+    zamanSatiri: { flexDirection: 'row', gap: 7, paddingRight: 8 },
+    zamanHap: {
+      minWidth: 46,
+      height: 38,
+      paddingHorizontal: 12,
+      borderRadius: 11,
+      borderWidth: 1,
+      borderColor: t.cizgi,
+      backgroundColor: t.yuzeyIkincil,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    zamanHapSecili: { borderColor: t.vurgu, backgroundColor: t.vurguAcik },
+    zamanHapYazi: { fontSize: 14, fontWeight: '600', color: t.yazi, fontVariant: ['tabular-nums'] },
+    zamanOzet: { fontSize: 12.5, color: t.soluk, marginTop: 14 },
+    zamanOnayla: {
+      height: 50,
+      borderRadius: 14,
+      backgroundColor: t.vurgu,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 12,
+    },
+    zamanOnaylaYazi: { fontSize: 16, fontWeight: '700', color: t.vurguYazi },
+  });

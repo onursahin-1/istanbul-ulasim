@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { GeriCubugu, HataKutusu, Ikon, useStiller, Yukleniyor, type IkonAdi } from '@/components/ulasim';
 import { mesafeMetre } from '@/lib/cografya';
-import { useKayitlar, yerKaydet, type YerTuru } from '@/lib/kayitlar';
+import { aramaKaydet, useKayitlar, yerKaydet, type YerTuru } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
 import { durakAra, OtpHatasi, type Durak, type Konum } from '@/lib/otp';
 import {
@@ -115,12 +115,14 @@ export default function AraEkrani() {
   }, [metin, merkez]);
 
   const hedefSec = useCallback(
-    async (hedef: Konum) => {
+    async (hedef: Konum, alt?: string) => {
       if (p.kaydet) {
         await yerKaydet(p.kaydet, hedef);
         router.back();
         return;
       }
+      // Seçilen hedef Kayıtlı sekmesindeki "son aramalar" listesine girer.
+      aramaKaydet({ ad: hedef.ad, lat: hedef.lat, lon: hedef.lon, alt });
       router.replace({
         pathname: '/rota',
         params: {
@@ -253,7 +255,11 @@ export default function AraEkrani() {
               const y = item.veri;
               const hedef: Konum = { ad: y.ad, lat: y.lat, lon: y.lon };
               return (
-                <Pressable style={s.satir} onPress={() => hedefSec(hedef)} onLongPress={() => kaydetSor(hedef)}>
+                <Pressable
+                  style={s.satir}
+                  onPress={() => hedefSec(hedef, [y.turAdi, y.semt].filter(Boolean).join(' · '))}
+                  onLongPress={() => kaydetSor(hedef)}
+                >
                   <View style={s.satirIkon}>
                     <Ikon ad={poiSimgesi(y.tur) as IkonAdi} boyut={18} renkKodu={tema.vurgu} />
                   </View>
@@ -273,7 +279,11 @@ export default function AraEkrani() {
             const d = item.veri;
             const hedef: Konum = { ad: baslikYap(d.name), lat: d.lat!, lon: d.lon! };
             return (
-              <Pressable style={s.satir} onPress={() => hedefSec(hedef)} onLongPress={() => kaydetSor(hedef)}>
+              <Pressable
+                style={s.satir}
+                onPress={() => hedefSec(hedef, 'Durak')}
+                onLongPress={() => kaydetSor(hedef)}
+              >
                 <View style={[s.satirIkon, { backgroundColor: tema.vurguAcik }]}>
                   <Ikon ad="bus-outline" boyut={18} renkKodu={tema.vurgu} />
                 </View>

@@ -119,6 +119,18 @@ export type Guzergah = {
 
 export type Konum = { ad: string; lat: number; lon: number };
 
+export type HatOzeti = Hat & { agency: { name: string } | null };
+
+export type HatDeseni = {
+  code: string;
+  name: string | null;
+  headsign: string | null;
+  directionId: string | null;
+  stops: { gtfsId: string; name: string; lat: number | null; lon: number | null }[] | null;
+};
+
+export type HatDetayi = HatOzeti & { patterns: HatDeseni[] | null };
+
 // ---------- Sorgular ----------
 
 // Rozetlerin doğru renk ve simgeyi seçebilmesi için hat sorgularında araç tipi ve renk de istenir.
@@ -203,8 +215,40 @@ query RotaPlanla($nereden: PlanLabeledLocationInput!, $nereye: PlanLabeledLocati
   }
 }`;
 
+// Hatlar sekmesi: bütün hatlar bir kez çekilir, süzme ve arama telefonda yapılır.
+const HATLAR = `
+query Hatlar {
+  routes {
+    ${HAT_ALANLARI}
+    agency { name }
+  }
+}`;
+
+// Bir hattın durak deseni. Her yön ayrı bir "pattern" olarak gelir.
+const HAT_DETAYI = `
+query HatDetayi($id: String!) {
+  route(id: $id) {
+    ${HAT_ALANLARI}
+    agency { name }
+    patterns {
+      code
+      name
+      headsign
+      directionId
+      stops { gtfsId name lat lon }
+    }
+  }
+}`;
+
+// Ayarlar ekranı: sunucunun hangi veriyi yüklediği ve tarifenin hangi tarihleri kapsadığı.
+const SUNUCU_BILGISI = `
+query SunucuBilgisi {
+  serviceTimeRange { start end }
+  feeds { feedId agencies { name } }
+}`;
+
 // Sorgu metinleri, geliştirme sırasında şemaya karşı doğrulanabilsin diye dışa açılır.
-export const SORGULAR = { YAKIN_DURAKLAR, DURAK_DETAYI, DURAK_ARA, ROTA_PLANLA, HAT_KALKISLARI };
+export const SORGULAR = { YAKIN_DURAKLAR, DURAK_DETAYI, DURAK_ARA, ROTA_PLANLA, HAT_KALKISLARI, HATLAR, HAT_DETAYI, SUNUCU_BILGISI };
 
 // ---------- İşlevler ----------
 
@@ -278,6 +322,38 @@ export async function rotaPlanla(nereden: Konum, nereye: Konum, zaman: string, s
  * Marmaray seferleri veride sıklık tabanlı (frequencies.txt) tanımlı olduğu için
  * tek tek sefer saatleri bulunmuyor ve saat isteyen alanlar hata veriyor.
  */
+// Hat listesi seyrek değişir; oturum boyunca bir kez çekilip bellekte tutulur.
+let hatlarOnbellek: Promise<HatOzeti[]> | null = null;
+
+/** Ağdaki bütün hatlar. İlk çağrıda sunucudan çekilir, sonrasında bellekten verilir. */
+export async function hatlariGetir(sinyal?: AbortSignal): Promise<HatOzeti[]> {
+  if (!hatlarOnbellek) {
+    hatlarOnbellek = sorgula<{ routes: (HatOzeti | null)[] | null }>(HATLAR, {}, sinyal)
+      .then((veri) => (veri.routes ?? []).filter((h): h is HatOzeti => !!h && !!h.gtfsId))
+      .catch((e) => {
+        hatlarOnbellek = null;
+        throw e;
+      });
+  }
+  return hatlarOnbellek;
+}
+
+/** Bir hattın yönleri ve her yöndeki durak sırası. */
+export async function hatDetayiGetir(id: string, sinyal?: AbortSignal): Promise<HatDetayi | null> {
+  const veri = await sorgula<{ route: HatDetayi | null }>(HAT_DETAYI, { id }, sinyal);
+  return veri.route;
+}
+
+export type SunucuBilgisi = {
+  serviceTimeRange: { start: number | null; end: number | null } | null;
+  feeds: { feedId: string; agencies: { name: string }[] | null }[] | null;
+};
+
+/** Rota sunucusunun durumu ve yüklü tarifenin kapsadığı tarih aralığı. */
+export async function sunucuBilgisiGetir(sinyal?: AbortSignal): Promise<SunucuBilgisi> {
+  return sorgula<SunucuBilgisi>(SUNUCU_BILGISI, {}, sinyal);
+}
+
 export function bacakDuraklari(bacak: Bacak): { gtfsId: string; ad: string; lat: number; lon: number }[] {
   const liste: { gtfsId: string; ad: string; lat: number; lon: number }[] = [];
   const ekle = (gtfsId?: string | null, ad?: string | null, lat?: number | null, lon?: number | null) => {
