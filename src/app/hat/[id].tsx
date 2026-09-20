@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HataKutusu, HatRozeti, Ikon, useStiller, Yukleniyor } from '@/components/ulasim';
 import { hatDetayiGetir, OtpHatasi, type HatDetayi } from '@/lib/otp';
-import { aracAdi, baslikYap, hatRengi, hatYaziRengi, useTema, type Tema } from '@/lib/tema';
+import { aracAdi, baslikYap, haritaRengi, hatRengi, useTema, yaziRengi, type Tema } from '@/lib/tema';
 
 export default function HatEkrani() {
   const kenar = useSafeAreaInsets();
@@ -47,18 +47,22 @@ export default function HatEkrani() {
 
   const secili = desenler[Math.min(yon, Math.max(desenler.length - 1, 0))];
   const duraklar = secili?.stops ?? [];
+  // Durak çizgisi rozetle aynı renkte (koyu temada açılmış ton), başlık şeridi ise
+  // hattın resmî rengini kullanır; geniş bir alanı açılmış tonla boyamak göz alıyor.
   const renkKodu = hat ? hatRengi(hat, tema) : tema.vurgu;
-  const yaziKodu = hat ? hatYaziRengi(hat, tema) : tema.vurguYazi;
+  const seritRengi = hat ? haritaRengi(hat, tema) : tema.vurgu;
+  const yaziKodu = yaziRengi(seritRengi);
 
   const yonAdi = (d: (typeof desenler)[number] | undefined) => {
     if (!d) return '';
     const bitis = d.stops?.[d.stops.length - 1]?.name;
-    return baslikYap(d.headsign) || (bitis ? `${baslikYap(bitis)} yönü` : baslikYap(d.name));
+    const ad = baslikYap(d.headsign) || baslikYap(bitis) || baslikYap(d.name);
+    return ad ? `${ad} yönü` : '';
   };
 
   return (
     <View style={s.kok}>
-      <View style={[s.tepe, { backgroundColor: renkKodu, paddingTop: kenar.top + 8 }]}>
+      <View style={[s.tepe, { backgroundColor: seritRengi, paddingTop: kenar.top + 8 }]}>
         <View style={s.tepeSatir}>
           <Pressable onPress={() => router.back()} accessibilityLabel="Geri" hitSlop={12}>
             <Ikon ad="chevron-back" boyut={24} renkKodu={yaziKodu} />
@@ -150,20 +154,25 @@ const stiller = (t: Tema) =>
     tepeSatir: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     tepeBaslik: { fontSize: 22, fontWeight: '800', letterSpacing: -0.3 },
     tepeAlt: { fontSize: 13, opacity: 0.85 },
-    yonSeridi: { flexGrow: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.cizgi },
-    yonlar: { gap: 8, padding: 12 },
+    yonSeridi: {
+      flexGrow: 0,
+      height: 76,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: t.cizgi,
+    },
+    yonlar: { gap: 8, paddingHorizontal: 12, paddingVertical: 12, alignItems: 'center' },
     yon: {
-      maxWidth: 230,
-      paddingHorizontal: 13,
-      paddingVertical: 8,
+      maxWidth: 240,
+      height: 52,
+      paddingHorizontal: 14,
+      justifyContent: 'center',
       borderRadius: 12,
       borderWidth: 1,
       borderColor: t.cizgi,
       backgroundColor: t.yuzeyIkincil,
-      gap: 2,
     },
-    yonYazi: { fontSize: 13.5, fontWeight: '700', color: t.yazi },
-    yonSayi: { fontSize: 11.5, color: t.soluk },
+    yonYazi: { fontSize: 13.5, lineHeight: 18, fontWeight: '700', color: t.yazi },
+    yonSayi: { fontSize: 11.5, lineHeight: 15, color: t.soluk, marginTop: 2 },
     tekYon: { fontSize: 13, fontWeight: '600', color: t.soluk, padding: 14 },
     liste: { paddingHorizontal: 16 },
     durak: { flexDirection: 'row', alignItems: 'center', gap: 11, height: 44 },

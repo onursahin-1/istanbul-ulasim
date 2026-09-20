@@ -68,6 +68,45 @@ Veritabanı her yenilendiğinde `src/lib/poi.ts` içindeki `SURUM` numarası
 artırılmalı; dosya adı numarayı taşıdığı için telefondaki eski kopya böylece
 kendiliğinden değişir.
 
+## 4. Eksik metro istasyonları — OSM'den tamamlama
+
+İBB raylı sistem beslemesini 2023'ten beri güncellemiyor. O tarihten sonra açılan
+istasyonlar veride yok: M3 Bakırköy Sahil–Kayaşehir ucu, M4'ün Sabiha Gökçen ucu,
+M5'in Sultanbeyli ucu, M9'un Ataköy ucu; M11 ise hiç yok.
+
+```powershell
+python osm-cikar.py C:\otp\istanbul\Istanbul.osm.pbf osm-hatlar.json
+python istasyon-tamamla.py osm-hatlar.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
+```
+
+`osm-cikar.py` OSM'deki raylı sistem hat bağıntılarını (sıralı istasyon listesi,
+işletmeci, resmî renk) JSON'a döker. `istasyon-tamamla.py` dört iş yapar:
+
+1. **Parçalı hatları birleştirir.** OSM'de bazı hatlar iki bağıntı hâlinde duruyor
+   (M7 = "Yıldız–Mecidiyeköy" + "Mecidiyeköy–Mahmutbey"). Uç istasyon adları
+   tutuyorsa ve birleşimde tekrar eden istasyon oluşmuyorsa tek diziye bağlanır.
+   Tekrar şartı, gidiş ve dönüş bağıntılarının yanlışlıkla uç uca eklenmesini önler.
+2. **Mevcut hatları uzatır.** Eksikler hep uçlarda olduğu için İBB'nin gerçek
+   tarifesi korunur, sefer dizisi iki uçtan uzatılır. Hizalama **her sefer için
+   ayrı** yapılır: seferin kendi durak dizisi OSM dizisinin içinde ya da tersinde
+   aranır, böylece gidiş–dönüş yönleri kendiliğinden doğru tarafa uzar. Yeni
+   istasyonların saatleri o hattın kendi istasyon arası ortalamasından türetilir.
+3. **Hiç olmayan hatları üretir.** `SIFIRDAN` sözlüğündeki hatlar (şu an yalnız
+   M11) OSM dizisinden sıfırdan kurulur: uçtan uca süre istasyonlar arası mesafeye
+   göre dağıtılır, sefer sıklığı `frequencies.txt` ile verilir. Bu hattın saatleri
+   **tahminîdir**, İBB verisi değildir.
+4. **İmkânsız süreleri onarır.** Aralarında yüz metrelerce mesafe olmasına rağmen
+   aynı saniyeye yazılmış istasyon çiftlerini (İBB'nin M7 Fulya–Yıldız hatası)
+   mesafeye göre açar.
+
+Yeni istasyonlar `osm-<düğüm no>` kimliğiyle eklenir; hiçbir seferde kullanılmayan
+istasyonlar yazılmaz, yoksa İBB'de zaten olan duraklar aramada ikinci kez görünür.
+Uzatılan seferlerin `shape_id` alanı boşaltılır, çünkü eski çizgi yeni uçları
+kapsamıyor.
+
+Betik zip dosyasını **yerinde** değiştirir; tekrar çalıştırmadan önce `hazirla-gtfs.mjs`
+ile yeniden üretmek ya da yedekten dönmek gerekir.
+
 ## Grafiği derleme
 
 ```powershell

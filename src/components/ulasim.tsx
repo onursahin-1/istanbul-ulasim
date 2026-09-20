@@ -87,7 +87,7 @@ export function GeriCubugu({ baslik, sag }: { baslik: string; sag?: ReactNode })
         accessibilityRole="button"
         accessibilityLabel="Geri"
         hitSlop={12}
-        onPress={() => (router.canGoBack() ? router.back() : router.replace('/(sekmeler)/index'))}
+        onPress={() => (router.canGoBack() ? router.back() : router.replace('/(sekmeler)'))}
       >
         <Ikon ad="chevron-back" boyut={26} />
       </Pressable>
