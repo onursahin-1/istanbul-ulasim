@@ -2,7 +2,11 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { bildirimleriHazirla } from '@/lib/bildirim';
 import { useTema } from '@/lib/tema';
+
+// Bildirimin uygulama açıkken de banner olarak görünmesi için tek seferlik kurulum.
+bildirimleriHazirla();
 
 export default function KokDuzen() {
   const tema = useTema();

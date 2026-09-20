@@ -5,10 +5,11 @@
 
 import Constants from 'expo-constants';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Ikon, useStiller } from '@/components/ulasim';
+import { hatirlaticiIptal, hatirlaticiSaati, hepsiniIptal, izinIste, useHatirlaticilar } from '@/lib/bildirim';
 import { OTP_ADRESI, sunucuBilgisiGetir, type SunucuBilgisi } from '@/lib/otp';
 import { poiBilgisi } from '@/lib/poi';
 import { useTema, type Tema } from '@/lib/tema';
@@ -28,6 +29,7 @@ export default function AyarlarEkrani() {
   const [sunucuHatasi, setSunucuHatasi] = useState<string | null>(null);
   const [poi, setPoi] = useState<{ nokta: number; kaynak: string } | null>(null);
   const [yenileniyor, setYenileniyor] = useState(false);
+  const { hatirlaticilar, izin, yenile: hatirlaticilariYenile } = useHatirlaticilar();
 
   const yukle = useCallback(async () => {
     setSunucuHatasi(null);
@@ -116,6 +118,68 @@ export default function AyarlarEkrani() {
         <Text style={s.aciklama}>Yer araması telefonda yapılır; internet bağlantısı gerekmez.</Text>
       </View>
 
+      <Text style={s.bolumBaslik}>HATIRLATICILAR</Text>
+      <View style={s.kutu}>
+        <View style={s.satir}>
+          <View style={[s.nokta, { backgroundColor: izin ? tema.vurgu : tema.uyari }]} />
+          <Text style={s.satirBaslik}>{izin ? 'Bildirim izni açık' : 'Bildirim izni kapalı'}</Text>
+        </View>
+        {!izin && (
+          <Pressable
+            style={s.dugme}
+            accessibilityRole="button"
+            onPress={async () => {
+              if (await izinIste()) {
+                hatirlaticilariYenile();
+                return;
+              }
+              Alert.alert('İzin verilmedi', 'Bildirimleri telefonun ayarlarından açabilirsin.', [
+                { text: 'Vazgeç', style: 'cancel' },
+                { text: 'Ayarları aç', onPress: () => Linking.openSettings() },
+              ]);
+            }}
+          >
+            <Ikon ad="notifications" boyut={16} renkKodu={tema.vurgu} />
+            <Text style={s.dugmeYazi}>İzin iste</Text>
+          </Pressable>
+        )}
+
+        {hatirlaticilar.length === 0 ? (
+          <Text style={s.aciklama}>
+            Kurulu hatırlatıcı yok. Bir rota bulup detayında zil düğmesine basarsan çıkış ve iniş uyarıları
+            kurulur; uygulama kapalıyken de çıkarlar.
+          </Text>
+        ) : (
+          <>
+            {hatirlaticilar.map((h) => (
+              <View key={h.id} style={s.hatirlatici}>
+                <Text style={s.hatirlaticiSaat}>{hatirlaticiSaati(h.zaman)}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.satirBaslik} numberOfLines={1}>
+                    {h.baslik}
+                  </Text>
+                  <Text style={s.aciklama} numberOfLines={2}>
+                    {h.metin}
+                  </Text>
+                </View>
+                <Pressable
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${h.baslik} hatırlatıcısını kaldır`}
+                  onPress={() => hatirlaticiIptal(h.id)}
+                >
+                  <Ikon ad="close" boyut={18} renkKodu={tema.soluk} />
+                </Pressable>
+              </View>
+            ))}
+            <Pressable style={s.dugme} onPress={hepsiniIptal} accessibilityRole="button">
+              <Ikon ad="notifications-off" boyut={16} renkKodu={tema.hata} />
+              <Text style={[s.dugmeYazi, { color: tema.hata }]}>Hepsini kaldır</Text>
+            </Pressable>
+          </>
+        )}
+      </View>
+
       <Text style={s.bolumBaslik}>GÖRÜNÜM</Text>
       <View style={s.kutu}>
         <View style={s.satir}>
@@ -175,4 +239,13 @@ const stiller = (t: Tema) =>
     hataYazi: { fontSize: 12.5, color: t.hata, lineHeight: 18 },
     dugme: { flexDirection: 'row', alignItems: 'center', gap: 7, alignSelf: 'flex-start', paddingTop: 4 },
     dugmeYazi: { fontSize: 13.5, fontWeight: '700', color: t.vurgu },
+    hatirlatici: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingTop: 8,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: t.cizgiSilik,
+    },
+    hatirlaticiSaat: { fontSize: 15, fontWeight: '700', color: t.vurgu, fontVariant: ['tabular-nums'] },
   });

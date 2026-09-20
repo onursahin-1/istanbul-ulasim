@@ -10,7 +10,9 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, Vi
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { HatirlatmaSayfasi, type InisBilgisi } from '@/components/hatirlatma';
 import { GeriCubugu, HatRozeti, Ikon, useStiller } from '@/components/ulasim';
+import { useHatirlaticilar } from '@/lib/bildirim';
 import { mesafeMetre, polylineCoz, type Nokta } from '@/lib/cografya';
 import { bacakDuraklari, hatKalkislariGetir, type Bacak } from '@/lib/otp';
 import { guzergahGetir } from '@/lib/secim';
@@ -44,6 +46,8 @@ export default function RotaDetayEkrani() {
   const [takip, setTakip] = useState<Takip>(null);
   const [acikBacaklar, setAcikBacaklar] = useState<Record<number, boolean>>({});
   const [seferler, setSeferler] = useState<Record<number, SeferBilgisi>>({});
+  const [hatirlatAcik, setHatirlatAcik] = useState(false);
+  const { hatirlaticilar, yenile: hatirlaticilariYenile } = useHatirlaticilar();
   const aboneligi = useRef<Location.LocationSubscription | null>(null);
   const simulasyon = useRef<ReturnType<typeof setInterval> | null>(null);
   const uyarilanlar = useRef(new Set<string>());
@@ -52,6 +56,26 @@ export default function RotaDetayEkrani() {
   const bacaklar = useMemo(() => guzergah?.legs ?? [], [guzergah]);
   const cizgiler = useMemo(() => bacaklar.map(bacakNoktalari), [bacaklar]);
   const duraklar = useMemo(() => bacaklar.map((b) => (b.transitLeg ? bacakDuraklari(b) : [])), [bacaklar]);
+
+  // Hatırlatıcılar: yola çıkış anı ve her aracın iniş durağına varış anı.
+  const hatirlatmaGrubu = `rota-${sira}-${guzergah?.start ?? ''}`;
+  const kuruluHatirlatici = hatirlaticilar.filter((h) => h.grup === hatirlatmaGrubu).length;
+  const kalkisAni = useMemo(() => {
+    const an = Date.parse(guzergah?.start ?? '');
+    return Number.isNaN(an) ? null : an;
+  }, [guzergah]);
+  const inisler = useMemo<InisBilgisi[]>(
+    () =>
+      bacaklar
+        .filter((b) => b.transitLeg)
+        .map((b) => ({
+          zaman: Date.parse(b.end.estimated?.time ?? b.end.scheduledTime ?? ''),
+          durak: baslikYap(b.to.name),
+          hat: b.route?.shortName ?? aracAdi(b.route?.mode ?? b.mode),
+        }))
+        .filter((i) => !Number.isNaN(i.zaman)),
+    [bacaklar],
+  );
 
   const haritaYuksekligi = Math.round(height * 0.42);
 
@@ -419,6 +443,18 @@ export default function RotaDetayEkrani() {
 
         <View style={[s.alt, { paddingBottom: kenar.bottom + 10 }]}>
           <Pressable
+            style={[s.zil, kuruluHatirlatici > 0 && s.zilDolu]}
+            onPress={() => setHatirlatAcik(true)}
+            accessibilityRole="button"
+            accessibilityLabel={kuruluHatirlatici > 0 ? `${kuruluHatirlatici} hatırlatıcı kurulu` : 'Hatırlat'}
+          >
+            <Ikon
+              ad={kuruluHatirlatici > 0 ? 'notifications' : 'notifications-outline'}
+              boyut={20}
+              renkKodu={kuruluHatirlatici > 0 ? tema.vurguYazi : tema.vurgu}
+            />
+          </Pressable>
+          <Pressable
             style={[s.baslat, takipAcik && s.bitir]}
             onPress={takipAcik ? takibiDurdur : takibiBaslat}
             onLongPress={simulasyonuBaslat}
@@ -431,6 +467,16 @@ export default function RotaDetayEkrani() {
           </Pressable>
         </View>
       </View>
+
+      <HatirlatmaSayfasi
+        acik={hatirlatAcik}
+        kapat={() => setHatirlatAcik(false)}
+        kalkis={kalkisAni}
+        inisler={inisler}
+        grup={hatirlatmaGrubu}
+        kurulu={kuruluHatirlatici}
+        degisti={hatirlaticilariYenile}
+      />
     </View>
   );
 }
@@ -608,5 +654,16 @@ const stiller = (t: Tema) =>
     gap: 8,
   },
   bitir: { backgroundColor: t.yazi },
+  zil: {
+    width: 50,
+    height: 50,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: t.vurguAcik,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: t.cizgi,
+  },
+  zilDolu: { backgroundColor: t.vurgu, borderColor: t.vurgu },
   baslatYazi: { fontWeight: '700', fontSize: 16 },
 });
