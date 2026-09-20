@@ -10,6 +10,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Ikon, useStiller } from '@/components/ulasim';
 import { hatirlaticiIptal, hatirlaticiSaati, hepsiniIptal, izinIste, useHatirlaticilar } from '@/lib/bildirim';
+import { ucretTuruKaydet, useKayitlar } from '@/lib/kayitlar';
+import { TARIFE_TARIHI, UCRET_ACIKLAMALARI, UCRET_ADLARI, type UcretTuru } from '@/lib/ucret';
 import { OTP_ADRESI, sunucuBilgisiGetir, type SunucuBilgisi } from '@/lib/otp';
 import { poiBilgisi } from '@/lib/poi';
 import { useTema, type Tema } from '@/lib/tema';
@@ -30,6 +32,7 @@ export default function AyarlarEkrani() {
   const [poi, setPoi] = useState<{ nokta: number; kaynak: string } | null>(null);
   const [yenileniyor, setYenileniyor] = useState(false);
   const { hatirlaticilar, izin, yenile: hatirlaticilariYenile } = useHatirlaticilar();
+  const { ucretTuru } = useKayitlar();
 
   const yukle = useCallback(async () => {
     setSunucuHatasi(null);
@@ -116,6 +119,27 @@ export default function AyarlarEkrani() {
           </Text>
         </View>
         <Text style={s.aciklama}>Yer araması telefonda yapılır; internet bağlantısı gerekmez.</Text>
+      </View>
+
+      <Text style={s.bolumBaslik}>İSTANBULKART</Text>
+      <View style={s.kutu}>
+        <View style={s.haplar}>
+          {(Object.keys(UCRET_ADLARI) as UcretTuru[]).map((t) => (
+            <Pressable
+              key={t}
+              style={[s.hap, ucretTuru === t && s.hapSecili]}
+              onPress={() => ucretTuruKaydet(t)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: ucretTuru === t }}
+            >
+              <Text style={[s.hapYazi, ucretTuru === t && { color: tema.vurgu }]}>{UCRET_ADLARI[t]}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={s.aciklama}>{UCRET_ACIKLAMALARI[ucretTuru]}</Text>
+        <Text style={s.aciklama}>
+          {`Rota ücretleri ${TARIFE_TARIHI} tarihli İBB tarifesine göre hesaplanır. İlk biniş tam bilet, sonraki binişler aktarma bedelidir; aktarma hakkı 120 dakika sürer. Metrobüs, Marmaray ve M11 durak sayısına göre ücretlendirilir.`}
+        </Text>
       </View>
 
       <Text style={s.bolumBaslik}>HATIRLATICILAR</Text>
@@ -248,4 +272,16 @@ const stiller = (t: Tema) =>
       borderTopColor: t.cizgiSilik,
     },
     hatirlaticiSaat: { fontSize: 15, fontWeight: '700', color: t.vurgu, fontVariant: ['tabular-nums'] },
+    haplar: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+    hap: {
+      paddingHorizontal: 12,
+      height: 34,
+      borderRadius: 17,
+      justifyContent: 'center',
+      backgroundColor: t.zemin,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: t.cizgi,
+    },
+    hapSecili: { backgroundColor: t.vurguAcik, borderColor: t.vurgu },
+    hapYazi: { fontSize: 13.5, fontWeight: '700', color: t.yazi },
   });

@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState } from 'react';
 
 import type { Konum } from './otp';
+import type { UcretTuru } from './ucret';
 
 export type YerTuru = 'ev' | 'is';
 export type FavoriDurak = { gtfsId: string; ad: string };
@@ -13,6 +14,7 @@ export type SonArama = { ad: string; lat: number; lon: number; alt?: string; zam
 const YER_ANAHTARI = 'kayitli-yerler-v1';
 const FAVORI_ANAHTARI = 'favori-duraklar-v1';
 const ARAMA_ANAHTARI = 'son-aramalar-v1';
+const UCRET_ANAHTARI = 'ucret-turu-v1';
 const ARAMA_SINIRI = 12;
 
 type Yerler = Partial<Record<YerTuru, Konum>>;
@@ -71,15 +73,23 @@ export async function aramalariTemizle(): Promise<void> {
   haberVer();
 }
 
+/** İstanbulkart türü: ücret hesabı buna göre yapılır. */
+export async function ucretTuruKaydet(tur: UcretTuru): Promise<void> {
+  await yaz(UCRET_ANAHTARI, tur);
+  haberVer();
+}
+
 export function useKayitlar() {
   const [yerler, setYerler] = useState<Yerler>({});
   const [favoriler, setFavoriler] = useState<FavoriDurak[]>([]);
   const [aramalar, setAramalar] = useState<SonArama[]>([]);
+  const [ucretTuru, setUcretTuru] = useState<UcretTuru>('tam');
 
   const yukle = useCallback(async () => {
     setYerler(await oku<Yerler>(YER_ANAHTARI, {}));
     setFavoriler(await oku<FavoriDurak[]>(FAVORI_ANAHTARI, []));
     setAramalar(await oku<SonArama[]>(ARAMA_ANAHTARI, []));
+    setUcretTuru(await oku<UcretTuru>(UCRET_ANAHTARI, 'tam'));
   }, []);
 
   useEffect(() => {
@@ -90,5 +100,5 @@ export function useKayitlar() {
     };
   }, [yukle]);
 
-  return { yerler, favoriler, aramalar };
+  return { yerler, favoriler, aramalar, ucretTuru };
 }

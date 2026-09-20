@@ -7,7 +7,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BacakZinciri, GeriCubugu, HataKutusu, Ikon, SureSeridi, useStiller, Yukleniyor } from '@/components/ulasim';
 import { OtpHatasi, rotaPlanla, type Guzergah, type Konum } from '@/lib/otp';
+import { useKayitlar } from '@/lib/kayitlar';
 import { guzergahlariSakla } from '@/lib/secim';
+import { ucretKisa, yolculukUcreti } from '@/lib/ucret';
 import { aracAdi, baslikYap, useTema, type Tema } from '@/lib/tema';
 import {
   gunEtiketi,
@@ -94,6 +96,7 @@ export default function RotaEkrani() {
   const [zamanAcik, setZamanAcik] = useState(false);
   const [taslak, setTaslak] = useState({ gun: 0, saat: 8, dakika: 0 });
 
+  const { ucretTuru } = useKayitlar();
   const nereden: Konum = useMemo(() => ({ ad: p.kAd ?? 'Konumum', lat: Number(p.kLat), lon: Number(p.kLon) }), [p.kAd, p.kLat, p.kLon]);
   const nereye: Konum = useMemo(() => ({ ad: p.vAd ?? 'Hedef', lat: Number(p.vLat), lon: Number(p.vLon) }), [p.vAd, p.vLat, p.vLon]);
 
@@ -144,6 +147,17 @@ export default function RotaEkrani() {
 
   const yerDegistir = () =>
     router.setParams({ kLat: p.vLat, kLon: p.vLon, kAd: p.vAd, vLat: p.kLat, vLon: p.kLon, vAd: p.kAd });
+
+  // Ücret hesabı bacak dizisine bakıyor; kart başına bir kez hesaplanıp saklanıyor.
+  const ucretler = useMemo(() => {
+    const tablo: Record<number, string> = {};
+    for (const { ana, sonrakiler } of gruplar) {
+      for (const { g, sira } of [ana, ...sonrakiler]) {
+        tablo[sira] = ucretKisa(yolculukUcreti(g.legs, ucretTuru));
+      }
+    }
+    return tablo;
+  }, [gruplar, ucretTuru]);
 
   const detayaGit = (sira: number) => {
     if (!guzergahlar) return;
@@ -224,6 +238,7 @@ export default function RotaEkrani() {
                 {oneri && <Text style={[s.altYazi, s.kalin]}>{`${saatYaz(g.start)}–${saatYaz(g.end)}`}</Text>}
                 <Text style={s.altYazi}>{sureYaz(g.walkTime)} yürüme</Text>
                 <Text style={s.altYazi}>{g.numberOfTransfers === 0 ? 'Aktarmasız' : `${g.numberOfTransfers} aktarma`}</Text>
+                {ucretler[sira] && <Text style={[s.altYazi, s.ucret]}>{ucretler[sira]}</Text>}
               </View>
               {ilkArac && (
                 <Text style={s.ilkArac}>
@@ -374,6 +389,7 @@ const stiller = (t: Tema) =>
   kartAlt: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   altYazi: { fontSize: 12.5, color: t.soluk, fontVariant: ['tabular-nums'] },
   kalin: { color: t.yazi, fontWeight: '700' },
+  ucret: { color: t.vurgu, fontWeight: '700' },
   ilkArac: { fontSize: 12.5, color: t.vurgu, fontWeight: '600' },
   not: { fontSize: 12, color: t.soluk, textAlign: 'center', paddingTop: 6 },
   sonraki: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.cizgi, paddingTop: 10, gap: 7 },

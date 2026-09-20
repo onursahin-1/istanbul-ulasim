@@ -13,11 +13,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HatirlatmaSayfasi, type InisBilgisi } from '@/components/hatirlatma';
 import { GeriCubugu, HatRozeti, Ikon, useStiller } from '@/components/ulasim';
 import { useHatirlaticilar } from '@/lib/bildirim';
+import { useKayitlar } from '@/lib/kayitlar';
 import { mesafeMetre, polylineCoz, type Nokta } from '@/lib/cografya';
 import { bacakDuraklari, hatKalkislariGetir, type Bacak } from '@/lib/otp';
 import { guzergahGetir } from '@/lib/secim';
 import { seferBilgisi, sikliktanYazi, type SeferBilgisi } from '@/lib/sefer';
 import { aracAdi, baslikYap, haritaRengi, hatRengi, useTema, type Tema } from '@/lib/tema';
+import { TARIFE_TARIHI, UCRET_ADLARI, ucretKisa, ucretYaz, yolculukUcreti } from '@/lib/ucret';
 import { isodanSaniye, mesafeYaz, saatYaz, saniyedenSaat, sureYaz } from '@/lib/zaman';
 
 type Takip = { bacak: number; kalanDurak: number } | null;
@@ -48,6 +50,7 @@ export default function RotaDetayEkrani() {
   const [seferler, setSeferler] = useState<Record<number, SeferBilgisi>>({});
   const [hatirlatAcik, setHatirlatAcik] = useState(false);
   const { hatirlaticilar, yenile: hatirlaticilariYenile } = useHatirlaticilar();
+  const { ucretTuru } = useKayitlar();
   const aboneligi = useRef<Location.LocationSubscription | null>(null);
   const simulasyon = useRef<ReturnType<typeof setInterval> | null>(null);
   const uyarilanlar = useRef(new Set<string>());
@@ -56,6 +59,8 @@ export default function RotaDetayEkrani() {
   const bacaklar = useMemo(() => guzergah?.legs ?? [], [guzergah]);
   const cizgiler = useMemo(() => bacaklar.map(bacakNoktalari), [bacaklar]);
   const duraklar = useMemo(() => bacaklar.map((b) => (b.transitLeg ? bacakDuraklari(b) : [])), [bacaklar]);
+
+  const ucret = useMemo(() => yolculukUcreti(bacaklar, ucretTuru), [bacaklar, ucretTuru]);
 
   // Hatırlatıcılar: yola çıkış anı ve her aracın iniş durağına varış anı.
   const hatirlatmaGrubu = `rota-${sira}-${guzergah?.start ?? ''}`;
@@ -439,6 +444,29 @@ export default function RotaDetayEkrani() {
               <Text style={s.adimBaslik}>Varış{hedef ? ` · ${baslikYap(hedef)}` : ''}</Text>
             </View>
           </View>
+
+          {ucret.toplam > 0 && (
+            <View style={s.ucretKutusu}>
+              <View style={s.ucretUst}>
+                <Text style={s.ucretBaslik}>İstanbulkart ücreti</Text>
+                <Text style={s.ucretToplam}>{ucretKisa(ucret)}</Text>
+              </View>
+              {bacaklar.map((b, i) => {
+                const u = ucret.bacaklar[i];
+                if (!u) return null;
+                return (
+                  <View key={`ucret-${i}`} style={s.ucretSatiri}>
+                    <HatRozeti hat={b.route} kucuk />
+                    <Text style={s.ucretAciklama} numberOfLines={1}>
+                      {u.aciklama}
+                    </Text>
+                    <Text style={s.ucretTutar}>{ucretYaz(u.tutar)}</Text>
+                  </View>
+                );
+              })}
+              <Text style={s.ucretNot}>{ucretNotu(ucret, ucretTuru)}</Text>
+            </View>
+          )}
         </ScrollView>
 
         <View style={[s.alt, { paddingBottom: kenar.bottom + 10 }]}>
@@ -479,6 +507,15 @@ export default function RotaDetayEkrani() {
       />
     </View>
   );
+}
+
+/** Ücret kutusunun altındaki açıklama: tarife, tahmin payı ve gece tarifesi uyarısı. */
+function ucretNotu(ucret: ReturnType<typeof yolculukUcreti>, tur: keyof typeof UCRET_ADLARI): string {
+  const parcalar = [`${UCRET_ADLARI[tur]} · ${TARIFE_TARIHI} tarifesi`];
+  if (ucret.geceTarifesi) parcalar.push('Gece tarifesi (çift ücret) uygulandı');
+  if (ucret.yeniYolculuk > 0) parcalar.push('120 dakikalık aktarma süresi dolduğu için ücret yeniden başladı');
+  if (ucret.yaklasik) parcalar.push('Vapur ücreti hatta göre değişir; tutar yaklaşıktır');
+  return parcalar.join(' · ');
 }
 
 /**
@@ -654,6 +691,23 @@ const stiller = (t: Tema) =>
     gap: 8,
   },
   bitir: { backgroundColor: t.yazi },
+  ucretKutusu: {
+    marginHorizontal: 14,
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: t.yuzeyIkincil,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: t.cizgi,
+    gap: 8,
+  },
+  ucretUst: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
+  ucretBaslik: { fontSize: 14.5, fontWeight: '700', color: t.yazi },
+  ucretToplam: { fontSize: 17, fontWeight: '800', color: t.vurgu, fontVariant: ['tabular-nums'] },
+  ucretSatiri: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  ucretAciklama: { flex: 1, fontSize: 12.5, color: t.soluk },
+  ucretTutar: { fontSize: 13.5, fontWeight: '600', color: t.yazi, fontVariant: ['tabular-nums'] },
+  ucretNot: { fontSize: 11.5, color: t.soluk, lineHeight: 17 },
   zil: {
     width: 50,
     height: 50,
