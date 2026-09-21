@@ -19,7 +19,7 @@ Sunucu `http://localhost:8082` adresinde üç uç nokta açar:
 | `/durum` | insan için JSON özet | — |
 
 Ortam değişkenleri: `GTFS_ZIP` (varsayılan `C:\otp\istanbul\istanbul-iett-gtfs.zip`),
-`PORT` (8082 — 8080 OTP'nin, 8081 Expo'nun), `ARALIK` (45 saniye), `ESZAMANLI` (10).
+`PORT` (8082 — 8080 OTP'nin, 8081 Expo'nun), `NABIZ` (40 saniye), `DAKIKADA` (18).
 
 ## OTP tarafı
 
@@ -55,18 +55,33 @@ Grafiği yeniden derlemeye gerek yok; OTP'yi `--load --serve` ile yeniden başla
 
 ## Nasıl çalışıyor
 
-İETT'nin servisi boş hat koduyla bütün filoyu vermiyor, hat hat soruyor. 784 hattı
-10 eşzamanlı istekle tarıyoruz; bütün şehir ~20 saniyede çıkıyor, ~6.900 araç.
+**İBB'nin ağ geçidi hız sınırlı.** İlk tasarım 784 hattı 45 saniyede bir tarıyordu ve
+kapıyı kapattırdı (`Policy Falsified / Rate limit exceeded`). Mimari buna göre kuruldu:
+bütün istekler tek bir kapıdan geçiyor, kapı hızı sınırlıyor ve sınıra takılınca ceza
+süresi katlanarak artıyor. Israr etmek sınırı uzatır.
 
-Asıl iş, aracı **hangi seferi yaptığına** bağlamak: GTFS-RT her şeyi sefer düzeyinde
-ister, İETT ise yalnızca hat, yön ve en yakın durak verir. Bağlantı şöyle kuruluyor:
+İki hızda çalışıyor:
 
-1. `guzergahkodu` (`34G_G_D0`) → GTFS `route_code`. Ölçüldü: **%100 eşleşme**.
-2. `yakinDurakKodu` (`900021`) → GTFS `stop_code`. Ölçüldü: **%100 eşleşme**.
+- **Nabız** (40 saniyede bir, **tek istek**) — `GetFiloAracKonum_json` bütün filonun
+  taze konumunu veriyor. Hat bilgisi içermiyor.
+- **Tarama** (arka planda, yavaş) — `GetHatOtoKonum_json` hat hat sorularak hangi
+  aracın hangi güzergâhta olduğu öğreniliyor. Bir otobüs turunu bitirene kadar hattını
+  değiştirmediği için bu eşleme dakikalarca geçerli kalıyor. Yoğun hatlar öne alınıyor.
+
+İkisi **kapı numarası** üzerinden birleşiyor. Sonra aracı seferine bağlamak için:
+
+1. Güzergâh kodu (`34G_G_D0`) → GTFS `route_code`. Ölçüldü: **%100 eşleşme**.
+2. Konum → o rotanın en yakın durağı. Filo servisi durak kodu vermediği için
+   mesafeden hesaplanıyor.
 3. O rotanın, o duraktan, şu ana en yakın saatte geçen aktif seferi seçilir.
 
-Üçüncü adım için tarifenin tamamı belleğe alınıyor (6,1 milyon durak-saat satırı,
-tipli dizilerde ~3 saniye ve ~650 MB).
+Tarifenin tamamı belleğe alınıyor (6,1 milyon durak-saat satırı, tipli dizilerde
+~3 saniye ve ~650 MB).
+
+**Durak eşiği hatta göre değişiyor.** Şehir içi hatlarda duraklar 300 metre arayken
+metrobüste 1–2 kilometre; iki durak arasındaki bir metrobüs en yakın durağa 700 metre
+uzakta olabiliyor. Sabit 400 metrelik eşik metrobüs araçlarının beşte birini
+"güzergâh dışı" sayıyordu. Eşik artık hattın kendi durak aralığından türetiliyor.
 
 **Bir tuzak:** İETT beslemesinde bir seferin yalnızca ilk ve son durağında saat yazılı,
 aradakiler boş — OTP onları doğrusal ara değerliyor. Biz de aynısını yapmadan önce
@@ -85,3 +100,7 @@ yeni tur başlamış sayılır ve eşleştirme yenilenir.
   hesaplanıyor, OTP onu seferin geri kalanına yayıyor.
 - Veri 50–60 saniye geride geliyor.
 - Köprü OTP ile aynı makinede çalışmalı (ya da OTP'nin erişebileceği bir adreste).
+- Eşleşme oranı örnek veride **%91**. Kalan araçlar güzergâhın belirgin biçimde
+  dışında: garajda ya da boş sefer yapıyorlar.
+- Hat eşlemesi taramanın tur süresi kadar eskiyebiliyor. Yeni sefere çıkan bir araç,
+  tarama ona uğrayana kadar akışta görünmez.

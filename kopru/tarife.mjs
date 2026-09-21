@@ -77,10 +77,14 @@ export function tarifeyiKur(zipYolu) {
   const durakNo = new Map(); // stop_id → sıra
   const durakAd = [];
   const kodtanDurak = new Map(); // "100022" → sıra
+  const durakEnlem = new Float64Array(duraklar.length);
+  const durakBoylam = new Float64Array(duraklar.length);
   for (const s of duraklar) {
     const no = durakAd.length;
     durakNo.set(s.stop_id, no);
     durakAd.push(s.stop_id);
+    durakEnlem[no] = Number(s.stop_lat);
+    durakBoylam[no] = Number(s.stop_lon);
     const kod = (s.stop_code ?? '').trim();
     if (kod) kodtanDurak.set(kod, no);
   }
@@ -210,7 +214,60 @@ export function tarifeyiKur(zipYolu) {
     sSira[yer] = gSira[i];
   }
 
+  // Her rotanın uğradığı duraklar.
+  //
+  // Canlı filo servisi yalnızca enlem/boylam veriyor, durak kodu vermiyor: aracın
+  // hangi durakta olduğunu konumundan kendimiz buluyoruz. Bunun için rotanın bütün
+  // duraklarını bilmek gerekiyor — tek bir temsilci seferin duraklarıyla yetinince
+  // araçların %20'si "güzergâh dışı" sayılıyordu, çünkü aynı hattın seferleri
+  // birbirinden durak atlayarak ayrılabiliyor. O yüzden rotanın bütün seferlerinin
+  // duraklarının birleşimini alıyoruz.
+  const rotaDuraklari = new Map(); // rota → [{durak, sira}]
+  const gorulen = new Map(); // rota → Set(durak)
+  for (let durak = 0; durak < durakAd.length; durak++) {
+    for (let i = durakBas[durak]; i < durakBas[durak + 1]; i++) {
+      const rota = seferRota[sSefer[i]];
+      if (rota < 0) continue;
+      let kume = gorulen.get(rota);
+      if (!kume) {
+        kume = new Set();
+        gorulen.set(rota, kume);
+        rotaDuraklari.set(rota, []);
+      }
+      if (kume.has(durak)) continue;
+      kume.add(durak);
+      rotaDuraklari.get(rota).push({ durak, sira: sSira[i] });
+    }
+  }
+  for (const liste of rotaDuraklari.values()) liste.sort((a, b) => a.sira - b.sira);
+
+  // Her rota için "güzergâh üstünde sayılma" eşiği.
+  //
+  // Sabit bir mesafe işe yaramıyor: şehir içi hatlarda duraklar 300 metre arayken
+  // metrobüste 1–2 kilometre. İki durak arasındaki metrobüs, en yakın durağa
+  // 700 metre uzakta olabiliyor ve sabit 400 metre onu güzergâh dışı sayıyordu.
+  // Eşiği hattın kendi durak aralığından türetiyoruz.
+  const rotaEsik = new Map();
+  for (const [rota, liste] of rotaDuraklari) {
+    const araliklar = [];
+    for (let i = 1; i < liste.length; i++) {
+      const a = liste[i - 1].durak;
+      const b = liste[i].durak;
+      const de = (durakEnlem[b] - durakEnlem[a]) * 111_320;
+      const db = (durakBoylam[b] - durakBoylam[a]) * 111_320 * Math.cos((durakEnlem[a] * Math.PI) / 180);
+      araliklar.push(Math.hypot(de, db));
+    }
+    araliklar.sort((x, y) => x - y);
+    const ortanca = araliklar.length ? araliklar[araliklar.length >> 1] : 0;
+    rotaEsik.set(rota, Math.min(2000, Math.max(400, ortanca * 0.8)));
+  }
+
+
   return {
+    rotaDuraklari,
+    rotaEsik,
+    durakEnlem,
+    durakBoylam,
     guzergahtanRota,
     kisaAdtanRotalar,
     kodtanDurak,
@@ -235,6 +292,31 @@ export function tarifeyiKur(zipYolu) {
     },
     kurulumMs: Date.now() - t0,
   };
+}
+
+/**
+ * Aracın konumuna en yakın durağı, o rotanın durakları arasında bulur.
+ * Derece farkını metreye çevirmeden karşılaştırıyoruz; enlem düzeltmesi yeterli.
+ */
+export function enYakinDurak(tarife, rotaIdx, enlem, boylam, enFazlaMetre) {
+  const esik = enFazlaMetre ?? tarife.rotaEsik.get(rotaIdx) ?? 400;
+  const liste = tarife.rotaDuraklari.get(rotaIdx);
+  if (!liste?.length) return null;
+  const olcek = Math.cos((enlem * Math.PI) / 180);
+  let enIyi = null;
+  let enKisa = Infinity;
+  for (const d of liste) {
+    const de = tarife.durakEnlem[d.durak] - enlem;
+    const db = (tarife.durakBoylam[d.durak] - boylam) * olcek;
+    const kare = de * de + db * db;
+    if (kare < enKisa) {
+      enKisa = kare;
+      enIyi = d;
+    }
+  }
+  // 1 derece enlem ≈ 111 320 metre
+  const metre = Math.sqrt(enKisa) * 111_320;
+  return enIyi && metre <= esik ? { ...enIyi, metre } : null;
 }
 
 /** Verilen tarihte çalışan servislerin bayrak dizisi. */

@@ -11,7 +11,7 @@
 
 import GtfsRealtimeBindings from 'gtfs-realtime-bindings';
 
-import { gununServisleri, seferBul } from './tarife.mjs';
+import { enYakinDurak, gununServisleri, seferBul } from './tarife.mjs';
 
 const { FeedMessage, FeedHeader, TripDescriptor, VehiclePosition, TripUpdate } =
   GtfsRealtimeBindings.transit_realtime;
@@ -24,13 +24,25 @@ function planlananSaat(tarife, seferIdx, durakIdx) {
   return null;
 }
 
-/** "2026-09-21 16:38:49" → o günün başından saniye + Date. */
-function zamaniCoz(metin) {
-  const e = String(metin ?? '').match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
-  if (!e) return null;
-  const [, y, ay, g, s, d, sn] = e.map(Number);
-  const tarih = new Date(y, ay - 1, g, s, d, sn);
-  return { tarih, saniye: s * 3600 + d * 60 + sn };
+/**
+ * Zaman alanını çözer. Filo servisi yalnızca "16:38:55" veriyor (tarihsiz),
+ * hat servisi ise "2026-09-21 16:38:49". İkisini de kabul ediyoruz.
+ */
+function zamaniCoz(metin, simdi = new Date()) {
+  const d = String(metin ?? '').trim();
+  const tam = d.match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
+  if (tam) {
+    const [, y, ay, g, s, dk, sn] = tam.map(Number);
+    return { tarih: new Date(y, ay - 1, g, s, dk, sn), saniye: s * 3600 + dk * 60 + sn };
+  }
+  const yalniz = d.match(/^(\d{1,2}):(\d{2}):(\d{2})$/);
+  if (!yalniz) return null;
+  const [, s, dk, sn] = yalniz.map(Number);
+  const tarih = new Date(simdi);
+  tarih.setHours(s, dk, sn, 0);
+  // Gece yarısını yeni geçtiysek "23:59" dünden kalmadır.
+  if (tarih - simdi > 12 * 3600 * 1000) tarih.setDate(tarih.getDate() - 1);
+  return { tarih, saniye: s * 3600 + dk * 60 + sn };
 }
 
 const GUN = 86_400;
@@ -73,26 +85,43 @@ export class SeferHafizasi {
 
 /**
  * Canlı araç kayıtlarını eşleştirir.
+ *
+ * Girdi, filo servisinden gelen kayıtlar: kapı numarası, enlem, boylam, saat.
+ * Hat bilgisi taramadan (`tarayici`) geliyor, durak ise konumdan hesaplanıyor —
+ * filo servisi durak kodu vermiyor.
+ *
  * @returns {{eslesenler: object[], sayac: object}}
  */
-export function araclariEslestir(tarife, araclar, hafiza, simdi = new Date()) {
+export function araclariEslestir(tarife, araclar, hafiza, tarayici, simdi = new Date()) {
   const aktif = gununServisleri(tarife, simdi);
   const eslesenler = [];
-  const sayac = { toplam: 0, rotaYok: 0, durakYok: 0, seferYok: 0, surdurulen: 0, yeni: 0, eskimis: 0 };
+  const sayac = { toplam: 0, hatBilinmiyor: 0, rotaYok: 0, durakYok: 0, seferYok: 0, surdurulen: 0, yeni: 0, eskimis: 0 };
 
   for (const a of araclar) {
     sayac.toplam++;
-    const rotaIdx = tarife.guzergahtanRota.get(String(a.guzergahkodu ?? '').trim().toUpperCase());
+    const kapiNo = String(a.kapiNo ?? '').trim();
+    const guzergah = kapiNo ? tarayici.guzergah(kapiNo) : null;
+    if (!guzergah) {
+      sayac.hatBilinmiyor++;
+      continue;
+    }
+    const rotaIdx = tarife.guzergahtanRota.get(guzergah);
     if (rotaIdx === undefined) {
       sayac.rotaYok++;
       continue;
     }
-    const durakIdx = tarife.kodtanDurak.get(String(a.yakinDurakKodu ?? '').trim());
-    if (durakIdx === undefined) {
+    if (!Number.isFinite(a.enlem) || !Number.isFinite(a.boylam)) {
       sayac.durakYok++;
       continue;
     }
-    const zaman = zamaniCoz(a.son_konum_zamani);
+    const yakin = enYakinDurak(tarife, rotaIdx, a.enlem, a.boylam);
+    if (!yakin) {
+      // Araç güzergâhın 400 metre dışında: ya garajda ya da eşleme eskimiş.
+      sayac.durakYok++;
+      continue;
+    }
+    const durakIdx = yakin.durak;
+    const zaman = zamaniCoz(a.saat, simdi);
     if (!zaman) {
       sayac.eskimis++;
       continue;
@@ -103,7 +132,6 @@ export function araclariEslestir(tarife, araclar, hafiza, simdi = new Date()) {
       continue;
     }
 
-    const kapiNo = String(a.kapino ?? a.KapiNo ?? '').trim();
     let secilen = null;
 
     // 1) Araç zaten bir sefere bağlıysa ve o sefer bu duraktan geçiyorsa, seferde kal.
@@ -139,10 +167,10 @@ export function araclariEslestir(tarife, araclar, hafiza, simdi = new Date()) {
       sira: secilen.sira,
       // Gecikme: gözlem anı − planlanan an. Pozitif = geç kalmış.
       gecikme: fark(zaman.saniye, secilen.planlanan),
-      enlem: Number(a.enlem),
-      boylam: Number(a.boylam),
+      enlem: a.enlem,
+      boylam: a.boylam,
       damga: Math.floor(zaman.tarih.getTime() / 1000),
-      hatAd: a.hatad ?? '',
+      durakMesafe: Math.round(yakin.metre),
     });
   }
 
