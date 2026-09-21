@@ -107,6 +107,23 @@ kapsamıyor.
 Betik zip dosyasını **yerinde** değiştirir; tekrar çalıştırmadan önce `hazirla-gtfs.mjs`
 ile yeniden üretmek ya da yedekten dönmek gerekir.
 
+## 5. Marmaray'ın kısa dönüş hattı
+
+```powershell
+python marmaray-duzelt.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
+```
+
+İBB verisinde Marmaray üç hat olarak duruyor: tam hat (Halkalı–Gebze, 43 istasyon,
+15 dakikada bir), kısa dönüş (8 dakikada bir) ve Halkalı–Bahçeşehir banliyösü.
+Sıklıkların ikisi de TCDD'nin yayımladığı değerlerle uyuşuyor; kusur kapsamda:
+kısa dönüş hattı veride yalnızca tünelin yedi istasyonunu (Zeytinburnu–Söğütlüçeşme)
+kapsıyor, gerçekte **Ataköy–Pendik** arasında çalışıyor.
+
+Bu yüzden Bakırköy'de ya da Maltepe'de uygulama 15 dakikada bir tren gösteriyordu;
+gerçekte iki hat üst üste binip 5-6 dakikaya iniyor. Betik kısa dönüş seferlerini tam
+hattın kendi istasyon sırası ve kendi geçiş süreleriyle iki uçtan uzatıyor — saatler
+uydurulmuyor, tam hattın seferinden alınıyor. Sonuç: 7 → 25 istasyon.
+
 ## Grafiği derleme
 
 ```powershell
