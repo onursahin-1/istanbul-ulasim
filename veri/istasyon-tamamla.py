@@ -35,14 +35,17 @@ SIFIRDAN = {
         'uzun': 'GAYRETTEPE - İSTANBUL HAVALİMANI - HALKALI',
         'ajans': ('tcdd-tasimacilik', 'TCDD Taşımacılık', 'https://www.tcddtasimacilik.gov.tr/'),
         'tur': '1',
-        'sure_dk': 42,          # Gayrettepe-Halkalı uçtan uca
-        'pencereler': [('06:00:00', '07:00:00', 900),
-                       ('07:00:00', '20:00:00', 600),
-                       ('20:00:00', '24:00:00', 900)],
+        # Aşağıdaki değerler tahmin değil, iki bağımsız kaynaktan okundu:
+        # uçtan uca 57 dk, ilk sefer 06:00, son sefer 00:40, sıklık zirvede 20 dk,
+        # diğer saatlerde 20-30 dk. (marmaray.istanbul ve gokyuzuhaberci.com, 2026)
+        'sure_dk': 57,          # Gayrettepe-Halkalı uçtan uca, duraklamalar dâhil
+        'pencereler': [('06:00:00', '22:00:00', 1200),
+                       ('22:00:00', '24:40:00', 1800)],
     },
 }
 
 # Süre onarımı: bu mesafeden uzak iki istasyon arasında bu süreden kısa geçiş olamaz.
+DURAKLAMA = 20           # saniye, istasyonda bekleme
 ONARIM_MESAFE = 400      # metre
 ONARIM_ESIK = 30         # saniye
 ONARIM_HIZ = 9.0         # m/sn (~32 km/sa, duraklama dâhil)
@@ -217,7 +220,8 @@ def hat_uret(kod, dizi, tablolar, servis, yeniDurak):
     araliklar = [mesafe((float(a['lat']), float(a['lon'])), (float(b['lat']), float(b['lon'])))
                  for a, b in zip(dizi, dizi[1:])]
     toplam_m = sum(araliklar) or 1.0
-    hedef = tarif['sure_dk'] * 60
+    # sure_dk uçtan uca geçen süre; istasyonlardaki 20 sn'lik duraklamalar onun içinde.
+    hedef = max(60, tarif['sure_dk'] * 60 - DURAKLAMA * (len(dizi) - 1))
     sureler = [max(70, round(hedef * m / toplam_m)) for m in araliklar]
 
     eklenen = 0
@@ -235,12 +239,12 @@ def hat_uret(kod, dizi, tablolar, servis, yeniDurak):
             if i:
                 t += adimlar[i - 1]
             tablolar['stop_times.txt'].append({
-                'trip_id': sefer_id, 'arrival_time': saat(t), 'departure_time': saat(t + 20),
+                'trip_id': sefer_id, 'arrival_time': saat(t), 'departure_time': saat(t + DURAKLAMA),
                 'stop_id': 'osm-' + d['id'], 'stop_sequence': str(i + 1),
                 'stop_headsign': d['ad'], 'pickup_type': '0', 'drop_off_type': '0',
                 'shape_dist_traveled': '', 'timepoint': '0',
             })
-            t += 20
+            t += DURAKLAMA
             eklenen += 1
         for bas, bit, ara in tarif['pencereler']:
             tablolar['frequencies.txt'].append({
