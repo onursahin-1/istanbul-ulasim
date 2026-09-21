@@ -10,7 +10,7 @@ npm install      # bir kez
 npm start
 ```
 
-Sunucu `http://localhost:8081` adresinde üç uç nokta açar:
+Sunucu `http://localhost:8082` adresinde üç uç nokta açar:
 
 | Adres | Ne | OTP karşılığı |
 |---|---|---|
@@ -19,7 +19,7 @@ Sunucu `http://localhost:8081` adresinde üç uç nokta açar:
 | `/durum` | insan için JSON özet | — |
 
 Ortam değişkenleri: `GTFS_ZIP` (varsayılan `C:\otp\istanbul\istanbul-iett-gtfs.zip`),
-`PORT` (8081), `ARALIK` (45 saniye), `ESZAMANLI` (10).
+`PORT` (8082 — 8080 OTP'nin, 8081 Expo'nun), `ARALIK` (45 saniye), `ESZAMANLI` (10).
 
 ## OTP tarafı
 
@@ -37,14 +37,14 @@ curl.exe -s -X POST http://localhost:8080/otp/gtfs/v1 -H "Content-Type: applicat
     {
       "type": "vehicle-positions",
       "feedId": "BURAYA_FEED_ID",
-      "url": "http://localhost:8081/arac-konumlari",
+      "url": "http://localhost:8082/arac-konumlari",
       "frequency": "45s",
       "features": ["position"]
     },
     {
       "type": "stop-time-updater",
       "feedId": "BURAYA_FEED_ID",
-      "url": "http://localhost:8081/sefer-guncellemeleri",
+      "url": "http://localhost:8082/sefer-guncellemeleri",
       "frequency": "45s"
     }
   ]

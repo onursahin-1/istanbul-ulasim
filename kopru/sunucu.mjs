@@ -5,7 +5,7 @@
 //
 // Ortam değişkenleri:
 //   GTFS_ZIP   İETT GTFS zip yolu (varsayılan C:\otp\istanbul\istanbul-iett-gtfs.zip)
-//   PORT       dinlenecek kapı (varsayılan 8081)
+//   PORT       dinlenecek kapı (varsayılan 8082 — 8081 Expo'nun, 8080 OTP'nin)
 //   ARALIK     tarama aralığı, saniye (varsayılan 45)
 //   ESZAMANLI  aynı anda kaç İETT isteği (varsayılan 10)
 //
@@ -22,7 +22,8 @@ import { araclariEslestir, gecikmeAkisi, konumAkisi, SeferHafizasi } from './kop
 import { tarifeyiKur } from './tarife.mjs';
 
 const ZIP = process.env.GTFS_ZIP ?? 'C:\\otp\\istanbul\\istanbul-iett-gtfs.zip';
-const PORT = Number(process.env.PORT ?? 8081);
+// 8080 OTP, 8081 Expo Metro. Köprü 8082'de duruyor.
+const PORT = Number(process.env.PORT ?? 8082);
 const ARALIK = Number(process.env.ARALIK ?? 45) * 1000;
 const ESZAMANLI = Number(process.env.ESZAMANLI ?? 10);
 
