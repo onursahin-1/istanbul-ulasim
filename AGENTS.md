@@ -24,6 +24,10 @@ npm run sorgu            # jar'ı C:\otp içinde kendi bulur
 npm run sorgu -- <yol>   # başka bir jar ya da klasör
 ```
 
+Betik `node --import tsx` ile çalışır, `tsx` kabuk kısayoluyla değil: proje Windows'ta
+geliştirilirken bağımlılıklar başka bir makineden kurulduysa `node_modules/.bin` içindeki
+`.cmd` kısayolları oluşmuyor ve `tsx` bulunamıyor.
+
 Betik şemayı jar'ın içinden (`org/opentripplanner/apis/gtfs/schema.graphqls`) çıkarır ve
 hem sorguları hem de rota tercihi nesnelerini denetler. **Sorgu değiştiren her
 düzenlemeden sonra çalıştır**: OTP'nin GTFS API'si tahmin edilebilir görünse de

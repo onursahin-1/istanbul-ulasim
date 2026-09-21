@@ -49,7 +49,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "sorgu": "tsx scripts/sorgu-dogrula.ts"
+    "sorgu": "node --import tsx scripts/sorgu-dogrula.ts"
   },
   "private": true
 }
