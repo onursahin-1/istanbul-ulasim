@@ -29,6 +29,7 @@ export { SORGULAR, VARSAYILAN_SECENEKLER, tercihleriYap } from './sorgular';
 export { bacakDuraklari } from './bacak';
 export type { RotaSecenekleri, RotaTercihi } from './sorgular';
 import { SORGULAR as S, VARSAYILAN_SECENEKLER, tercihleriYap, type RotaSecenekleri } from './sorgular';
+import { aramayiIndir, yakinlariIndir, type Ebeveynli } from './istasyon';
 
 const {
   YAKIN_DURAKLAR,
@@ -166,12 +167,19 @@ export async function yakinDuraklariGetir(lat: number, lon: number, sinyal?: Abo
     } | null;
   };
   const veri = await sorgula<Cevap>(YAKIN_DURAKLAR, { lat, lon }, sinyal);
-  return (veri.nearest?.edges ?? [])
+  const ham = (veri.nearest?.edges ?? [])
     .filter((e) => e.node.place?.__typename === 'Stop')
     .map((e) => ({
       mesafe: e.node.distance,
       durak: { ...(e.node.place as YakinDurak['durak']), kalkislar: e.node.place?.kalkislar ?? [] },
     }));
+  // Aynı meydanın peronları tek satıra insin, kalkışları birleşsin.
+  return yakinlariIndir(ham, (a, b) => kalkisAni(a) - kalkisAni(b)) as YakinDurak[];
+}
+
+/** Bir kalkışın mutlak anı (saniye); gerçek zamanlı varsa o, yoksa tarifedeki. */
+function kalkisAni(k: Kalkis): number {
+  return (k.serviceDay ?? 0) + (k.realtimeDeparture ?? k.scheduledDeparture ?? 0);
 }
 
 export async function durakDetayiGetir(id: string, sinyal?: AbortSignal): Promise<DurakDetayi | null> {
@@ -179,10 +187,15 @@ export async function durakDetayiGetir(id: string, sinyal?: AbortSignal): Promis
   return veri.stop;
 }
 
-/** Durak adında arama yapar. Rota motoru adları büyük harfle tuttuğu için arama da büyük harfle yapılır. */
+/**
+ * Durak adında arama yapar. Rota motoru adları büyük harfle tuttuğu için arama da
+ * büyük harfle yapılır. Sonuç istasyon düzeyine indirilir: aynı meydanın peronları
+ * tek satıra düşer.
+ */
 export async function durakAra(ad: string, sinyal?: AbortSignal): Promise<Durak[]> {
-  const veri = await sorgula<{ stops: Durak[] | null }>(DURAK_ARA, { ad }, sinyal);
-  return veri.stops ?? [];
+  type Cevap = { stops: Ebeveynli<Durak>[] | null; istasyonlar: Durak[] | null };
+  const veri = await sorgula<Cevap>(DURAK_ARA, { ad }, sinyal);
+  return aramayiIndir(veri.stops, veri.istasyonlar) as Durak[];
 }
 
 /**
@@ -268,12 +281,13 @@ export async function durakSaatleriGetir(
   aralikSaniye = 3 * 3600,
   sinyal?: AbortSignal,
 ): Promise<DurakSaatleri | null> {
-  const veri = await sorgula<{ stop: DurakSaatleri | null }>(
+  // Kimlik bir istasyona da ait olabilir; OTP'de stop() ve station() ayrı alanlar.
+  const veri = await sorgula<{ stop: DurakSaatleri | null; istasyon: DurakSaatleri | null }>(
     DURAK_SAATLERI,
     { id, kalkis: kalkisSayisi, aralik: aralikSaniye },
     sinyal,
   );
-  return veri.stop;
+  return veri.stop ?? veri.istasyon;
 }
 
 export type SunucuBilgisi = {

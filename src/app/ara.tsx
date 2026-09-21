@@ -13,6 +13,7 @@ import { GeriCubugu, HataKutusu, Ikon, useStiller, Yukleniyor, type IkonAdi } fr
 import { mesafeMetre } from '@/lib/cografya';
 import { aramaKaydet, useKayitlar, yerKaydet, type YerTuru } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
+import { adTekrariniEle } from '@/lib/istasyon';
 import { durakAra, OtpHatasi, type Durak, type Konum } from '@/lib/otp';
 import {
   kategoriEslesmesi,
@@ -366,23 +367,19 @@ export default function AraEkrani() {
 }
 
 /**
- * Durak sonuçlarını yakınlığa göre sıralar ve aynı addakileri teke indirir.
- * Sıralama önce yapılmalı: "KADIKÖY" adında bir durak Şile'de de var ve sıralama
- * olmadan o satır listeye girip asıl Kadıköy durağını eliyordu.
+ * Durak sonuçlarını yakınlığa göre sıralar ve aynı yerin tekrarlarını eler.
+ *
+ * Bir beslemenin içindeki peronları OTP zaten istasyon altında topluyor
+ * (veri/durak-birlestir.py); burada kalan iş beslemeler arası tekrar: İETT'nin
+ * "MECİDİYEKÖY" durağı ile raylı beslemenin "Mecidiyeköy" istasyonu. Sıralama
+ * eleme öncesinde yapılmalı ki en yakın olan kalsın.
  */
 function duraklariHazirla(liste: Durak[], merkez: { latitude: number; longitude: number }): DurakSonucu[] {
-  const gorulen = new Set<string>();
-  return liste
+  const sirali = liste
     .filter((d) => d.lat != null && d.lon != null)
     .map((d) => ({ ...d, mesafe: mesafeMetre(merkez, { latitude: d.lat!, longitude: d.lon! }) }))
-    .sort((a, b) => a.mesafe - b.mesafe)
-    .filter((d) => {
-      const anahtar = d.name.trim();
-      if (gorulen.has(anahtar)) return false;
-      gorulen.add(anahtar);
-      return true;
-    })
-    .slice(0, 15);
+    .sort((a, b) => a.mesafe - b.mesafe);
+  return adTekrariniEle(sirali).slice(0, 15);
 }
 
 const stiller = (t: Tema) =>

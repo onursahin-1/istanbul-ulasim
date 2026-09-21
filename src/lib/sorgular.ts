@@ -28,6 +28,7 @@ query YakinDuraklar($lat: Float!, $lon: Float!) {
           __typename
           ... on Stop {
             gtfsId name code desc lat lon
+            parentStation { gtfsId name code desc lat lon }
             kalkislar: stoptimesWithoutPatterns(numberOfDepartures: 3, omitNonPickups: true) { ${KALKIS_ALANLARI} }
           }
         }
@@ -66,19 +67,29 @@ query HatKalkislari($durak: String!, $aralik: Int!) {
 // bazı hatlar hiç görünmüyor; desen başına sormak her hatta yer garantiliyor.
 const DURAK_SAATLERI = `
 query DurakSaatleri($id: String!, $kalkis: Int!, $aralik: Int!) {
-  stop(id: $id) {
-    gtfsId name code desc lat lon
-    routes { ${HAT_ALANLARI} }
-    desenler: stoptimesForPatterns(numberOfDepartures: $kalkis, timeRange: $aralik, omitNonPickups: true) {
-      pattern { code headsign directionId route { ${HAT_ALANLARI} } }
-      stoptimes { ${KALKIS_ALANLARI} }
-    }
+  istasyon: station(id: $id) { ...durakAlanlari }
+  stop(id: $id) { ...durakAlanlari }
+}
+
+fragment durakAlanlari on Stop {
+  gtfsId name code desc lat lon
+  routes { ${HAT_ALANLARI} }
+  desenler: stoptimesForPatterns(numberOfDepartures: $kalkis, timeRange: $aralik, omitNonPickups: true) {
+    pattern { code headsign directionId route { ${HAT_ALANLARI} } }
+    stoptimes { ${KALKIS_ALANLARI} }
   }
 }`;
 
+// Duraklar artık istasyon altında toplandı (veri/durak-birlestir.py). stops() hâlâ
+// çocukları döndürdüğü için ebeveyn de isteniyor; adı çocuklarıyla tutmayan
+// istasyonlar ise yalnız stations() ile geliyor.
 const DURAK_ARA = `
 query DurakAra($ad: String!) {
-  stops(name: $ad) { gtfsId name code desc lat lon }
+  stops(name: $ad) {
+    gtfsId name code desc lat lon
+    parentStation { gtfsId name code desc lat lon }
+  }
+  istasyonlar: stations(name: $ad) { gtfsId name code desc lat lon }
 }`;
 
 const ROTA_PLANLA = `
