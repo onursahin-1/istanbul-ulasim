@@ -17,6 +17,8 @@ type Secenek = {
   bitis?: string;
   yon?: string;
   varis?: string;
+  binis?: string;
+  isletmeci?: string;
 };
 
 /** Testler için en az alanla bir toplu taşıma bacağı üretir. */
@@ -36,9 +38,17 @@ function bacak(s: Secenek = {}): Bacak {
     headsign: s.yon ?? '',
     start: { scheduledTime: s.saat ?? '2026-09-22T09:00:00+03:00', estimated: null },
     end: { scheduledTime: s.bitis ?? '2026-09-22T09:20:00+03:00', estimated: null },
-    from: { name: 'Durak 0', lat: 41, lon: 29, stop: { gtfsId: 'd0' } },
+    from: { name: s.binis ?? 'Durak 0', lat: 41, lon: 29, stop: { gtfsId: 'd0' } },
     to: { name: s.varis ?? `Durak ${durakSayisi}`, lat: 41.1, lon: 29.1, stop: { gtfsId: `d${durakSayisi}` } },
-    route: { gtfsId: `r:${s.kod ?? '500T'}`, shortName: s.kod ?? '500T', longName: null, mode: s.mod ?? 'BUS', color: null, textColor: null },
+    route: {
+      gtfsId: `r:${s.kod ?? '500T'}`,
+      shortName: s.kod ?? '500T',
+      longName: null,
+      mode: s.mod ?? 'BUS',
+      color: null,
+      textColor: null,
+      agency: s.isletmeci ? { name: s.isletmeci } : null,
+    },
     legGeometry: null,
     trip: { gtfsId: 't1', pattern: { stops: duraklar } },
   } as unknown as Bacak;
@@ -152,17 +162,44 @@ describe('mesafeli tarifeler', () => {
 });
 
 describe('vapur', () => {
-  it('vapuru yaklaşık olarak işaretler', () => {
-    const u = yolculukUcreti([bacak({ kod: 'KDK-BSK', mod: 'FERRY', durak: 1 })], 'tam');
+  const vapur = (o: Secenek) => bacak({ mod: 'FERRY', durak: 1, ...o });
+
+  it('Şehir Hatları hattını kesin tutarla hesaplar', () => {
+    const u = yolculukUcreti(
+      [vapur({ kod: 'KDK-KRK', binis: 'KADIKÖY', varis: 'KARAKÖY', isletmeci: 'Şehirhatları A.Ş.' })],
+      'tam',
+    );
+    assert.equal(u.toplam, 6521);
+    assert.equal(u.yaklasik, false);
+    assert.equal(ucretKisa(u), '65,21 ₺', 'kesin tutarda ≈ işareti olmamalı');
+  });
+
+  it('özel işletmeciyi yaklaşık işaretler', () => {
+    const u = yolculukUcreti(
+      [vapur({ kod: 'K.KOY_KDK', binis: 'KARAKÖY', varis: 'KADIKÖY (METRO)', isletmeci: 'Turyol' })],
+      'tam',
+    );
+    assert.equal(u.toplam, 6521);
     assert.equal(u.yaklasik, true);
     assert.equal(ucretKisa(u).startsWith('≈'), true);
   });
 
+  it('tanınmayan iskelede yaklaşık kalır', () => {
+    const u = yolculukUcreti([vapur({ kod: 'KDK-BSK', isletmeci: 'Şehirhatları A.Ş.' })], 'tam');
+    assert.equal(u.yaklasik, true);
+  });
+
   it('Adalar hattını ayrı tarifeden hesaplar', () => {
-    const normal = yolculukUcreti([bacak({ kod: 'KDK-BSK', mod: 'FERRY', durak: 1 })], 'tam');
-    const ada = yolculukUcreti([bacak({ kod: 'ADA', mod: 'FERRY', durak: 1, varis: 'BÜYÜKADA' })], 'tam');
+    const normal = yolculukUcreti(
+      [vapur({ binis: 'KADIKÖY', varis: 'KARAKÖY', isletmeci: 'Şehirhatları A.Ş.' })],
+      'tam',
+    );
+    const ada = yolculukUcreti(
+      [vapur({ binis: 'KABATAŞ', varis: 'BÜYÜKADA', isletmeci: 'Şehirhatları A.Ş.' })],
+      'tam',
+    );
     assert.ok(ada.toplam > normal.toplam * 2, 'Adalar tarifesi belirgin biçimde yüksek olmalı');
-    assert.equal(ada.bacaklar[0]?.aciklama, 'Adalar vapuru');
+    assert.match(ada.bacaklar[0]?.aciklama ?? '', /Adalar/);
   });
 });
 

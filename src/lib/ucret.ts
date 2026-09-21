@@ -16,6 +16,7 @@
 
 import { bacakDuraklari } from './bacak';
 import { metrobusMu } from './metin';
+import { vapurUcreti } from './vapur';
 import type { Bacak } from './otp';
 
 export type UcretTuru = 'tam' | 'ogrenci' | 'indirimli' | 'ogrenci30';
@@ -83,10 +84,6 @@ const M11: Kademe[] = [
   [15, Infinity, 7319, 3372],
 ];
 
-/** Şehir Hatları ücreti hatta göre değişir; elimizdeki temsilî değerler. */
-const VAPUR_TEMSILI = { tam: 5852, ogrenci: 2844 };
-const VAPUR_ADALAR = { tam: 15123, ogrenci: 15123 };
-
 /** Aktarma hakkının süresi. */
 const AKTARMA_PENCERESI_DK = 120;
 
@@ -121,10 +118,6 @@ function geceMi(iso?: string | null): boolean {
   return d != null && d >= GECE_BASLANGIC && d < GECE_BITIS;
 }
 
-function adalarMi(bacak: Bacak): boolean {
-  const metin = `${bacak.headsign ?? ''} ${bacak.to.name ?? ''} ${bacak.from.name ?? ''}`.toLocaleLowerCase('tr-TR');
-  return /(büyükada|heybeliada|burgazada|kınalıada|adalar)/.test(metin);
-}
 
 // ---------- sonuç ----------
 
@@ -215,12 +208,16 @@ export function yolculukUcreti(bacaklar: Bacak[], tur: UcretTuru): YolculukUcret
       aciklama = `M11 · ${durakSayisi} istasyon`;
       bacakYaklasik = tur === 'indirimli' || tur === 'ogrenci30';
     } else if (tarife === 'vapur') {
-      const ada = adalarMi(bacak);
-      const tablo = ada ? VAPUR_ADALAR : VAPUR_TEMSILI;
-      const temel = tur === 'ogrenci' ? tablo.ogrenci : tablo.tam;
-      taban = tur === 'tam' || tur === 'ogrenci' ? temel : Math.round((tablo.tam * ILK_BINIS[tur]) / ILK_BINIS.tam);
-      aciklama = ada ? 'Adalar vapuru' : 'Vapur · hatta göre değişir';
-      bacakYaklasik = true;
+      // Vapurda mesafe kademesi yok; her hattın kendi fiyatı var (vapur.ts).
+      const v = vapurUcreti(bacak.from.name, bacak.to.name, bacak.route?.agency?.name);
+      taban =
+        tur === 'ogrenci'
+          ? v.ogrenci
+          : tur === 'tam'
+            ? v.tam
+            : Math.round((v.tam * ILK_BINIS[tur]) / ILK_BINIS.tam);
+      aciklama = v.aciklama;
+      bacakYaklasik = v.yaklasik || tur === 'indirimli' || tur === 'ogrenci30';
     } else {
       taban = sira === 0 ? ILK_BINIS[tur] : aktarmaBedeli(tur, sira);
       aciklama = sira === 0 ? 'İlk biniş' : `${sira}. aktarma`;
