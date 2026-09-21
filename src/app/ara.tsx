@@ -26,7 +26,17 @@ import {
 import { baslikYap, trBuyuk, useTema, yonYaz, type Tema } from '@/lib/tema';
 import { mesafeYaz } from '@/lib/zaman';
 
-type Parametreler = { kLat?: string; kLon?: string; kAd?: string; kaydet?: YerTuru };
+type Parametreler = {
+  kLat?: string;
+  kLon?: string;
+  kAd?: string;
+  vLat?: string;
+  vLon?: string;
+  vAd?: string;
+  kaydet?: YerTuru;
+  /** Rota ekranından gelindiyse hangi alan doldurulacak. Yoksa varış seçiliyor. */
+  alan?: 'baslangic' | 'varis';
+};
 
 const YER_ADI: Record<YerTuru, string> = { ev: 'Ev', is: 'İş' };
 
@@ -123,20 +133,50 @@ export default function AraEkrani() {
       }
       // Seçilen hedef Kayıtlı sekmesindeki "son aramalar" listesine girer.
       aramaKaydet({ ad: hedef.ad, lat: hedef.lat, lon: hedef.lon, alt });
-      router.replace({
+      const secilen = { lat: String(hedef.lat), lon: String(hedef.lon), ad: hedef.ad };
+      // Rota ekranından gelindiyse yığında zaten bir rota ekranı var: yenisini üstüne
+      // koymak yerine ona dönüp parametrelerini güncelliyoruz, yoksa geri tuşu eski
+      // aramayı gösteriyor.
+      const git = p.alan ? router.dismissTo : router.replace;
+      git({
         pathname: '/rota',
-        params: {
-          kLat: p.kLat ?? '',
-          kLon: p.kLon ?? '',
-          kAd: p.kAd ?? 'Konumum',
-          vLat: String(hedef.lat),
-          vLon: String(hedef.lon),
-          vAd: hedef.ad,
-        },
+        params:
+          p.alan === 'baslangic'
+            ? {
+                kLat: secilen.lat,
+                kLon: secilen.lon,
+                kAd: secilen.ad,
+                vLat: p.vLat ?? '',
+                vLon: p.vLon ?? '',
+                vAd: p.vAd ?? '',
+              }
+            : {
+                kLat: p.kLat ?? '',
+                kLon: p.kLon ?? '',
+                kAd: p.kAd ?? 'Konumum',
+                vLat: secilen.lat,
+                vLon: secilen.lon,
+                vAd: secilen.ad,
+              },
       });
     },
-    [p.kaydet, p.kLat, p.kLon, p.kAd],
+    [p.kaydet, p.alan, p.kLat, p.kLon, p.kAd, p.vLat, p.vLon, p.vAd],
   );
+
+  /** Başlangıç seçerken "kendi konumuma dön" kısayolu. */
+  const konumaDon = useCallback(() => {
+    router.dismissTo({
+      pathname: '/rota',
+      params: {
+        kLat: String(konum.nokta.latitude),
+        kLon: String(konum.nokta.longitude),
+        kAd: konum.tur === 'gercek' ? 'Konumum' : 'Kadıköy (örnek konum)',
+        vLat: p.vLat ?? '',
+        vLon: p.vLon ?? '',
+        vAd: p.vAd ?? '',
+      },
+    });
+  }, [konum.nokta.latitude, konum.nokta.longitude, konum.tur, p.vLat, p.vLon, p.vAd]);
 
   const kaydetSor = (hedef: Konum) => {
     Alert.alert(hedef.ad, 'Bu yeri kısayol olarak kaydet', [
@@ -146,7 +186,11 @@ export default function AraEkrani() {
     ]);
   };
 
-  const baslik = p.kaydet ? `${YER_ADI[p.kaydet]} adresini seç` : 'Nereye gidiyorsun?';
+  const baslik = p.kaydet
+    ? `${YER_ADI[p.kaydet]} adresini seç`
+    : p.alan === 'baslangic'
+      ? 'Nereden yola çıkıyorsun?'
+      : 'Nereye gidiyorsun?';
   const kisa = metin.trim().length < 3;
   const bosSonuc = !kisa && !yukleniyor && !hata && (yerSonuclari?.length ?? 0) === 0 && (duraklar?.length ?? 0) === 0;
 
@@ -196,6 +240,20 @@ export default function AraEkrani() {
 
       {kisa && (
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: kenar.bottom + 20 }}>
+          {p.alan === 'baslangic' && (
+            <Pressable style={s.satir} onPress={konumaDon} accessibilityRole="button">
+              <View style={s.satirIkon}>
+                <Ikon ad="locate" boyut={18} renkKodu={tema.vurgu} />
+              </View>
+              <View style={s.satirMetin}>
+                <Text style={s.satirBaslik}>Konumum</Text>
+                <Text style={s.satirAlt}>
+                  {konum.tur === 'gercek' ? 'Bulunduğun noktadan yola çık' : 'Konum alınamadı; örnek konum kullanılıyor'}
+                </Text>
+              </View>
+            </Pressable>
+          )}
+
           {!p.kaydet &&
             (['ev', 'is'] as YerTuru[]).map((tur) => {
               const yer = yerler[tur];

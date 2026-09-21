@@ -37,23 +37,23 @@ const DAKIKALAR = [0, 15, 30, 45];
 const TERCIHLER: { anahtar: RotaTercihi; ad: string; kisa: string; aciklama: string; simge: IkonAdi }[] = [
   {
     anahtar: 'dengeli',
-    ad: 'Dengeli',
-    kisa: 'Tercihler',
-    aciklama: 'Süre, yürüme ve aktarma arasında motorun kendi dengesi.',
-    simge: 'options-outline',
+    ad: 'En hızlı',
+    kisa: 'En hızlı',
+    aciklama: 'Süre, yürüme ve aktarma arasında motorun kendi dengesi. Liste süreye göre sıralanır.',
+    simge: 'flash-outline',
   },
   {
     anahtar: 'azYurume',
     ad: 'Az yürüyeyim',
     kisa: 'Az yürüme',
-    aciklama: 'Yürüme daha maliyetli sayılır; biraz uzun sürse de yürümesi kısa rotalar öne çıkar.',
+    aciklama: 'Yürüme rota motorunda daha maliyetli sayılır ve liste yürüme süresine göre sıralanır.',
     simge: 'walk-outline',
   },
   {
     anahtar: 'azAktarma',
     ad: 'Az aktarma yapayım',
     kisa: 'Az aktarma',
-    aciklama: 'Her aktarma 20 dakikalık bir ceza sayılır; tek araçla giden rotalar öne çıkar.',
+    aciklama: 'Her aktarma 20 dakikalık ceza sayılır ve liste aktarma sayısına göre sıralanır.',
     simge: 'git-compare-outline',
   },
 ];
@@ -88,13 +88,7 @@ function gruplandir(guzergahlar: Guzergah[]): Grup[] {
   });
 }
 
-type Siralama = 'hizli' | 'aktarma' | 'yurume';
 
-const SIRALAMALAR: { anahtar: Siralama; ad: string }[] = [
-  { anahtar: 'hizli', ad: 'En hızlı' },
-  { anahtar: 'aktarma', ad: 'Az aktarma' },
-  { anahtar: 'yurume', ad: 'Az yürüme' },
-];
 
 // Rota motorunun İngilizce hata kodları için Türkçe açıklamalar.
 const HATA_METINLERI: Record<string, string> = {
@@ -112,7 +106,6 @@ export default function RotaEkrani() {
   const tema = useTema();
   const s = useStiller(stiller);
   const p = useLocalSearchParams<Parametreler>();
-  const [siralama, setSiralama] = useState<Siralama>('hizli');
   const [guzergahlar, setGuzergahlar] = useState<Guzergah[] | null>(null);
   const [bilgi, setBilgi] = useState<string | null>(null);
   const [hata, setHata] = useState<string | null>(null);
@@ -170,13 +163,31 @@ export default function RotaEkrani() {
     const liste = gruplandir(guzergahlar);
     const sure = (x: Grup) => x.ana.g.duration ?? Infinity;
     const erken = (x: Grup) => Date.parse(x.ana.g.start ?? '') || 0;
-    if (siralama === 'aktarma') liste.sort((a, b) => a.ana.g.numberOfTransfers - b.ana.g.numberOfTransfers || sure(a) - sure(b));
-    else if (siralama === 'yurume') liste.sort((a, b) => (a.ana.g.walkTime ?? 0) - (b.ana.g.walkTime ?? 0) || sure(a) - sure(b));
+    // Sıralama ayrı bir seçim değil: seçilen tercihin karşılığı. "Az yürüme" diyen biri
+    // listenin de yürümeye göre sıralanmasını bekler.
+    const tercih = rotaSecenekleri.tercih;
+    if (tercih === 'azAktarma') liste.sort((a, b) => a.ana.g.numberOfTransfers - b.ana.g.numberOfTransfers || sure(a) - sure(b));
+    else if (tercih === 'azYurume') liste.sort((a, b) => (a.ana.g.walkTime ?? 0) - (b.ana.g.walkTime ?? 0) || sure(a) - sure(b));
     else liste.sort((a, b) => sure(a) - sure(b) || erken(a) - erken(b));
     return liste;
-  }, [guzergahlar, siralama]);
+  }, [guzergahlar, rotaSecenekleri.tercih]);
 
   const enHizli = useMemo(() => Math.min(...(guzergahlar ?? []).map((g) => g.duration ?? Infinity)), [guzergahlar]);
+
+  /** Başlangıç ya da varış alanına dokununca arama ekranı açılır; seçim buraya geri döner. */
+  const yerSec = (alan: 'baslangic' | 'varis') =>
+    router.push({
+      pathname: '/ara',
+      params: {
+        alan,
+        kLat: p.kLat ?? '',
+        kLon: p.kLon ?? '',
+        kAd: p.kAd ?? '',
+        vLat: p.vLat ?? '',
+        vLon: p.vLon ?? '',
+        vAd: p.vAd ?? '',
+      },
+    });
 
   const yerDegistir = () =>
     router.setParams({ kLat: p.vLat, kLon: p.vLon, kAd: p.vAd, vLat: p.kLat, vLon: p.kLon, vAd: p.kAd });
@@ -209,12 +220,16 @@ export default function RotaEkrani() {
             <View style={s.bitisNokta} />
           </View>
           <View style={{ flex: 1, gap: 6 }}>
-            <Text style={s.alan} numberOfLines={1}>
-              {baslikYap(nereden.ad)}
-            </Text>
-            <Text style={s.alan} numberOfLines={1}>
-              {baslikYap(nereye.ad)}
-            </Text>
+            <Pressable onPress={() => yerSec('baslangic')} accessibilityRole="button" accessibilityLabel="Başlangıcı değiştir">
+              <Text style={s.alan} numberOfLines={1}>
+                {baslikYap(nereden.ad)}
+              </Text>
+            </Pressable>
+            <Pressable onPress={() => yerSec('varis')} accessibilityRole="button" accessibilityLabel="Varışı değiştir">
+              <Text style={s.alan} numberOfLines={1}>
+                {baslikYap(nereye.ad)}
+              </Text>
+            </Pressable>
           </View>
           <Pressable style={s.degistir} onPress={yerDegistir} accessibilityLabel="Başlangıç ve varışı değiştir">
             <Ikon ad="swap-vertical" boyut={18} renkKodu={tema.soluk} />
@@ -237,25 +252,13 @@ export default function RotaEkrani() {
             </Text>
           </Pressable>
           <Pressable
-            style={[s.filtre, tercihEtkin(rotaSecenekleri) && s.filtreSecili]}
+            style={[s.filtre, s.filtreSecili]}
             onPress={() => setTercihAcik(true)}
             accessibilityRole="button"
             accessibilityLabel="Rota tercihlerini değiştir"
           >
-            <Text style={[s.filtreYazi, tercihEtkin(rotaSecenekleri) && { color: tema.vurgu }]}>
-              {tercihEtiketi(rotaSecenekleri)}
-            </Text>
+            <Text style={[s.filtreYazi, { color: tema.vurgu }]}>{tercihEtiketi(rotaSecenekleri)}</Text>
           </Pressable>
-          {SIRALAMALAR.map((x) => (
-            <Pressable
-              key={x.anahtar}
-              style={[s.filtre, siralama === x.anahtar && s.filtreSecili]}
-              onPress={() => setSiralama(x.anahtar)}
-              accessibilityState={{ selected: siralama === x.anahtar }}
-            >
-              <Text style={[s.filtreYazi, siralama === x.anahtar && { color: tema.vurgu }]}>{x.ad}</Text>
-            </Pressable>
-          ))}
         </ScrollView>
       </View>
 
@@ -268,7 +271,7 @@ export default function RotaEkrani() {
         {bilgi && <Text style={s.bilgi}>{bilgi}</Text>}
         {gruplar.map(({ ana: { g, sira }, sonrakiler }, i) => {
           const ilkArac = g.legs.find((b) => b.transitLeg);
-          const oneri = i === 0 && siralama === 'hizli' && g.duration === enHizli;
+          const oneri = i === 0 && rotaSecenekleri.tercih === 'dengeli' && g.duration === enHizli;
           return (
             <Pressable key={sira} style={[s.kart, oneri && s.kartOneri]} onPress={() => detayaGit(sira)}>
               <View style={s.kartUst}>
@@ -456,14 +459,10 @@ export default function RotaEkrani() {
   );
 }
 
-/** Tercih çubuğundaki etiket: seçili tercih ne ise onu yazar. */
+/** Tercih hapındaki etiket: seçili tercih ne ise onu yazar. */
 function tercihEtiketi(secenekler: { tercih: RotaTercihi; erisilebilir: boolean }): string {
-  const ad = TERCIHLER.find((x) => x.anahtar === secenekler.tercih)?.kisa ?? 'Tercihler';
-  return secenekler.erisilebilir ? `${ad} · ♿` : ad;
-}
-
-function tercihEtkin(secenekler: { tercih: RotaTercihi; erisilebilir: boolean }): boolean {
-  return secenekler.tercih !== 'dengeli' || secenekler.erisilebilir;
+  const ad = TERCIHLER.find((x) => x.anahtar === secenekler.tercih)?.kisa ?? 'En hızlı';
+  return secenekler.erisilebilir ? `${ad} · basamaksız` : ad;
 }
 
 const stiller = (t: Tema) =>
@@ -492,7 +491,7 @@ const stiller = (t: Tema) =>
   tercihBaslik: { fontSize: 14.5, fontWeight: '700', color: t.yazi },
   tercihAlt: { fontSize: 12, color: t.soluk, lineHeight: 17, marginTop: 2 },
   tercihAnahtari: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingRight: 2 },
-  filtreler: { gap: 6 },
+  filtreler: { gap: 6, paddingRight: 14 },
   filtre: { borderWidth: 1, borderColor: t.cizgi, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
   filtreKoyu: { backgroundColor: t.yazi, borderColor: t.yazi },
   filtreSecili: { borderColor: t.vurgu, backgroundColor: t.vurguAcik },
