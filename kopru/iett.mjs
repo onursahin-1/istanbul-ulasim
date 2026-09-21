@@ -57,19 +57,28 @@ export async function butunFilo(hatlar, esZamanli = 10) {
   const araclar = [];
   let hata = 0;
   let sira = 0;
+  // Hata mesajlarını türüne göre say: hepsini bastırmak gürültü, hiç bastırmamak körlük.
+  const hataOrnekleri = new Map();
 
   async function isci() {
     while (sira < hatlar.length) {
       const hat = hatlar[sira++];
       try {
         araclar.push(...(await hattakiAraclar(hat)));
-      } catch {
-        // Tek bir hattın düşmesi taramayı durdurmasın; sayısını tutuyoruz.
+      } catch (e) {
+        // Tek bir hattın düşmesi taramayı durdurmasın; sayısını ve sebebini tutuyoruz.
         hata++;
+        const sebep = `${e.name}: ${e.message}`.slice(0, 120);
+        const k = hataOrnekleri.get(sebep) ?? { sayi: 0, hat };
+        k.sayi++;
+        hataOrnekleri.set(sebep, k);
       }
     }
   }
 
   await Promise.all(Array.from({ length: Math.min(esZamanli, hatlar.length) }, isci));
-  return { araclar, hata, sure: Date.now() - t0 };
+  const hatalar = [...hataOrnekleri.entries()]
+    .sort((a, b) => b[1].sayi - a[1].sayi)
+    .map(([sebep, k]) => ({ sebep, sayi: k.sayi, ornekHat: k.hat }));
+  return { araclar, hata, hatalar, sure: Date.now() - t0 };
 }

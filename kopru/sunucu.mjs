@@ -44,6 +44,7 @@ const durum = {
   sonSure: null,
   hatSayisi: 0,
   hataliHat: 0,
+  hatalar: [],
   sayac: null,
   eslesenSefer: 0,
   hata: null,
@@ -66,7 +67,7 @@ async function hatlariTazele() {
 async function tara() {
   try {
     await hatlariTazele();
-    const { araclar, hata, sure } = await butunFilo(hatlar, ESZAMANLI);
+    const { araclar, hata, hatalar, sure } = await butunFilo(hatlar, ESZAMANLI);
     const simdi = new Date();
     const { eslesenler, sayac } = araclariEslestir(tarife, araclar, hafiza, simdi);
 
@@ -76,6 +77,7 @@ async function tara() {
     durum.sonTarama = simdi.toISOString();
     durum.sonSure = sure;
     durum.hataliHat = hata;
+    durum.hatalar = hatalar;
     durum.sayac = sayac;
     durum.eslesenSefer = new Set(eslesenler.map((e) => e.seferId)).size;
     durum.hata = null;
@@ -87,6 +89,10 @@ async function tara() {
         `(${durum.eslesenSefer} sefer) · ${gec} geç, ${erken} erken · ${Math.round(sure / 1000)} sn` +
         (hata ? ` · ${hata} hatlı hata` : ''),
     );
+    // Hata varsa sebebini de yaz: sessizce boş dönen bir köprü teşhis edilemez.
+    for (const h of hatalar.slice(0, 3)) {
+      console.log(`   ↳ ${h.sayi} hatta: ${h.sebep}   (örnek hat: ${h.ornekHat})`);
+    }
   } catch (e) {
     durum.hata = e.message;
     console.error('tarama hatası:', e.message);
