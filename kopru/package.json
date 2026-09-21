@@ -1,0 +1,13 @@
+{
+  "name": "istanbul-ulasim-kopru",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "İETT canlı araç verisini GTFS-RT'ye çevirip OTP'ye sunan köprü",
+  "scripts": {
+    "start": "node --max-old-space-size=2048 sunucu.mjs"
+  },
+  "dependencies": {
+    "gtfs-realtime-bindings": "^1.1.1"
+  }
+}
