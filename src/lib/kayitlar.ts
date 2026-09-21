@@ -3,7 +3,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState } from 'react';
 
-import type { Konum } from './otp';
+import type { Konum, RotaSecenekleri } from './otp';
+import { VARSAYILAN_SECENEKLER } from './otp';
 import type { UcretTuru } from './ucret';
 
 export type YerTuru = 'ev' | 'is';
@@ -15,6 +16,7 @@ const YER_ANAHTARI = 'kayitli-yerler-v1';
 const FAVORI_ANAHTARI = 'favori-duraklar-v1';
 const ARAMA_ANAHTARI = 'son-aramalar-v1';
 const UCRET_ANAHTARI = 'ucret-turu-v1';
+const ROTA_ANAHTARI = 'rota-secenekleri-v1';
 const ARAMA_SINIRI = 12;
 
 type Yerler = Partial<Record<YerTuru, Konum>>;
@@ -73,6 +75,12 @@ export async function aramalariTemizle(): Promise<void> {
   haberVer();
 }
 
+/** Rota arama tercihi: az yürüme, az aktarma, erişilebilir güzergâh. */
+export async function rotaSecenekleriKaydet(secenekler: RotaSecenekleri): Promise<void> {
+  await yaz(ROTA_ANAHTARI, secenekler);
+  haberVer();
+}
+
 /** İstanbulkart türü: ücret hesabı buna göre yapılır. */
 export async function ucretTuruKaydet(tur: UcretTuru): Promise<void> {
   await yaz(UCRET_ANAHTARI, tur);
@@ -84,12 +92,14 @@ export function useKayitlar() {
   const [favoriler, setFavoriler] = useState<FavoriDurak[]>([]);
   const [aramalar, setAramalar] = useState<SonArama[]>([]);
   const [ucretTuru, setUcretTuru] = useState<UcretTuru>('tam');
+  const [rotaSecenekleri, setRotaSecenekleri] = useState<RotaSecenekleri>(VARSAYILAN_SECENEKLER);
 
   const yukle = useCallback(async () => {
     setYerler(await oku<Yerler>(YER_ANAHTARI, {}));
     setFavoriler(await oku<FavoriDurak[]>(FAVORI_ANAHTARI, []));
     setAramalar(await oku<SonArama[]>(ARAMA_ANAHTARI, []));
     setUcretTuru(await oku<UcretTuru>(UCRET_ANAHTARI, 'tam'));
+    setRotaSecenekleri(await oku<RotaSecenekleri>(ROTA_ANAHTARI, VARSAYILAN_SECENEKLER));
   }, []);
 
   useEffect(() => {
@@ -100,5 +110,5 @@ export function useKayitlar() {
     };
   }, [yukle]);
 
-  return { yerler, favoriler, aramalar, ucretTuru };
+  return { yerler, favoriler, aramalar, ucretTuru, rotaSecenekleri };
 }

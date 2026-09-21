@@ -2,12 +2,12 @@
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { BacakZinciri, GeriCubugu, HataKutusu, Ikon, SureSeridi, useStiller, Yukleniyor } from '@/components/ulasim';
-import { OtpHatasi, rotaPlanla, type Guzergah, type Konum } from '@/lib/otp';
-import { useKayitlar } from '@/lib/kayitlar';
+import { BacakZinciri, GeriCubugu, HataKutusu, Ikon, SureSeridi, useStiller, Yukleniyor, type IkonAdi } from '@/components/ulasim';
+import { OtpHatasi, rotaPlanla, type Guzergah, type Konum, type RotaTercihi } from '@/lib/otp';
+import { rotaSecenekleriKaydet, useKayitlar } from '@/lib/kayitlar';
 import { guzergahlariSakla } from '@/lib/secim';
 import { ucretKisa, yolculukUcreti } from '@/lib/ucret';
 import { aracAdi, baslikYap, useTema, type Tema } from '@/lib/tema';
@@ -32,6 +32,31 @@ const SONRAKI_SAYISI = 3;
 /** Zaman seçiminde kaç gün ileri gidilebilir (bugün dahil). */
 const GUN_SAYISI = 7;
 const DAKIKALAR = [0, 15, 30, 45];
+
+/** Rota motoruna gönderilen arama tercihleri. */
+const TERCIHLER: { anahtar: RotaTercihi; ad: string; kisa: string; aciklama: string; simge: IkonAdi }[] = [
+  {
+    anahtar: 'dengeli',
+    ad: 'Dengeli',
+    kisa: 'Tercihler',
+    aciklama: 'Süre, yürüme ve aktarma arasında motorun kendi dengesi.',
+    simge: 'options-outline',
+  },
+  {
+    anahtar: 'azYurume',
+    ad: 'Az yürüyeyim',
+    kisa: 'Az yürüme',
+    aciklama: 'Yürüme daha maliyetli sayılır; biraz uzun sürse de yürümesi kısa rotalar öne çıkar.',
+    simge: 'walk-outline',
+  },
+  {
+    anahtar: 'azAktarma',
+    ad: 'Az aktarma yapayım',
+    kisa: 'Az aktarma',
+    aciklama: 'Her aktarma 20 dakikalık bir ceza sayılır; tek araçla giden rotalar öne çıkar.',
+    simge: 'git-compare-outline',
+  },
+];
 
 /** Kullanıcının seçtiği kalkış zamanı. null ise "şimdi". */
 type ZamanSecimi = { gun: number; saat: number; dakika: number } | null;
@@ -96,7 +121,8 @@ export default function RotaEkrani() {
   const [zamanAcik, setZamanAcik] = useState(false);
   const [taslak, setTaslak] = useState({ gun: 0, saat: 8, dakika: 0 });
 
-  const { ucretTuru } = useKayitlar();
+  const { ucretTuru, rotaSecenekleri } = useKayitlar();
+  const [tercihAcik, setTercihAcik] = useState(false);
   const nereden: Konum = useMemo(() => ({ ad: p.kAd ?? 'Konumum', lat: Number(p.kLat), lon: Number(p.kLon) }), [p.kAd, p.kLat, p.kLon]);
   const nereye: Konum = useMemo(() => ({ ad: p.vAd ?? 'Hedef', lat: Number(p.vLat), lon: Number(p.vLon) }), [p.vAd, p.vLat, p.vLon]);
 
@@ -112,18 +138,25 @@ export default function RotaEkrani() {
       setAramaSaati(istanbulSaat());
       try {
         const zamanMetni = zaman ? istanbulZamanYap(zaman.gun, zaman.saat, zaman.dakika) : istanbulSimdi();
-        const sonuc = await rotaPlanla(nereden, nereye, zamanMetni, sinyal);
+        const sonuc = await rotaPlanla(nereden, nereye, zamanMetni, rotaSecenekleri, sinyal);
         setGuzergahlar(sonuc.guzergahlar);
         if (sonuc.guzergahlar.length === 0) {
           const kod = sonuc.hatalar[0]?.code;
-          setBilgi((kod && HATA_METINLERI[kod]) ?? 'Bu saatte uygun bir rota bulunamadı.');
+          const temel = (kod && HATA_METINLERI[kod]) ?? 'Bu saatte uygun bir rota bulunamadı.';
+          // Tercihler sonucu daraltmış olabilir; kullanıcı neyi gevşetebileceğini bilsin.
+          const ipucu = rotaSecenekleri.erisilebilir
+            ? ' Basamaksız güzergâh açık; kapatırsan daha çok seçenek çıkabilir.'
+            : rotaSecenekleri.tercih !== 'dengeli'
+              ? ' Rota tercihini "Dengeli"ye almayı deneyebilirsin.'
+              : '';
+          setBilgi(temel + ipucu);
         }
       } catch (e) {
         if ((e as Error).name === 'AbortError') return;
         setHata(e instanceof OtpHatasi ? e.message : 'Rota aranırken beklenmeyen bir sorun oluştu.');
       }
     },
-    [nereden, nereye, zaman],
+    [nereden, nereye, zaman, rotaSecenekleri],
   );
 
   useEffect(() => {
@@ -201,6 +234,16 @@ export default function RotaEkrani() {
               {zaman
                 ? `${gunEtiketi(zaman.gun, true)} · ${saatDakikaYaz(zaman.saat, zaman.dakika)}`
                 : `Şimdi · ${aramaSaati}`}
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[s.filtre, tercihEtkin(rotaSecenekleri) && s.filtreSecili]}
+            onPress={() => setTercihAcik(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Rota tercihlerini değiştir"
+          >
+            <Text style={[s.filtreYazi, tercihEtkin(rotaSecenekleri) && { color: tema.vurgu }]}>
+              {tercihEtiketi(rotaSecenekleri)}
             </Text>
           </Pressable>
           {SIRALAMALAR.map((x) => (
@@ -358,8 +401,69 @@ export default function RotaEkrani() {
         </View>
       </Modal>
 
+      <Modal visible={tercihAcik} transparent animationType="slide" onRequestClose={() => setTercihAcik(false)}>
+        <Pressable style={s.perde} onPress={() => setTercihAcik(false)} accessibilityLabel="Kapat" />
+        <View style={[s.zamanSayfa, { paddingBottom: kenar.bottom + 16 }]}>
+          <View style={s.zamanTutamac} />
+          <Text style={s.zamanBaslik}>Rota tercihleri</Text>
+
+          <Text style={s.zamanAltBaslik}>NEYE GÖRE ARANSIN</Text>
+          <View style={s.tercihListesi}>
+            {TERCIHLER.map((x) => {
+              const secili = rotaSecenekleri.tercih === x.anahtar;
+              return (
+                <Pressable
+                  key={x.anahtar}
+                  style={[s.tercihSatiri, secili && s.tercihSecili]}
+                  onPress={() => rotaSecenekleriKaydet({ ...rotaSecenekleri, tercih: x.anahtar })}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: secili }}
+                >
+                  <Ikon ad={x.simge} boyut={19} renkKodu={secili ? tema.vurgu : tema.soluk} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[s.tercihBaslik, secili && { color: tema.vurgu }]}>{x.ad}</Text>
+                    <Text style={s.tercihAlt}>{x.aciklama}</Text>
+                  </View>
+                  {secili && <Ikon ad="checkmark" boyut={18} renkKodu={tema.vurgu} />}
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <Text style={s.zamanAltBaslik}>ERİŞİLEBİLİRLİK</Text>
+          <View style={s.tercihAnahtari}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.tercihBaslik}>Basamaksız güzergâh</Text>
+              <Text style={s.tercihAlt}>
+                Asansörü ya da rampası olmayan duraklardan ve erişilemeyen seferlerden kaçınılır. Veride bu bilgi
+                eksik olan duraklar tamamen elenmez, düşük öncelikli sayılır.
+              </Text>
+            </View>
+            <Switch
+              value={rotaSecenekleri.erisilebilir}
+              onValueChange={(v) => rotaSecenekleriKaydet({ ...rotaSecenekleri, erisilebilir: v })}
+              trackColor={{ true: tema.vurgu }}
+            />
+          </View>
+
+          <Pressable style={s.zamanOnayla} onPress={() => setTercihAcik(false)} accessibilityRole="button">
+            <Text style={s.zamanOnaylaYazi}>Bu tercihlerle ara</Text>
+          </Pressable>
+        </View>
+      </Modal>
+
     </View>
   );
+}
+
+/** Tercih çubuğundaki etiket: seçili tercih ne ise onu yazar. */
+function tercihEtiketi(secenekler: { tercih: RotaTercihi; erisilebilir: boolean }): string {
+  const ad = TERCIHLER.find((x) => x.anahtar === secenekler.tercih)?.kisa ?? 'Tercihler';
+  return secenekler.erisilebilir ? `${ad} · ♿` : ad;
+}
+
+function tercihEtkin(secenekler: { tercih: RotaTercihi; erisilebilir: boolean }): boolean {
+  return secenekler.tercih !== 'dengeli' || secenekler.erisilebilir;
 }
 
 const stiller = (t: Tema) =>
@@ -373,6 +477,21 @@ const stiller = (t: Tema) =>
   bitisNokta: { width: 10, height: 10, borderRadius: 3, backgroundColor: t.yazi },
   alan: { backgroundColor: t.zemin, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontWeight: '600', fontSize: 14, color: t.yazi },
   degistir: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, borderColor: t.cizgi, alignItems: 'center', justifyContent: 'center' },
+  tercihListesi: { gap: 7 },
+  tercihSatiri: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+    padding: 12,
+    borderRadius: 13,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: t.cizgi,
+    backgroundColor: t.zemin,
+  },
+  tercihSecili: { borderColor: t.vurgu, backgroundColor: t.vurguAcik },
+  tercihBaslik: { fontSize: 14.5, fontWeight: '700', color: t.yazi },
+  tercihAlt: { fontSize: 12, color: t.soluk, lineHeight: 17, marginTop: 2 },
+  tercihAnahtari: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingRight: 2 },
   filtreler: { gap: 6 },
   filtre: { borderWidth: 1, borderColor: t.cizgi, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
   filtreKoyu: { backgroundColor: t.yazi, borderColor: t.yazi },

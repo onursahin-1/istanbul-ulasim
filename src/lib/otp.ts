@@ -21,6 +21,23 @@ export const OTP_ADRESI = adresBul();
 
 export class OtpHatasi extends Error {}
 
+// Sorgu metinleri ayrı dosyada; oradan içe aktarılıp buradan yeniden dışa açılıyor.
+export { SORGULAR, VARSAYILAN_SECENEKLER, tercihleriYap } from './sorgular';
+export type { RotaSecenekleri, RotaTercihi } from './sorgular';
+import { SORGULAR as S, VARSAYILAN_SECENEKLER, tercihleriYap, type RotaSecenekleri } from './sorgular';
+
+const {
+  YAKIN_DURAKLAR,
+  DURAK_DETAYI,
+  DURAK_SAATLERI,
+  DURAK_ARA,
+  ROTA_PLANLA,
+  HAT_KALKISLARI,
+  HATLAR,
+  HAT_DETAYI,
+  SUNUCU_BILGISI,
+} = S;
+
 async function sorgula<T>(sorgu: string, degiskenler: Record<string, unknown>, sinyal?: AbortSignal): Promise<T> {
   let yanit: Response;
   try {
@@ -131,124 +148,6 @@ export type HatDeseni = {
 
 export type HatDetayi = HatOzeti & { patterns: HatDeseni[] | null };
 
-// ---------- Sorgular ----------
-
-// Rozetlerin doğru renk ve simgeyi seçebilmesi için hat sorgularında araç tipi ve renk de istenir.
-const HAT_ALANLARI = `gtfsId shortName longName mode color textColor`;
-
-const KALKIS_ALANLARI = `
-  scheduledDeparture
-  realtimeDeparture
-  realtime
-  serviceDay
-  headsign
-  trip { gtfsId route { ${HAT_ALANLARI} } }
-`;
-
-const YAKIN_DURAKLAR = `
-query YakinDuraklar($lat: Float!, $lon: Float!) {
-  nearest(lat: $lat, lon: $lon, maxDistance: 1000, filterByPlaceTypes: [STOP], first: 8) {
-    edges {
-      node {
-        distance
-        place {
-          __typename
-          ... on Stop {
-            gtfsId name code desc lat lon
-            kalkislar: stoptimesWithoutPatterns(numberOfDepartures: 3, omitNonPickups: true) { ${KALKIS_ALANLARI} }
-          }
-        }
-      }
-    }
-  }
-}`;
-
-const DURAK_DETAYI = `
-query DurakDetayi($id: String!) {
-  stop(id: $id) {
-    gtfsId name code desc lat lon
-    routes { ${HAT_ALANLARI} }
-    kalkislar: stoptimesWithoutPatterns(numberOfDepartures: 20, omitNonPickups: true, timeRange: 7200) { ${KALKIS_ALANLARI} }
-  }
-}`;
-
-// Bir duraktan belirli bir hattın bugünkü kalkışları. Sefer sıklığını ve günün son seferini
-// buradan hesaplıyoruz: OTP'nin GTFS API'sinde frekans (headway) alanı yok, ama frekans tabanlı
-// seferler ayrı ayrı kalkışlar olarak görünüyor; aralarındaki farktan sıklık çıkıyor.
-const HAT_KALKISLARI = `
-query HatKalkislari($durak: String!, $aralik: Int!) {
-  stop(id: $durak) {
-    kalkislar: stoptimesWithoutPatterns(numberOfDepartures: 60, timeRange: $aralik, omitNonPickups: true) {
-      scheduledDeparture
-      realtimeDeparture
-      serviceDay
-      headsign
-      trip { gtfsId route { gtfsId shortName } }
-    }
-  }
-}`;
-
-const DURAK_ARA = `
-query DurakAra($ad: String!) {
-  stops(name: $ad) { gtfsId name code desc lat lon }
-}`;
-
-const ROTA_PLANLA = `
-query RotaPlanla($nereden: PlanLabeledLocationInput!, $nereye: PlanLabeledLocationInput!, $zaman: OffsetDateTime!) {
-  planConnection(origin: $nereden, destination: $nereye, dateTime: { earliestDeparture: $zaman }, first: 12) {
-    routingErrors { code description }
-    edges {
-      node {
-        start end duration walkTime walkDistance numberOfTransfers
-        legs {
-          mode duration distance transitLeg headsign
-          start { scheduledTime estimated { time } }
-          end { scheduledTime estimated { time } }
-          from { name lat lon stop { gtfsId } }
-          to { name lat lon stop { gtfsId } }
-          route { ${HAT_ALANLARI} }
-          legGeometry { points }
-          trip { gtfsId pattern { stops { gtfsId name lat lon } } }
-        }
-      }
-    }
-  }
-}`;
-
-// Hatlar sekmesi: bütün hatlar bir kez çekilir, süzme ve arama telefonda yapılır.
-const HATLAR = `
-query Hatlar {
-  routes {
-    ${HAT_ALANLARI}
-    agency { name }
-  }
-}`;
-
-// Bir hattın durak deseni. Her yön ayrı bir "pattern" olarak gelir.
-const HAT_DETAYI = `
-query HatDetayi($id: String!) {
-  route(id: $id) {
-    ${HAT_ALANLARI}
-    agency { name }
-    patterns {
-      code
-      name
-      headsign
-      directionId
-      stops { gtfsId name lat lon }
-    }
-  }
-}`;
-
-// Ayarlar ekranı: sunucunun hangi veriyi yüklediği ve tarifenin hangi tarihleri kapsadığı.
-const SUNUCU_BILGISI = `
-query SunucuBilgisi {
-  serviceTimeRange { start end }
-  feeds { feedId agencies { name } }
-}`;
-
-// Sorgu metinleri, geliştirme sırasında şemaya karşı doğrulanabilsin diye dışa açılır.
-export const SORGULAR = { YAKIN_DURAKLAR, DURAK_DETAYI, DURAK_ARA, ROTA_PLANLA, HAT_KALKISLARI, HATLAR, HAT_DETAYI, SUNUCU_BILGISI };
 
 // ---------- İşlevler ----------
 
@@ -300,7 +199,13 @@ export async function hatKalkislariGetir(
 
 export type RotaSonucu = { guzergahlar: Guzergah[]; hatalar: { code: string; description: string }[] };
 
-export async function rotaPlanla(nereden: Konum, nereye: Konum, zaman: string, sinyal?: AbortSignal): Promise<RotaSonucu> {
+export async function rotaPlanla(
+  nereden: Konum,
+  nereye: Konum,
+  zaman: string,
+  secenekler: RotaSecenekleri = VARSAYILAN_SECENEKLER,
+  sinyal?: AbortSignal,
+): Promise<RotaSonucu> {
   type Cevap = {
     planConnection: {
       routingErrors: { code: string; description: string }[];
@@ -308,7 +213,11 @@ export async function rotaPlanla(nereden: Konum, nereye: Konum, zaman: string, s
     } | null;
   };
   const yer = (k: Konum) => ({ label: k.ad, location: { coordinate: { latitude: k.lat, longitude: k.lon } } });
-  const veri = await sorgula<Cevap>(ROTA_PLANLA, { nereden: yer(nereden), nereye: yer(nereye), zaman }, sinyal);
+  const veri = await sorgula<Cevap>(
+    ROTA_PLANLA,
+    { nereden: yer(nereden), nereye: yer(nereye), zaman, tercihler: tercihleriYap(secenekler) },
+    sinyal,
+  );
   return {
     guzergahlar: (veri.planConnection?.edges ?? []).flatMap((e) => (e ? [e.node] : [])),
     hatalar: veri.planConnection?.routingErrors ?? [],
@@ -342,6 +251,29 @@ export async function hatlariGetir(sinyal?: AbortSignal): Promise<HatOzeti[]> {
 export async function hatDetayiGetir(id: string, sinyal?: AbortSignal): Promise<HatDetayi | null> {
   const veri = await sorgula<{ route: HatDetayi | null }>(HAT_DETAYI, { id }, sinyal);
   return veri.route;
+}
+
+/** Durak ekranındaki bir satır: hat + yön + sıradaki kalkışlar. */
+export type DurakDeseni = {
+  pattern: { code: string; headsign: string | null; directionId: string | null; route: Hat } | null;
+  stoptimes: Kalkis[] | null;
+};
+
+export type DurakSaatleri = Durak & { routes: Hat[] | null; desenler: DurakDeseni[] | null };
+
+/** Bir duraktan geçen bütün hatların yön yön sıradaki kalkışları. */
+export async function durakSaatleriGetir(
+  id: string,
+  kalkisSayisi = 3,
+  aralikSaniye = 3 * 3600,
+  sinyal?: AbortSignal,
+): Promise<DurakSaatleri | null> {
+  const veri = await sorgula<{ stop: DurakSaatleri | null }>(
+    DURAK_SAATLERI,
+    { id, kalkis: kalkisSayisi, aralik: aralikSaniye },
+    sinyal,
+  );
+  return veri.stop;
 }
 
 export type SunucuBilgisi = {

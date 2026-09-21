@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Dakika, HataKutusu, HatRozeti, Ikon, useStiller, Yukleniyor } from '@/components/ulasim';
 import { favoriDegistir, useKayitlar } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
-import { durakDetayiGetir, OtpHatasi, type DurakDetayi } from '@/lib/otp';
+import { durakSaatleriGetir, OtpHatasi, type DurakSaatleri } from '@/lib/otp';
 import { baslikYap, hatRengi, useTema, yonYaz, type Tema } from '@/lib/tema';
 import { kacDakikaSonra, saniyedenSaat } from '@/lib/zaman';
 
@@ -22,14 +22,14 @@ export default function DurakEkrani() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const konum = useKonum();
   const { favoriler } = useKayitlar();
-  const [durak, setDurak] = useState<DurakDetayi | null>(null);
+  const [durak, setDurak] = useState<DurakSaatleri | null>(null);
   const [hata, setHata] = useState<string | null>(null);
   const [yenileniyor, setYenileniyor] = useState(false);
 
   const yukle = useCallback(async () => {
     if (!id) return;
     try {
-      const sonuc = await durakDetayiGetir(id);
+      const sonuc = await durakSaatleriGetir(id);
       if (!sonuc) setHata('Bu durak bulunamadı.');
       else {
         setDurak(sonuc);
@@ -55,14 +55,29 @@ export default function DurakEkrani() {
     return tekil.sort((a, b) => (a.shortName ?? '').localeCompare(b.shortName ?? '', 'tr', { numeric: true }));
   }, [durak]);
 
-  const kalkislar = useMemo(
-    () =>
-      (durak?.kalkislar ?? [])
-        .map((k) => ({ ...k, dakika: kacDakikaSonra(k.serviceDay ?? 0, k.realtimeDeparture ?? k.scheduledDeparture ?? 0) }))
-        .filter((k) => k.dakika >= 0)
-        .sort((a, b) => a.dakika - b.dakika),
-    [durak],
-  );
+  // Her hattın her yönü kendi satırında: kalabalık duraklarda tek bir karışık listede
+  // bazı hatlar hiç görünmüyordu. Satırlar en yakın kalkışa göre sıralanır.
+  const yonler = useMemo(() => {
+    const liste = (durak?.desenler ?? [])
+      .map((d) => {
+        const kalkislar = (d.stoptimes ?? [])
+          .map((k) => ({
+            saniye: k.realtimeDeparture ?? k.scheduledDeparture ?? 0,
+            canli: !!k.realtime,
+            dakika: kacDakikaSonra(k.serviceDay ?? 0, k.realtimeDeparture ?? k.scheduledDeparture ?? 0),
+          }))
+          .filter((k) => k.dakika >= 0)
+          .sort((a, b) => a.dakika - b.dakika);
+        return {
+          anahtar: d.pattern?.code ?? '',
+          hat: d.pattern?.route ?? null,
+          yon: baslikYap(d.pattern?.headsign) || baslikYap(d.pattern?.route?.longName),
+          kalkislar,
+        };
+      })
+      .filter((x) => x.hat && x.kalkislar.length > 0);
+    return liste.sort((a, b) => a.kalkislar[0].dakika - b.kalkislar[0].dakika);
+  }, [durak]);
 
   const yolTarifi = () => {
     if (durak?.lat == null || durak.lon == null) return;
@@ -152,28 +167,43 @@ export default function DurakEkrani() {
                 <Text style={s.altBaslik}>BU DURAKTAN GEÇEN HATLAR</Text>
                 <View style={s.hatlar}>
                   {hatlar.map((h) => (
-                    <HatRozeti key={h.gtfsId} hat={h} />
+                    <Pressable
+                      key={h.gtfsId}
+                      onPress={() => router.push({ pathname: '/hat/[id]', params: { id: h.gtfsId } })}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${h.shortName ?? ''} hattının detayı`}
+                    >
+                      <HatRozeti hat={h} />
+                    </Pressable>
                   ))}
                 </View>
               </View>
             )}
 
             <View style={{ gap: 4 }}>
-              <Text style={s.altBaslik}>YAKLAŞAN SEFERLER</Text>
-              {kalkislar.length === 0 && <Text style={s.bos}>Önümüzdeki 2 saatte bu duraktan sefer görünmüyor.</Text>}
-              {kalkislar.map((k, i) => (
-                <View key={i} style={s.sefer}>
+              <Text style={s.altBaslik}>YÖNE GÖRE SONRAKİ KALKIŞLAR</Text>
+              {yonler.length === 0 && <Text style={s.bos}>Önümüzdeki 3 saatte bu duraktan sefer görünmüyor.</Text>}
+              {yonler.map((y) => (
+                <Pressable
+                  key={y.anahtar}
+                  style={s.sefer}
+                  onPress={() => y.hat && router.push({ pathname: '/hat/[id]', params: { id: y.hat.gtfsId } })}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${y.hat?.shortName ?? ''} · ${y.yon} · ${y.kalkislar[0].dakika} dakika sonra`}
+                >
                   <View style={{ width: 62 }}>
-                    <HatRozeti hat={k.trip?.route} />
+                    <HatRozeti hat={y.hat} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={s.seferYon} numberOfLines={1}>
-                      {baslikYap(k.headsign) || 'Yön bilgisi yok'}
+                      {y.yon || 'Yön bilgisi yok'}
                     </Text>
-                    <Text style={s.seferSaat}>{saniyedenSaat(k.realtimeDeparture ?? k.scheduledDeparture ?? 0)}</Text>
+                    <Text style={s.seferSaat}>
+                      {y.kalkislar.slice(0, 3).map((k) => saniyedenSaat(k.saniye)).join('  ·  ')}
+                    </Text>
                   </View>
-                  <Dakika dakika={k.dakika} />
-                </View>
+                  <Dakika dakika={y.kalkislar[0].dakika} />
+                </Pressable>
               ))}
             </View>
 

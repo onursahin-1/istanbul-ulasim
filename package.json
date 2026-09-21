@@ -38,6 +38,8 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "graphql": "^17.0.2",
+    "tsx": "^4.23.15",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -46,7 +48,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "sorgu": "tsx scripts/sorgu-dogrula.ts"
   },
   "private": true
 }
