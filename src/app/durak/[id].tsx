@@ -6,10 +6,10 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'r
 import MapView, { Marker } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Dakika, HataKutusu, HatRozeti, Ikon, useStiller, Yukleniyor } from '@/components/ulasim';
+import { CevrimdisiSerit, Dakika, HataKutusu, HatRozeti, Ikon, useStiller, Yukleniyor } from '@/components/ulasim';
 import { favoriDegistir, useKayitlar } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
-import { durakSaatleriGetir, OtpHatasi, type DurakSaatleri } from '@/lib/otp';
+import { durakSaatleriYedekli, OtpHatasi, type DurakSaatleri } from '@/lib/otp';
 import { baslikYap, hatEtiketi, hatRengi, useTema, yonYaz, type Tema } from '@/lib/tema';
 import { kacDakikaSonra, saniyedenSaat } from '@/lib/zaman';
 
@@ -24,15 +24,17 @@ export default function DurakEkrani() {
   const { favoriler } = useKayitlar();
   const [durak, setDurak] = useState<DurakSaatleri | null>(null);
   const [hata, setHata] = useState<string | null>(null);
+  const [cevrimdisi, setCevrimdisi] = useState<number | null>(null);
   const [yenileniyor, setYenileniyor] = useState(false);
 
   const yukle = useCallback(async () => {
     if (!id) return;
     try {
-      const sonuc = await durakSaatleriGetir(id);
+      const { durak: sonuc, cevrimdisi: kayitZamani } = await durakSaatleriYedekli(id);
       if (!sonuc) setHata('Bu durak bulunamadı.');
       else {
         setDurak(sonuc);
+        setCevrimdisi(kayitZamani);
         setHata(null);
       }
     } catch (e) {
@@ -139,6 +141,7 @@ export default function DurakEkrani() {
           />
         }
       >
+        {cevrimdisi != null && <CevrimdisiSerit zaman={cevrimdisi} tekrarDene={yukle} />}
         {hata && <HataKutusu mesaj={hata} tekrarDene={yukle} />}
         {!durak && !hata && <Yukleniyor metin="Durak bilgisi yükleniyor…" />}
         {durak && (

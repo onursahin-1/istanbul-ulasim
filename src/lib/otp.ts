@@ -30,6 +30,8 @@ export { bacakDuraklari } from './bacak';
 export type { RotaSecenekleri, RotaTercihi } from './sorgular';
 import { SORGULAR as S, VARSAYILAN_SECENEKLER, tercihleriYap, type RotaSecenekleri } from './sorgular';
 import { aramayiIndir, yakinlariIndir, type Ebeveynli } from './istasyon';
+import { gunuKaydir } from './onbellek';
+import { onbellegeYaz, onbellektenOku } from './onbellek-depo';
 
 const {
   YAKIN_DURAKLAR,
@@ -238,10 +240,42 @@ export async function rotaPlanla(
     { nereden: yer(nereden), nereye: yer(nereye), zaman, tercihler: tercihleriYap(secenekler) },
     sinyal,
   );
-  return {
+  const sonuc: RotaSonucu = {
     guzergahlar: (veri.planConnection?.edges ?? []).flatMap((e) => (e ? [e.node] : [])),
     hatalar: veri.planConnection?.routingErrors ?? [],
   };
+  if (sonuc.guzergahlar.length) void onbellegeYaz(rotaAnahtari(nereden, nereye, secenekler), sonuc);
+  return sonuc;
+}
+
+/** Aynı yolculuğun onbellekteki karşılığı. Koordinatlar ~11 m'ye yuvarlanıyor. */
+function rotaAnahtari(nereden: Konum, nereye: Konum, secenekler: RotaSecenekleri): string {
+  const nk = (k: Konum) => `${k.lat.toFixed(4)},${k.lon.toFixed(4)}`;
+  return `rota:${nk(nereden)}>${nk(nereye)}|${secenekler.tercih}|${secenekler.erisilebilir ? 'e' : ''}`;
+}
+
+/**
+ * Güzergâh planlar; sunucuya ulaşılamazsa aynı yolculuğun son planını döndürür.
+ *
+ * Saatler kaydırılmıyor: plan belirli bir kalkış için yapılmıştı ve öyle gösteriliyor.
+ * Asıl kullanım metroda sinyal yokken "nerede aktarma yapacaktım" sorusuna bakmak;
+ * hangi hatlar ve hangi duraklar olduğu eskimiyor. Bu yüzden ömrü de kısa: bir gün.
+ */
+export async function rotaPlanlaYedekli(
+  nereden: Konum,
+  nereye: Konum,
+  zaman: string,
+  secenekler: RotaSecenekleri = VARSAYILAN_SECENEKLER,
+  sinyal?: AbortSignal,
+): Promise<RotaSonucu & { cevrimdisi: number | null }> {
+  try {
+    return { ...(await rotaPlanla(nereden, nereye, zaman, secenekler, sinyal)), cevrimdisi: null };
+  } catch (hata) {
+    if (!(hata instanceof OtpHatasi)) throw hata;
+    const kayit = await onbellektenOku<RotaSonucu>(rotaAnahtari(nereden, nereye, secenekler), 1);
+    if (!kayit) throw hata;
+    return { ...kayit.veri, cevrimdisi: kayit.zaman };
+  }
 }
 
 // Hat listesi seyrek değişir; oturum boyunca bir kez çekilip bellekte tutulur.
@@ -287,7 +321,46 @@ export async function durakSaatleriGetir(
     { id, kalkis: kalkisSayisi, aralik: aralikSaniye },
     sinyal,
   );
-  return veri.stop ?? veri.istasyon;
+  const sonuc = veri.stop ?? veri.istasyon;
+  if (sonuc) void onbellegeYaz(`durak:${id}`, sonuc);
+  return sonuc;
+}
+
+/**
+ * Durak saatlerini getirir; sunucuya ulaşılamazsa son kaydı döndürür.
+ *
+ * Kayıttaki saatler mutlak olduğu için bugüne kaydırılıyor. Kaydırma yalnız aynı
+ * gün türünden bir kayıt için yapılıyor (onbellek.ts) — hafta içi tarifesini
+ * cumartesi göstermek yolcuyu yanıltır.
+ */
+export async function durakSaatleriYedekli(
+  id: string,
+  kalkisSayisi = 3,
+  aralikSaniye = 3 * 3600,
+  sinyal?: AbortSignal,
+): Promise<{ durak: DurakSaatleri | null; cevrimdisi: number | null }> {
+  try {
+    return { durak: await durakSaatleriGetir(id, kalkisSayisi, aralikSaniye, sinyal), cevrimdisi: null };
+  } catch (hata) {
+    if (!(hata instanceof OtpHatasi)) throw hata;
+    const kayit = await onbellektenOku<DurakSaatleri>(`durak:${id}`);
+    if (!kayit) throw hata;
+    const simdi = Date.now();
+    const kaydir = (k: Kalkis): Kalkis => ({
+      ...k,
+      serviceDay: gunuKaydir(k.serviceDay ?? 0, kayit.zaman, simdi),
+      // Gerçek zamanlı değer eski kayıtta artık anlamlı değil.
+      realtimeDeparture: null,
+      realtime: false,
+    });
+    return {
+      durak: {
+        ...kayit.veri,
+        desenler: (kayit.veri.desenler ?? []).map((d) => ({ ...d, stoptimes: (d.stoptimes ?? []).map(kaydir) })),
+      },
+      cevrimdisi: kayit.zaman,
+    };
+  }
 }
 
 export type SunucuBilgisi = {

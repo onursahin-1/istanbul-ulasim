@@ -3,9 +3,10 @@
 
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
-import { useMemo, type ComponentProps, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
+import { tazelikYaz } from '@/lib/onbellek';
 import type { Bacak, Hat } from '@/lib/otp';
 import { aracSimgesi, hatEtiketi, hatRengi, metrobusMu, rozetRenkleri, useTema, type Tema } from '@/lib/tema';
 
@@ -136,6 +137,34 @@ export function HataKutusu({ mesaj, tekrarDene }: { mesaj: string; tekrarDene?: 
   );
 }
 
+/**
+ * Sunucuya ulaşılamadığında, ekrandaki bilginin onbellekten geldiğini söyleyen şerit.
+ *
+ * Sessizce eski veri göstermek en kötüsü: yolcu kaçırdığı seferi uygulamaya yazar.
+ * Şerit hem kaynağı hem de kaydın yaşını açıkça söylüyor.
+ */
+export function CevrimdisiSerit({ zaman, tekrarDene }: { zaman: number; tekrarDene?: () => void }) {
+  const tema = useTema();
+  const [simdi, setSimdi] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setSimdi(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <View style={[stil.cevrimdisi, { backgroundColor: tema.uyariAcik }]}>
+      <Ikon ad="cloud-offline-outline" boyut={16} renkKodu={tema.soluk} />
+      <Text style={[stil.cevrimdisiYazi, { color: tema.yazi }]} numberOfLines={2}>
+        Sunucuya ulaşılamıyor — {tazelikYaz({ zaman }, simdi)} bilgi gösteriliyor.
+      </Text>
+      {tekrarDene && (
+        <Pressable onPress={tekrarDene} accessibilityRole="button" hitSlop={8}>
+          <Text style={[stil.cevrimdisiDene, { color: tema.vurgu }]}>Yenile</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
 export function Dakika({ dakika, style }: { dakika: number; style?: StyleProp<ViewStyle> }) {
   const tema = useTema();
   const yakin = dakika <= 3;
@@ -158,6 +187,18 @@ export function useStiller<T>(uret: (tema: Tema) => T): T {
 }
 
 const stil = StyleSheet.create({
+  cevrimdisi: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    marginHorizontal: 12,
+    marginTop: 10,
+    borderRadius: 12,
+  },
+  cevrimdisiYazi: { flex: 1, fontSize: 13, lineHeight: 18 },
+  cevrimdisiDene: { fontSize: 13, fontWeight: '600' },
   rozet: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', overflow: 'hidden' },
   rozetKutu: { alignItems: 'center', justifyContent: 'center' },
   rozetYazi: { fontWeight: '700', fontSize: 12.5, paddingHorizontal: 8, maxWidth: 110 },

@@ -5,8 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { BacakZinciri, GeriCubugu, HataKutusu, Ikon, SureSeridi, useStiller, Yukleniyor, type IkonAdi } from '@/components/ulasim';
-import { OtpHatasi, rotaPlanla, type Guzergah, type Konum, type RotaTercihi } from '@/lib/otp';
+import { BacakZinciri, CevrimdisiSerit, GeriCubugu, HataKutusu, Ikon, SureSeridi, useStiller, Yukleniyor, type IkonAdi } from '@/components/ulasim';
+import { OtpHatasi, rotaPlanlaYedekli, type Guzergah, type Konum, type RotaTercihi } from '@/lib/otp';
 import { rotaSecenekleriKaydet, useKayitlar } from '@/lib/kayitlar';
 import { guzergahlariSakla } from '@/lib/secim';
 import { ucretKisa, yolculukUcreti } from '@/lib/ucret';
@@ -109,6 +109,7 @@ export default function RotaEkrani() {
   const [guzergahlar, setGuzergahlar] = useState<Guzergah[] | null>(null);
   const [bilgi, setBilgi] = useState<string | null>(null);
   const [hata, setHata] = useState<string | null>(null);
+  const [cevrimdisi, setCevrimdisi] = useState<number | null>(null);
   const [aramaSaati, setAramaSaati] = useState(istanbulSaat());
   const [zaman, setZaman] = useState<ZamanSecimi>(null);
   const [zamanAcik, setZamanAcik] = useState(false);
@@ -128,11 +129,13 @@ export default function RotaEkrani() {
       setGuzergahlar(null);
       setHata(null);
       setBilgi(null);
+      setCevrimdisi(null);
       setAramaSaati(istanbulSaat());
       try {
         const zamanMetni = zaman ? istanbulZamanYap(zaman.gun, zaman.saat, zaman.dakika) : istanbulSimdi();
-        const sonuc = await rotaPlanla(nereden, nereye, zamanMetni, rotaSecenekleri, sinyal);
+        const sonuc = await rotaPlanlaYedekli(nereden, nereye, zamanMetni, rotaSecenekleri, sinyal);
         setGuzergahlar(sonuc.guzergahlar);
+        setCevrimdisi(sonuc.cevrimdisi);
         if (sonuc.guzergahlar.length === 0) {
           const kod = sonuc.hatalar[0]?.code;
           const temel = (kod && HATA_METINLERI[kod]) ?? 'Bu saatte uygun bir rota bulunamadı.';
@@ -266,6 +269,7 @@ export default function RotaEkrani() {
         contentContainerStyle={[s.sonuclar, { paddingBottom: kenar.bottom + 20 }]}
         refreshControl={<RefreshControl refreshing={false} onRefresh={() => ara()} tintColor={tema.vurgu} />}
       >
+        {cevrimdisi != null && <CevrimdisiSerit zaman={cevrimdisi} tekrarDene={() => ara()} />}
         {hata && <HataKutusu mesaj={hata} tekrarDene={() => ara()} />}
         {!hata && !guzergahlar && <Yukleniyor metin="En uygun rotalar hesaplanıyor…" />}
         {bilgi && <Text style={s.bilgi}>{bilgi}</Text>}
