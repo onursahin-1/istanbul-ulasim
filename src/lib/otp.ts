@@ -3,6 +3,8 @@
 
 import Constants from 'expo-constants';
 
+import type { HamAdim } from './yuruyus';
+
 /**
  * Rota motorunun adresi.
  * - .env dosyasında EXPO_PUBLIC_OTP_URL tanımlıysa o kullanılır (ör. yayındaki sunucu).
@@ -121,6 +123,8 @@ export type Bacak = {
   to: Yer;
   route: Hat | null;
   legGeometry: { points: string | null } | null;
+  /** Yürüme bacaklarında adım adım yol tarifi; toplu taşımada boş. */
+  steps: HamAdim[] | null;
   trip: { gtfsId: string; pattern: { stops: DurakNoktasi[] | null } | null } | null;
 };
 

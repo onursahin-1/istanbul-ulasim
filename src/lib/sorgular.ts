@@ -106,6 +106,7 @@ query RotaPlanla(
           to { name lat lon stop { gtfsId } }
           route { ${HAT_ALANLARI} }
           legGeometry { points }
+          steps { distance relativeDirection absoluteDirection streetName bogusName stayOn area exit }
           trip { gtfsId pattern { stops { gtfsId name lat lon } } }
         }
       }

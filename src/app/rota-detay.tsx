@@ -11,7 +11,7 @@ import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HatirlatmaSayfasi, type InisBilgisi } from '@/components/hatirlatma';
-import { GeriCubugu, HatRozeti, Ikon, useStiller } from '@/components/ulasim';
+import { GeriCubugu, HatRozeti, Ikon, useStiller, type IkonAdi } from '@/components/ulasim';
 import { useHatirlaticilar } from '@/lib/bildirim';
 import { useKayitlar } from '@/lib/kayitlar';
 import { mesafeMetre, polylineCoz, type Nokta } from '@/lib/cografya';
@@ -20,11 +20,30 @@ import { guzergahGetir } from '@/lib/secim';
 import { seferBilgisi, sikliktanYazi, type SeferBilgisi } from '@/lib/sefer';
 import { aracAdi, baslikYap, haritaRengi, hatRengi, useTema, type Tema } from '@/lib/tema';
 import { TARIFE_TARIHI, UCRET_ADLARI, ucretKisa, ucretYaz, yolculukUcreti } from '@/lib/ucret';
+import { adimlariYaz, type DonusTuru } from '@/lib/yuruyus';
 import { isodanSaniye, mesafeYaz, saatYaz, saniyedenSaat, sureYaz } from '@/lib/zaman';
 
 type Takip = { bacak: number; kalanDurak: number } | null;
 
 const YAKINLIK_ESIGI = 250; // metre: telefon bir durağa bu kadar yakınsa o duraktayız sayılır
+
+/** Yol tarifi satırlarının simgeleri. */
+const DONUS_SIMGELERI: Record<DonusTuru, IkonAdi> = {
+  basla: 'walk',
+  duz: 'arrow-up',
+  sol: 'arrow-back',
+  sag: 'arrow-forward',
+  hafifSol: 'arrow-back-outline',
+  hafifSag: 'arrow-forward-outline',
+  keskinSol: 'arrow-back-circle-outline',
+  keskinSag: 'arrow-forward-circle-outline',
+  geri: 'refresh',
+  kavsak: 'sync',
+  asansor: 'swap-vertical',
+  giris: 'enter-outline',
+  cikis: 'exit-outline',
+  tabela: 'information-circle-outline',
+};
 
 function bacakNoktalari(b: Bacak): Nokta[] {
   const cizgi = polylineCoz(b.legGeometry?.points);
@@ -61,6 +80,8 @@ export default function RotaDetayEkrani() {
   const duraklar = useMemo(() => bacaklar.map((b) => (b.transitLeg ? bacakDuraklari(b) : [])), [bacaklar]);
 
   const ucret = useMemo(() => yolculukUcreti(bacaklar, ucretTuru), [bacaklar, ucretTuru]);
+  // Yürüme bacaklarının adım adım tarifi; toplu taşıma bacaklarında boş kalır.
+  const yolTarifleri = useMemo(() => bacaklar.map((b) => (b.transitLeg ? [] : adimlariYaz(b.steps))), [bacaklar]);
 
   // Hatırlatıcılar: yola çıkış anı ve her aracın iniş durağına varış anı.
   const hatirlatmaGrubu = `rota-${sira}-${guzergah?.start ?? ''}`;
@@ -418,7 +439,33 @@ export default function RotaDetayEkrani() {
                       <Text style={s.adimBaslik}>
                         {sonYuruyus ? 'Varış noktasına yürü' : `${baslikYap(b.to.name)} durağına yürü`}
                       </Text>
-                      <Text style={s.adimAlt}>{`${sureYaz(b.duration)} · ${mesafeYaz(b.distance)}`}</Text>
+                      {yolTarifleri[i].length > 0 ? (
+                        <Pressable
+                          onPress={() => bacagiAcKapa(i)}
+                          accessibilityRole="button"
+                          accessibilityState={{ expanded: acik }}
+                          accessibilityLabel={`${sureYaz(b.duration)} yürüyüş, ${yolTarifleri[i].length} adım. ${
+                            acik ? 'Yol tarifini gizle' : 'Yol tarifini göster'
+                          }`}
+                          style={s.yuruDugme}
+                        >
+                          <Text style={s.adimAlt}>{`${sureYaz(b.duration)} · ${mesafeYaz(b.distance)}`}</Text>
+                          <Ikon ad={acik ? 'chevron-up' : 'chevron-down'} boyut={14} renkKodu={tema.soluk} />
+                        </Pressable>
+                      ) : (
+                        <Text style={s.adimAlt}>{`${sureYaz(b.duration)} · ${mesafeYaz(b.distance)}`}</Text>
+                      )}
+                      {acik && (
+                        <View style={s.yolTarifi}>
+                          {yolTarifleri[i].map((adim, j) => (
+                            <View key={j} style={s.tarifSatiri}>
+                              <Ikon ad={DONUS_SIMGELERI[adim.donus]} boyut={14} renkKodu={tema.soluk} />
+                              <Text style={s.tarifMetin}>{adim.metin}</Text>
+                              {!!adim.mesafe && <Text style={s.tarifMesafe}>{adim.mesafe}</Text>}
+                            </View>
+                          ))}
+                        </View>
+                      )}
                       {aktarma != null && (
                         <View style={[s.aktarma, aktarma.sikisik && { borderLeftColor: tema.uyari, backgroundColor: tema.uyariAcik }]}>
                           <Text style={[s.aktarmaBaslik, aktarma.sikisik && { color: tema.uyari }]}>
@@ -708,6 +755,17 @@ const stiller = (t: Tema) =>
   ucretAciklama: { flex: 1, fontSize: 12.5, color: t.soluk },
   ucretTutar: { fontSize: 13.5, fontWeight: '600', color: t.yazi, fontVariant: ['tabular-nums'] },
   ucretNot: { fontSize: 11.5, color: t.soluk, lineHeight: 17 },
+  yuruDugme: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 2 },
+  yolTarifi: {
+    marginTop: 8,
+    paddingLeft: 10,
+    borderLeftWidth: 2,
+    borderLeftColor: t.cizgi,
+    gap: 7,
+  },
+  tarifSatiri: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  tarifMetin: { flex: 1, fontSize: 12.5, color: t.yazi, lineHeight: 17 },
+  tarifMesafe: { fontSize: 12, color: t.soluk, fontVariant: ['tabular-nums'] },
   zil: {
     width: 50,
     height: 50,

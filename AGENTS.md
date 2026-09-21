@@ -24,6 +24,9 @@ npm run sorgu            # jar'ı C:\otp içinde kendi bulur
 npm run sorgu -- <yol>   # başka bir jar ya da klasör
 ```
 
+Betik `node --experimental-strip-types scripts/sorgu-dogrula.ts` ile de çalışır;
+`tsx` kurulu değilse ya da başka bir platformdan kurulmuşsa bu yol işe yarar.
+
 Betik `node --import tsx` ile çalışır, `tsx` kabuk kısayoluyla değil: proje Windows'ta
 geliştirilirken bağımlılıklar başka bir makineden kurulduysa `node_modules/.bin` içindeki
 `.cmd` kısayolları oluşmuyor ve `tsx` bulunamıyor.

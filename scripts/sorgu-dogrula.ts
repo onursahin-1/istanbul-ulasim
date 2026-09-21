@@ -15,7 +15,7 @@ import { join } from 'node:path';
 
 import { buildSchema, parse, validate } from 'graphql';
 
-import { SORGULAR, tercihleriYap, type RotaTercihi } from '../src/lib/sorgular';
+import { SORGULAR, tercihleriYap, type RotaTercihi } from '../src/lib/sorgular.ts';
 
 const SEMA_YOLU = 'org/opentripplanner/apis/gtfs/schema.graphqls';
 
