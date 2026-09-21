@@ -59,10 +59,17 @@ Test dosyaları `tsconfig.json`'da hariç tutulur (Node tipleri kurulu değil); 
 
 ## Veri
 
-`veri/README.md` bütün veri hattını anlatır: GTFS hazırlama, OSM kırpma, ilgi
-noktaları ve eksik metro istasyonlarının OSM'den tamamlanması. İBB'nin raylı sistem
+`veri/README.md` bütün veri hattını anlatır ve **betiklerin çalıştırma sırasını**
+verir; betikler zip'i yerinde değiştirdiği için sıra önemli. İBB'nin raylı sistem
 beslemesi 2023'ten beri güncellenmiyor; saatler güncel döneme kaydırılmış
-yaklaşıklardır ve M11 tamamen bizim ürettiğimiz tahminî tarifedir.
+yaklaşıklardır. M11 beslemede hiç yok, biz üretiyoruz: istasyonlar ve çizgi OSM'den,
+uçtan uca süre ile sıklık iki bağımsız kaynaktan, istasyon arası dağılım tahminî.
+
+Veri zip'lerinin elle alınmış yedeklerine güvenme: `hazirla-gtfs.mjs` zaman içinde
+düzeldiği için eski bir yedek, araç tipi yanlış atanmış bir sürüm olabilir. Her
+değişiklikten sonra `python veri/dogrula.py C:\otp\istanbul` çalıştır; hat sayıları
+(12 metro, 3 Marmaray, 3 tramvay, 3 füniküler, 2 teleferik, ~100 vapur) bu tür bir
+karışıklığı hemen gösterir.
 
 ## Dil
 
