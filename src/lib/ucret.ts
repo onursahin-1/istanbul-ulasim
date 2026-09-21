@@ -14,8 +14,9 @@
 // Tutarlar kuruş cinsinden tam sayı tutulur: 46,20 ₺ = 4620. Böylece toplama sırasında
 // ondalık yuvarlama hatası birikmez.
 
-import { bacakDuraklari, type Bacak } from './otp';
-import { metrobusMu } from './tema';
+import { bacakDuraklari } from './bacak';
+import { metrobusMu } from './metin';
+import type { Bacak } from './otp';
 
 export type UcretTuru = 'tam' | 'ogrenci' | 'indirimli' | 'ogrenci30';
 

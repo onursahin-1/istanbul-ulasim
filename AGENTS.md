@@ -38,6 +38,22 @@ yerine `trip.pattern.stops` kullanılıyor).
 `buildSchema` çağrısı `assumeValid` ile yapılır: OTP'nin şeması graphql-js'in bir
 kuralını çiğniyor, ama bizi ilgilendiren sorguların geçerliliği.
 
+## Testler
+
+```powershell
+npm test
+```
+
+Saf mantık `src/lib/__testler__/` altında Node'un kendi test koşucusuyla denenir
+(`node --import tsx --test`). Test edilebilmesi için saf parçalar React Native'e
+dokunmayan dosyalarda tutulur: `metin.ts` (Türkçe metin ve hat kodu), `bacak.ts`
+(durak dizisi), `sorgular.ts` (GraphQL metinleri ve rota tercihleri). `tema.ts` ve
+`otp.ts` bunları yeniden dışa açar, böylece çağrı yerleri değişmez. **Yeni bir saf
+işlev yazarken onu bu dosyalardan birine koy**, yoksa test edilemez hâle gelir.
+
+Test dosyaları `tsconfig.json`'da hariç tutulur (Node tipleri kurulu değil); doğruluğu
+`npm test` gösterir.
+
 ## Veri
 
 `veri/README.md` bütün veri hattını anlatır: GTFS hazırlama, OSM kırpma, ilgi
