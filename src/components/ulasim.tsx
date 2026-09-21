@@ -7,7 +7,7 @@ import { useMemo, type ComponentProps, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import type { Bacak, Hat } from '@/lib/otp';
-import { aracSimgesi, hatRengi, hatYaziRengi, metrobusMu, useTema, type Tema } from '@/lib/tema';
+import { aracSimgesi, hatEtiketi, hatRengi, metrobusMu, rozetRenkleri, useTema, type Tema } from '@/lib/tema';
 
 export type IkonAdi = ComponentProps<typeof Ionicons>['name'];
 
@@ -17,22 +17,34 @@ export function Ikon({ ad, boyut = 20, renkKodu }: { ad: IkonAdi; boyut?: number
 }
 
 /**
- * Hat numarasını kendi renginde gösteren rozet.
- * Metro, Marmaray, tramvay, vapur ve füniküler hatlarında araç tipinin simgesi de çıkar;
- * otobüslerde yalnızca Metrobüs'te simge gösterilir, kalabalık yapmasın diye.
+ * Hat rozeti: solda araç tipinin simgesi hat renginde bir kutuda, sağda hattın kimliği.
+ *
+ * Renk küçük kutuda yoğunlaşıyor, yazı açık bir zeminde duruyor. Sebebi: rozetler yan
+ * yana diziliyor (bacak zinciri, durak ekranındaki hat listesi) ve hepsi dolu renk
+ * olunca satır rengârenk bir şeride dönüşüp hiçbir hat öne çıkmıyordu.
+ *
+ * Rozette yazan metin `hatEtiketi` ile belirleniyor: minibüs ve dolmuş hatlarının
+ * "kısa adı" güzergâhın tamamı olduğu için onlarda araç tipi yazıyor.
  */
 export function HatRozeti({ hat, kucuk = false }: { hat?: Hat | string | null; kucuk?: boolean }) {
   const tema = useTema();
   const kisaAd = typeof hat === 'string' ? hat : hat?.shortName;
   const tur = typeof hat === 'string' ? null : hat?.mode;
-  const zemin = hatRengi(hat, tema);
-  const yazi = hatYaziRengi(hat, tema);
-  const simge = tur && tur.toUpperCase() !== 'BUS' ? aracSimgesi(tur) : metrobusMu(kisaAd) ? 'bus' : null;
+  const isletmeci = typeof hat === 'string' ? null : hat?.agency?.name;
+  const { rozet } = hatEtiketi(kisaAd, tur, isletmeci);
+  const renkler = rozetRenkleri(hat, tema);
+  const simge = tur && tur.toUpperCase() !== 'BUS' ? aracSimgesi(tur) : metrobusMu(kisaAd) ? 'bus' : 'bus';
+  const boy = kucuk ? 22 : 26;
   return (
-    <View style={[stil.rozet, kucuk && stil.rozetKucuk, { backgroundColor: zemin }]}>
-      {simge && <Ionicons name={simge as IkonAdi} size={kucuk ? 11 : 13} color={yazi} />}
-      <Text style={[stil.rozetYazi, kucuk && stil.rozetYaziKucuk, { color: yazi }]} numberOfLines={1}>
-        {kisaAd ?? '?'}
+    <View style={[stil.rozet, { backgroundColor: renkler.zemin, height: boy, borderRadius: kucuk ? 7 : 8 }]}>
+      <View style={[stil.rozetKutu, { backgroundColor: renkler.kutu, width: boy, height: boy }]}>
+        <Ionicons name={simge as IkonAdi} size={kucuk ? 12 : 14} color={renkler.kutuYazi} />
+      </View>
+      <Text
+        style={[stil.rozetYazi, kucuk && stil.rozetYaziKucuk, { color: renkler.yazi }]}
+        numberOfLines={1}
+      >
+        {rozet}
       </Text>
     </View>
   );
@@ -146,18 +158,10 @@ export function useStiller<T>(uret: (tema: Tema) => T): T {
 }
 
 const stil = StyleSheet.create({
-  rozet: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    height: 24,
-    paddingHorizontal: 8,
-    borderRadius: 7,
-    alignSelf: 'flex-start',
-  },
-  rozetKucuk: { height: 21, paddingHorizontal: 6, borderRadius: 6 },
-  rozetYazi: { fontWeight: '700', fontSize: 12.5, fontVariant: ['tabular-nums'], maxWidth: 120 },
-  rozetYaziKucuk: { fontSize: 11.5 },
+  rozet: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', overflow: 'hidden' },
+  rozetKutu: { alignItems: 'center', justifyContent: 'center' },
+  rozetYazi: { fontWeight: '700', fontSize: 12.5, paddingHorizontal: 8, maxWidth: 110 },
+  rozetYaziKucuk: { fontSize: 11.5, paddingHorizontal: 7 },
   zincir: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', rowGap: 6 },
   zincirParca: { flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: 4 },
   yuru: { flexDirection: 'row', alignItems: 'center' },

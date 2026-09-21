@@ -10,7 +10,7 @@ import { OtpHatasi, rotaPlanla, type Guzergah, type Konum, type RotaTercihi } fr
 import { rotaSecenekleriKaydet, useKayitlar } from '@/lib/kayitlar';
 import { guzergahlariSakla } from '@/lib/secim';
 import { ucretKisa, yolculukUcreti } from '@/lib/ucret';
-import { aracAdi, baslikYap, useTema, type Tema } from '@/lib/tema';
+import { baslikYap, hatEtiketi, useTema, type Tema } from '@/lib/tema';
 import {
   gunEtiketi,
   gunTarihi,
@@ -288,9 +288,9 @@ export default function RotaEkrani() {
               </View>
               {ilkArac && (
                 <Text style={s.ilkArac}>
-                  {`${[aracAdi(ilkArac.route?.mode ?? ilkArac.mode), ilkArac.route?.shortName]
-                    .filter(Boolean)
-                    .join(' ')} · ${baslikYap(ilkArac.from.name)} durağından ${saatYaz(ilkArac.start.estimated?.time ?? ilkArac.start.scheduledTime)}`}
+                  {`${hatYazisi(ilkArac)} · ${baslikYap(ilkArac.from.name)} durağından ${saatYaz(
+                    ilkArac.start.estimated?.time ?? ilkArac.start.scheduledTime,
+                  )}`}
                 </Text>
               )}
               {sonrakiler.length > 0 && (
@@ -457,6 +457,16 @@ export default function RotaEkrani() {
 
     </View>
   );
+}
+
+/**
+ * Kart altındaki "hangi araç" satırı.
+ * Minibüs ve dolmuşta kısa ad güzergâhın tamamı olduğu için rozet araç tipini yazıyor;
+ * burada güzergâhı da ekliyoruz, yoksa hangi minibüs olduğu anlaşılmıyor.
+ */
+function hatYazisi(bacak: Guzergah['legs'][number]): string {
+  const e = hatEtiketi(bacak.route?.shortName, bacak.route?.mode ?? bacak.mode, bacak.route?.agency?.name);
+  return [e.rozet, e.ayrinti].filter(Boolean).join(' · ');
 }
 
 /** Tercih hapındaki etiket: seçili tercih ne ise onu yazar. */

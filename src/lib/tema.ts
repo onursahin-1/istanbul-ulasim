@@ -13,11 +13,14 @@
 
 import { useColorScheme } from 'react-native';
 
+import { aracAdi, hatEtiketi } from './hat-adi';
 import { baslikYap, hatAnahtari, metrobusMu, trBuyuk, trKucuk, yonYaz } from './metin';
+import { karistir, okunurYap } from './renk';
 
 // Metin ve hat kodu yardımcıları ayrı, bağımlılıksız bir dosyada durur (test edilebilsin diye);
 // çağrı yerleri değişmesin diye buradan da açılıyor.
 export { baslikYap, hatAnahtari, metrobusMu, trBuyuk, trKucuk, yonYaz };
+export { aracAdi, hatEtiketi } from './hat-adi';
 
 export type Tema = {
   koyu: boolean;
@@ -213,20 +216,6 @@ const MOD_SIMGELERI: Record<string, string> = {
   TAXI: 'car',
 };
 
-const MOD_ADLARI: Record<string, string> = {
-  BUS: 'Otobüs',
-  TROLLEYBUS: 'Troleybüs',
-  COACH: 'Otobüs',
-  SUBWAY: 'Metro',
-  RAIL: 'Tren',
-  MONORAIL: 'Monoray',
-  TRAM: 'Tramvay',
-  FERRY: 'Vapur',
-  FUNICULAR: 'Füniküler',
-  CABLE_CAR: 'Teleferik',
-  GONDOLA: 'Teleferik',
-  WALK: 'Yürüyüş',
-};
 
 /** Rota motorundan gelen hat bilgisi; ekranlarda yalnızca kısa ad da geçilebilir. */
 export type HatBilgisi =
@@ -315,16 +304,36 @@ export function hatYaziRengi(hat: HatBilgisi, tema: Tema): string {
   return yaziRengi(hatRengi(hat, tema));
 }
 
+/**
+ * Rozetin dört rengi.
+ *
+ * Tasarım: renk küçük bir simge kutusunda yoğunlaşıyor, yazı ise sakin bir zeminde
+ * duruyor. Rozetlerin yan yana dizildiği yerlerde (rota kartındaki bacak zinciri,
+ * durak ekranındaki hat listesi) her rozeti dolu renk yapmak satırı rengârenk bir
+ * şeride çeviriyor ve hiçbir hat öne çıkmıyordu.
+ *
+ * Zemin ve yazı hat renginden türetiliyor; yazı WCAG AA eşiğini geçene kadar
+ * koyulaştırılıyor (ya da koyu temada açılıyor), böylece yeni bir hat eklendiğinde
+ * okunurluk kendiliğinden sağlanıyor.
+ */
+export function rozetRenkleri(hat: HatBilgisi, tema: Tema) {
+  const renk = hatRengi(hat, tema);
+  const zemin = tema.koyu ? karistir(renk, tema.yuzey, 0.84) : karistir(renk, '#ffffff', 0.86);
+  const hamYazi = tema.koyu ? karistir(renk, '#ffffff', 0.25) : karistir(renk, '#000000', 0.2);
+  return {
+    kutu: renk,
+    kutuYazi: yaziRengi(renk),
+    zemin,
+    yazi: okunurYap(hamYazi, zemin),
+  };
+}
+
 
 /** Araç tipine karşılık gelen Ionicons simgesinin adı. */
 export function aracSimgesi(mode?: string | null): string | null {
   return MOD_SIMGELERI[(mode ?? '').toUpperCase()] ?? null;
 }
 
-/** "SUBWAY" → "Metro". Bilinmeyen tipler için boş dizi döner. */
-export function aracAdi(mode?: string | null): string {
-  return MOD_ADLARI[(mode ?? '').toUpperCase()] ?? '';
-}
 
 /** Otobüs dışındaki raylı sistem ve vapur hatlarını ayırt etmek için. */
 export function rayliVeyaVapurMu(mode?: string | null): boolean {

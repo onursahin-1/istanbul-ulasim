@@ -18,7 +18,7 @@ import { mesafeMetre, polylineCoz, type Nokta } from '@/lib/cografya';
 import { bacakDuraklari, hatKalkislariGetir, type Bacak } from '@/lib/otp';
 import { guzergahGetir } from '@/lib/secim';
 import { seferBilgisi, sikliktanYazi, type SeferBilgisi } from '@/lib/sefer';
-import { aracAdi, baslikYap, haritaRengi, hatRengi, useTema, type Tema } from '@/lib/tema';
+import { aracAdi, baslikYap, haritaRengi, hatEtiketi, hatRengi, useTema, type Tema } from '@/lib/tema';
 import { TARIFE_TARIHI, UCRET_ADLARI, ucretKisa, ucretYaz, yolculukUcreti } from '@/lib/ucret';
 import { adimlariYaz, type DonusTuru } from '@/lib/yuruyus';
 import { isodanSaniye, mesafeYaz, saatYaz, saniyedenSaat, sureYaz } from '@/lib/zaman';
@@ -427,6 +427,11 @@ export default function RotaDetayEkrani() {
                         </View>
                       )}
 
+                      {!!hatEtiketi(b.route?.shortName, b.route?.mode ?? b.mode, b.route?.agency?.name).ayrinti && (
+                        <Text style={s.hatGuzergah} numberOfLines={2}>
+                          {hatEtiketi(b.route?.shortName, b.route?.mode ?? b.mode, b.route?.agency?.name).ayrinti}
+                        </Text>
+                      )}
                       <Text style={s.adimAlt}>{baslikYap(b.to.name)} durağında in</Text>
                       {aktifBacak === i && takip && (
                         <Text style={s.adimCanli}>
@@ -756,6 +761,7 @@ const stiller = (t: Tema) =>
   ucretTutar: { fontSize: 13.5, fontWeight: '600', color: t.yazi, fontVariant: ['tabular-nums'] },
   ucretNot: { fontSize: 11.5, color: t.soluk, lineHeight: 17 },
   yuruDugme: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 2 },
+  hatGuzergah: { fontSize: 12, color: t.soluk, lineHeight: 17, marginTop: 6 },
   yolTarifi: {
     marginTop: 8,
     paddingLeft: 10,

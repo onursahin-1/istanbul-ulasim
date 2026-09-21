@@ -6,7 +6,8 @@
 
 
 // Rozetlerin doğru renk ve simgeyi seçebilmesi için hat sorgularında araç tipi ve renk de istenir.
-const HAT_ALANLARI = `gtfsId shortName longName mode color textColor`;
+// agency: minibüs ile dolmuşu ayırmak için gerekiyor; ikisinin de kısa adı güzergâhın tamamı.
+const HAT_ALANLARI = `gtfsId shortName longName mode color textColor agency { name }`;
 
 const KALKIS_ALANLARI = `
   scheduledDeparture
@@ -119,7 +120,6 @@ const HATLAR = `
 query Hatlar {
   routes {
     ${HAT_ALANLARI}
-    agency { name }
   }
 }`;
 
@@ -128,7 +128,6 @@ const HAT_DETAYI = `
 query HatDetayi($id: String!) {
   route(id: $id) {
     ${HAT_ALANLARI}
-    agency { name }
     patterns {
       code
       name

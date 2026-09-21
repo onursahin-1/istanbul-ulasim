@@ -82,6 +82,7 @@ export type Hat = {
   mode?: string | null;
   color?: string | null;
   textColor?: string | null;
+  agency?: { name: string } | null;
 };
 
 export type Kalkis = {

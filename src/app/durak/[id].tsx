@@ -10,7 +10,7 @@ import { Dakika, HataKutusu, HatRozeti, Ikon, useStiller, Yukleniyor } from '@/c
 import { favoriDegistir, useKayitlar } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
 import { durakSaatleriGetir, OtpHatasi, type DurakSaatleri } from '@/lib/otp';
-import { baslikYap, hatRengi, useTema, yonYaz, type Tema } from '@/lib/tema';
+import { baslikYap, hatEtiketi, hatRengi, useTema, yonYaz, type Tema } from '@/lib/tema';
 import { kacDakikaSonra, saniyedenSaat } from '@/lib/zaman';
 
 const YENILEME_ARALIGI = 30_000;
@@ -72,6 +72,9 @@ export default function DurakEkrani() {
           anahtar: d.pattern?.code ?? '',
           hat: d.pattern?.route ?? null,
           yon: baslikYap(d.pattern?.headsign) || baslikYap(d.pattern?.route?.longName),
+          // Minibüs ve dolmuşta rozet yalnızca araç tipini yazıyor; güzergâh buraya düşüyor.
+          guzergah: hatEtiketi(d.pattern?.route?.shortName, d.pattern?.route?.mode, d.pattern?.route?.agency?.name)
+            .ayrinti,
           kalkislar,
         };
       })
@@ -198,6 +201,11 @@ export default function DurakEkrani() {
                     <Text style={s.seferYon} numberOfLines={1}>
                       {y.yon || 'Yön bilgisi yok'}
                     </Text>
+                    {!!y.guzergah && (
+                      <Text style={s.seferGuzergah} numberOfLines={1}>
+                        {y.guzergah}
+                      </Text>
+                    )}
                     <Text style={s.seferSaat}>
                       {y.kalkislar.slice(0, 3).map((k) => saniyedenSaat(k.saniye)).join('  ·  ')}
                     </Text>
@@ -251,6 +259,7 @@ const stiller = (t: Tema) =>
   bos: { color: t.soluk, paddingVertical: 10 },
   sefer: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.cizgi },
   seferYon: { fontSize: 13.5, fontWeight: '600', color: t.yazi },
+  seferGuzergah: { fontSize: 12, color: t.soluk, marginTop: 1 },
   seferSaat: { fontSize: 12, color: t.soluk, fontVariant: ['tabular-nums'] },
   tarife: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   tarifeNokta: { width: 8, height: 8, borderRadius: 4, backgroundColor: t.yurume },
