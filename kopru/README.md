@@ -14,8 +14,8 @@ Sunucu `http://localhost:8082` adresinde üç uç nokta açar:
 
 | Adres | Ne | OTP karşılığı |
 |---|---|---|
-| `/arac-konumlari` | GTFS-RT VehiclePosition | `vehicle-positions` |
-| `/sefer-guncellemeleri` | GTFS-RT TripUpdate | `stop-time-updater` |
+| `/arac-konumlari` | GTFS-RT VehiclePosition | `VEHICLE_POSITIONS` |
+| `/sefer-guncellemeleri` | GTFS-RT TripUpdate | `STOP_TIME_UPDATER` |
 | `/durum` | insan için JSON özet | — |
 
 Ortam değişkenleri: `GTFS_ZIP` (varsayılan `C:\otp\istanbul\istanbul-iett-gtfs.zip`),
@@ -23,8 +23,14 @@ Ortam değişkenleri: `GTFS_ZIP` (varsayılan `C:\otp\istanbul\istanbul-iett-gtf
 
 ## OTP tarafı
 
-`C:\otp\istanbul\router-config.json` dosyasını oluştur. `feedId` **senin grafiğindeki
-besleme kimliği** olmalı; Ayarlar sekmesindeki "TARİFE VERİSİ" bölümü onu listeliyor,
+OTP açıkken tek komut yeter; besleme kimliğini OTP'ye sorar, İETT beslemesini
+işletme adından bulur ve `C:\otp\istanbul\router-config.json`'u yazar:
+
+```powershell
+node kopru\otp-ayari-yaz.mjs
+```
+
+Elle yazmak istersen: `feedId` **senin grafiğindeki besleme kimliği** olmalı; Ayarlar sekmesindeki "TARİFE VERİSİ" bölümü onu listeliyor,
 ya da sunucuya sorabilirsin:
 
 ```powershell
@@ -35,14 +41,14 @@ curl.exe -s -X POST http://localhost:8080/otp/gtfs/v1 -H "Content-Type: applicat
 {
   "updaters": [
     {
-      "type": "vehicle-positions",
+      "type": "VEHICLE_POSITIONS",
       "feedId": "BURAYA_FEED_ID",
       "url": "http://localhost:8082/arac-konumlari",
       "frequency": "45s",
-      "features": ["position"]
+      "features": ["POSITION"]
     },
     {
-      "type": "stop-time-updater",
+      "type": "STOP_TIME_UPDATER",
       "feedId": "BURAYA_FEED_ID",
       "url": "http://localhost:8082/sefer-guncellemeleri",
       "frequency": "45s"
@@ -50,6 +56,14 @@ curl.exe -s -X POST http://localhost:8080/otp/gtfs/v1 -H "Content-Type: applicat
   ]
 }
 ```
+
+**Enum değerleri büyük harfle yazılmalı.** OTP'nin belgelerinde `vehicle-positions`
+gibi küçük harfli yazımlar geçiyor; bunlar Türkçe Windows'ta çalışmıyor. OTP gelen
+değeri dil belirtmeden büyük harfe çeviriyor ve Türkçede `i` → `İ` olduğu için
+`vehicle-positions` → `VEHİCLE-POSİTİONS` oluyor, hiçbir enum'a uymuyor:
+`The parameter value 'vehicle-positions' is not legal`. Enum adının kendisini
+(`VEHICLE_POSITIONS`) yazınca çeviri bir şey değiştirmiyor. OTP 2.10'un kendisiyle
+hem Türkçe hem İngilizce dil ayarında sınandı.
 
 Grafiği yeniden derlemeye gerek yok; OTP'yi `--load --serve` ile yeniden başlatmak yeter.
 
@@ -74,6 +88,13 @@ süresi katlanarak artıyor. Israr etmek sınırı uzatır.
 2. Konum → o rotanın en yakın durağı. Filo servisi durak kodu vermediği için
    mesafeden hesaplanıyor.
 3. O rotanın, o duraktan, şu ana en yakın saatte geçen aktif seferi seçilir.
+
+**Makul olmayan gecikmeler yayımlanmıyor** (10 dakikadan erken, 30 dakikadan geç).
+Böyle bir fark, o saatte o duraktan hiç sefer geçmediği anlamına geliyor: araç büyük
+ihtimalle yolcu almadan garaja dönüyor ya da komşu bir sefere bağlandı. Gerçek bir
+örnekte 277 araçtan 4'ü böyleydi (-38, -19, -10, +40 dk). OTP gecikmeyi seferin geri
+kalanına yaydığı için tek bir yanlış değer bütün varış tahminlerini kaydırıyor.
+`/durum`'daki `makulDisi` sayacı kaç aracın elendiğini gösteriyor.
 
 Tarifenin tamamı belleğe alınıyor (6,1 milyon durak-saat satırı, tipli dizilerde
 ~3 saniye ve ~650 MB).

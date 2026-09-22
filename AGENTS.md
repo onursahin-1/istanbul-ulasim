@@ -14,6 +14,17 @@ OpenTripPlanner 2.10, kullanıcının bilgisayarında `C:\otp` altında çalış
 `http://<bilgisayarın IP'si>:8080/otp/gtfs/v1` adresine bağlanır, yani telefon aynı
 Wi-Fi'de olmak zorunda. Adres `EXPO_PUBLIC_OTP_URL` ile değiştirilebilir.
 
+### OTP yapılandırması ve Türkçe dil ayarı
+
+OTP yapılandırma dosyalarındaki enum değerlerini **enum adının kendisiyle** yaz:
+`"VEHICLE_POSITIONS"`, `"POSITION"`; OTP belgelerindeki `"vehicle-positions"` gibi
+küçük harfli yazımları değil. OTP gelen değeri dil belirtmeden büyük harfe çeviriyor;
+Türkçe Windows'ta `i` → `İ` olduğu için küçük harfli her değer reddediliyor
+(`The parameter value '…' is not legal`). Sınamak için: grafiği olmayan bir klasöre
+yalnız yapılandırma dosyasını koyup `java -Duser.language=tr -Duser.country=TR -jar
+otp-shaded-2.10.0.jar --load <klasör>` çalıştır; hata "no graph file found" ise
+yapılandırma geçmiştir.
+
 ## GraphQL sorguları
 
 Sorgu metinleri `src/lib/sorgular.ts` içinde, bağımlılıksız bir dosyada durur;

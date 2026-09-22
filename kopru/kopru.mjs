@@ -47,6 +47,22 @@ function zamaniCoz(metin, simdi = new Date()) {
 
 const GUN = 86_400;
 
+/**
+ * Makul gecikme aralığı. Dışındaki eşleşmeler yayımlanmıyor.
+ *
+ * Eşleştirme aracı o durağa şu ana en yakın saatte uğrayan sefere bağlıyor. Fark
+ * çok büyükse o saatte o duraktan hiç sefer geçmiyor demektir: araç büyük
+ * ihtimalle yolcu almadan garaja dönüyor ya da komşu bir sefere bağlandı. Gerçek
+ * örnekte 277 araçtan 4'ü böyleydi (-38, -19, -10, +40 dk); ikisi aynı sefere
+ * düşmüştü. OTP gecikmeyi seferin geri kalanına yaydığı için tek bir yanlış değer
+ * bütün varış tahminlerini kaydırıyor — hiç göndermemek daha iyi.
+ *
+ * Erkene sınır daha dar: şoförler duraklarda bekleyerek erken gitmeyi önlüyor,
+ * trafikte geç kalmak ise sık.
+ */
+export const EN_ERKEN_SN = 10 * 60;
+export const EN_GEC_SN = 30 * 60;
+
 /** İki saniye değeri arasındaki farkı gece yarısını aşarak hesaplar. */
 function fark(a, b) {
   let f = a - b;
@@ -76,6 +92,10 @@ export class SeferHafizasi {
     this.kayit.set(kapiNo, { rota: rotaIdx, sefer: seferIdx, sira, an });
   }
 
+  unut(kapiNo) {
+    this.kayit.delete(kapiNo);
+  }
+
   temizle(simdi) {
     for (const [kapi, k] of this.kayit) {
       if ((simdi - k.an) / 1000 > this.unutmaSn) this.kayit.delete(kapi);
@@ -95,7 +115,9 @@ export class SeferHafizasi {
 export function araclariEslestir(tarife, araclar, hafiza, tarayici, simdi = new Date()) {
   const aktif = gununServisleri(tarife, simdi);
   const eslesenler = [];
-  const sayac = { toplam: 0, hatBilinmiyor: 0, rotaYok: 0, durakYok: 0, seferYok: 0, surdurulen: 0, yeni: 0, eskimis: 0 };
+  const sayac = {
+    toplam: 0, hatBilinmiyor: 0, rotaYok: 0, durakYok: 0, seferYok: 0, surdurulen: 0, yeni: 0, eskimis: 0, makulDisi: 0,
+  };
 
   for (const a of araclar) {
     sayac.toplam++;
@@ -156,6 +178,15 @@ export function araclariEslestir(tarife, araclar, hafiza, tarayici, simdi = new 
       sayac.yeni++;
     }
 
+    // Gecikme: gözlem anı − planlanan an. Pozitif = geç kalmış.
+    const gecikme = fark(zaman.saniye, secilen.planlanan);
+    if (gecikme < -EN_ERKEN_SN || gecikme > EN_GEC_SN) {
+      sayac.makulDisi++;
+      // Hafızadaki sefer artık tutmuyorsa unut; bir sonraki turda baştan eşlensin.
+      if (kapiNo) hafiza.unut(kapiNo);
+      continue;
+    }
+
     if (kapiNo) hafiza.koy(kapiNo, rotaIdx, secilen.sefer, secilen.sira, simdi);
 
     eslesenler.push({
@@ -165,8 +196,7 @@ export function araclariEslestir(tarife, araclar, hafiza, tarayici, simdi = new 
       yon: tarife.seferYon[secilen.sefer],
       durakId: tarife.durakAd[durakIdx],
       sira: secilen.sira,
-      // Gecikme: gözlem anı − planlanan an. Pozitif = geç kalmış.
-      gecikme: fark(zaman.saniye, secilen.planlanan),
+      gecikme,
       enlem: a.enlem,
       boylam: a.boylam,
       damga: Math.floor(zaman.tarih.getTime() / 1000),
