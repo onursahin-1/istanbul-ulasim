@@ -13,9 +13,11 @@ python osm-cikar.py C:\otp\istanbul\Istanbul.osm.pbf C:\otp\osm-hatlar.json  # 2
 python istasyon-tamamla.py C:\otp\osm-hatlar.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python marmaray-duzelt.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python cizgi-ekle.py C:\otp\osm-hatlar.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
+python hat-adi-duzelt.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python durak-birlestir.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python durak-birlestir.py C:\otp\istanbul\istanbul-iett-gtfs.zip
 python dogrula.py C:\otp\istanbul                                          # sağlama
+python ag-cikar.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip ..\assets\veri\ag.json
 ```
 
 Yarıda kalmış bir zip'e yeniden çalıştırmak yerine `hazirla-gtfs.mjs` ile baştan
@@ -196,6 +198,37 @@ ortancası 28–36 m.
 `parent_station` OTP'de bedava aktarma açmıyor; yürüme süreleri yine sokak ağından
 hesaplanıyor. Kazanç aramada ve aktarma modelinde. Betik yeniden çalıştırılabilir:
 önceki turun istasyonlarını temizleyip baştan kuruyor.
+
+## 8. Hat adları
+
+```powershell
+python hat-adi-duzelt.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
+```
+
+`istasyon-tamamla.py` hatları uzatıyor ama `route_long_name`'e dokunmuyordu: M4
+"KADIKÖY - TAVŞANTEPE" yazıyordu, oysa Sabiha Gökçen'e kadar gidiyor. Ad hat
+listesinde ve hat ekranında görünüyor.
+
+Ad ancak uç istasyonlardan **en az biri** adın içinde geçmiyorsa değiştiriliyor;
+böylece M11'in "GAYRETTEPE - İSTANBUL HAVALİMANI - HALKALI"sı korunuyor (iki ucu
+da içeriyor, ayrıca aradaki havalimanını söylüyor). Halka hatlara hiç
+dokunulmuyor: T3'ün iki ucu da Kadıköy iskelesinde, uçlardan ad üretmek
+"KADIKÖY - MODA"yı "İSKELE CAMİ - KADIKÖY İDO"ya çeviriyordu.
+
+Yenilenenler: M3, M4, M5, M6, M8, M9, M1B.
+
+## 9. Ağ haritası verisi
+
+```powershell
+python ag-cikar.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip ..\assets\veri\ag.json
+```
+
+Ağ haritası bütün raylı hatları aynı anda çiziyor. Bunu her açılışta OTP'den
+çekmek hem yavaş hem sunucuya bağımlı olurdu; veri seyrek değiştiği için
+uygulamayla birlikte gidiyor. Çizgiler Google polyline (5 basamak) ile
+sıkıştırılıyor — uygulama zaten `src/lib/cografya.ts` içinde çözüyor.
+
+24 hat, **46 KB**. Zip her yenilendiğinde bu dosya da yenilenmeli.
 
 ## Grafiği derleme
 
