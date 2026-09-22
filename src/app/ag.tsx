@@ -10,12 +10,13 @@
 
 import { router } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import MapView, { Marker, Polyline } from 'react-native-maps';
+import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import MapView, { Marker, Polyline, type MapPressEvent, type Region } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { GeriCubugu, HatRozeti, Ikon, useStiller } from '@/components/ulasim';
 import { agCizgisi, agSiniri, AG_HATLARI, AG_SUZGECLERI, suzgeceUyar, type AgHatti } from '@/lib/ag';
+import { enYakinCizgi, metrePiksel } from '@/lib/cografya';
 import { durakAra, hatlariGetir, OtpHatasi } from '@/lib/otp';
 import { karistir } from '@/lib/renk';
 import { aracModu, baslikYap, hatRengi, useTema, type Tema } from '@/lib/tema';
@@ -28,12 +29,19 @@ const INCE = 3.4;
  * öne çıkmasın. Polyline'ın saydamlık ayarı yok, renk karıştırmak gerekiyor.
  */
 const SOLUK = 0.78;
+/**
+ * Dokunuşun bir hatta sayılması için en fazla uzaklık, ekran pikseli. Parmak ucu
+ * ~40 px; çizgi 3-5 px. Kütüphanenin kendi payı 10 px'ti, ince hatlara isabet
+ * ettirmek neredeyse imkânsızdı.
+ */
+const ISABET_PX = 22;
 
 export default function AgEkrani() {
   const kenar = useSafeAreaInsets();
   const tema = useTema();
   const s = useStiller(stiller);
   const harita = useRef<MapView>(null);
+  const { width: ekranGenisligi } = useWindowDimensions();
 
   const [suzgec, setSuzgec] = useState('tumu');
   const [secili, setSecili] = useState<AgHatti | null>(null);
@@ -45,6 +53,29 @@ export default function AgEkrani() {
   }, [suzgec]);
 
   const bolge = useMemo(() => agSiniri(), []);
+  // Görünen bölge: dokunma payını piksel yerine metreye çevirmek için gerekli.
+  const gorunenBolge = useRef<Region>(bolge);
+
+  const haritayaDokun = useCallback(
+    (e: MapPressEvent) => {
+      const payMetre = metrePiksel(gorunenBolge.current, ekranGenisligi) * ISABET_PX;
+      const nokta = e.nativeEvent.coordinate;
+      // iOS'ta istasyon işaretçisine basmak da buraya düşüyor. Seçili hat paydaysa
+      // onu tut: aktarma istasyonunda başka bir hat birkaç metre daha yakın olabilir
+      // ve seçim, açılmakta olan istasyon balonunun altından kayıp gider.
+      if (secili && enYakinCizgi(nokta, [{ anahtar: secili.id, noktalar: agCizgisi(secili.id) }], payMetre)) {
+        return;
+      }
+      const hatId = enYakinCizgi(
+        nokta,
+        gorunen.map((h) => ({ anahtar: h.id, noktalar: agCizgisi(h.id) })),
+        payMetre,
+      );
+      // Boş yere basmak seçimi kapatır; bir hatta basmak onu seçer (ya da seçili tutar).
+      setSecili(hatId ? (gorunen.find((h) => h.id === hatId) ?? null) : null);
+    },
+    [gorunen, ekranGenisligi, secili],
+  );
 
   const suzgecDegis = useCallback((anahtar: string) => {
     setSuzgec(anahtar);
@@ -96,7 +127,10 @@ export default function AgEkrani() {
         initialRegion={bolge}
         showsPointsOfInterests={false}
         toolbarEnabled={false}
-        onPress={() => setSecili(null)}
+        onPress={haritayaDokun}
+        onRegionChangeComplete={(b) => {
+          gorunenBolge.current = b;
+        }}
         mapPadding={{ top: 110, right: 0, bottom: secili ? 300 : 20, left: 0 }}
       >
         {gorunen.map((h) => {
@@ -108,8 +142,6 @@ export default function AgEkrani() {
               strokeColor={secili && !seciliMi ? karistir(renk(h), tema.zemin, SOLUK) : renk(h)}
               strokeWidth={seciliMi ? KALIN : INCE}
               zIndex={seciliMi ? 3 : 1}
-              tappable
-              onPress={() => setSecili(h)}
             />
           );
         })}

@@ -46,3 +46,67 @@ export const VARSAYILAN_KONUM: Nokta = { latitude: 40.99018, longitude: 29.02824
 export function istanbulIcinde(n: Nokta): boolean {
   return n.latitude > 40.75 && n.latitude < 41.65 && n.longitude > 27.9 && n.longitude < 30.0;
 }
+
+/**
+ * Bir noktanın bir çizgiye (kırık çizgi) olan en kısa uzaklığı, metre.
+ *
+ * Şehir ölçeğinde yeterince doğru bir düzlem yaklaşımı kullanıyor: nokta
+ * çevresinde boylam cos(enlem) ile daraltılıyor, sonra doğru parçasına dik
+ * uzaklık alınıyor.
+ */
+export function cizgiyeUzaklik(nokta: Nokta, cizgi: Nokta[]): number {
+  if (!cizgi.length) return Infinity;
+  const kx = 111320 * Math.cos((nokta.latitude * Math.PI) / 180);
+  const ky = 110540;
+  const x = (p: Nokta) => (p.longitude - nokta.longitude) * kx;
+  const y = (p: Nokta) => (p.latitude - nokta.latitude) * ky;
+  if (cizgi.length === 1) return Math.hypot(x(cizgi[0]), y(cizgi[0]));
+  let enAz = Infinity;
+  for (let i = 1; i < cizgi.length; i++) {
+    const ax = x(cizgi[i - 1]);
+    const ay = y(cizgi[i - 1]);
+    const bx = x(cizgi[i]);
+    const by = y(cizgi[i]);
+    const dx = bx - ax;
+    const dy = by - ay;
+    const boy2 = dx * dx + dy * dy;
+    // Nokta (0,0)'da; parçanın ona en yakın yeri.
+    const t = boy2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / boy2)) : 0;
+    const u = Math.hypot(ax + t * dx, ay + t * dy);
+    if (u < enAz) enAz = u;
+  }
+  return enAz;
+}
+
+/**
+ * Dokunulan noktaya en yakın çizginin anahtarı; hiçbiri eşikten yakın değilse null.
+ *
+ * Harita kütüphanesinin kendi çizgi dokunma algısı kullanılmıyor: iOS'ta çizgiye
+ * basılınca çizginin olayından hemen sonra haritanın olayı da her koşulda
+ * geliyor, isabet payı da yalnızca 10 piksel. Seçimi burada kendimiz yapınca iki
+ * platform aynı davranıyor ve ince çizgiler de rahat seçiliyor.
+ *
+ * Eşitlikte listede önce gelen kazanır.
+ */
+export function enYakinCizgi<K>(
+  nokta: Nokta,
+  cizgiler: { anahtar: K; noktalar: Nokta[] }[],
+  esikMetre: number,
+): K | null {
+  let enIyi: K | null = null;
+  let enAz = esikMetre;
+  for (const c of cizgiler) {
+    const u = cizgiyeUzaklik(nokta, c.noktalar);
+    if (u < enAz || (u === enAz && enIyi === null && u <= esikMetre)) {
+      enAz = u;
+      enIyi = c.anahtar;
+    }
+  }
+  return enIyi;
+}
+
+/** Görünen bölgede bir ekran pikselinin kaç metre ettiği (yatay). */
+export function metrePiksel(bolge: { latitude: number; longitudeDelta: number }, ekranGenisligi: number): number {
+  if (!ekranGenisligi) return 0;
+  return (bolge.longitudeDelta * 111320 * Math.cos((bolge.latitude * Math.PI) / 180)) / ekranGenisligi;
+}
