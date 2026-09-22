@@ -1,40 +1,55 @@
 // Köprü sunucusu: İETT'yi izler, GTFS-RT üretir, OTP'ye sunar.
 //
-// İki hızda çalışıyor:
-//   • Nabız (varsayılan 40 sn, TEK istek) — bütün filonun taze konumu.
-//   • Tarama (arka planda, yavaş) — hangi aracın hangi güzergâhta olduğu.
-//
-// Bu ayrım bir zorunluluk: İBB'nin ağ geçidi hız sınırlı ve hat hat sormak pahalı.
-// İlk tasarım 784 hattı 45 saniyede bir tarıyordu ve kapıyı kapattırdı.
+// İBB'nin kotası saatte 100 istek. Köprü kendine saatte 80 istek ayırıyor ve
+// bunu ikiye bölüyor:
+//   • Nabız (2 dakikada bir, tek istek) — bütün filonun taze konumu.
+//   • Tarama (kalan bütçe, ~75 saniyede bir hat) — hangi aracın hangi hatta olduğu.
+// Öğrenilen "araç → hat" bilgisi diske yazılıyor; kapsama günden güne büyüyor.
 //
 // Kullanım (OTP'nin yanında):
-//   node kopru/sunucu.mjs
+//   npm start      (kopru klasöründe)
 //
 // Ortam değişkenleri:
-//   GTFS_ZIP        İETT GTFS zip yolu
-//   PORT            dinlenecek kapı (8082)
-//   NABIZ           filo konumu tazeleme aralığı, saniye (40)
-//   DAKIKADA        İBB'ye dakikada en fazla kaç istek (18)
+//   GTFS_ZIP     İETT GTFS zip yolu (C:\otp\istanbul\istanbul-iett-gtfs.zip)
+//   PORT         dinlenecek kapı (8082)
+//   BUTCE        İBB'ye saatte en fazla istek (80; İBB'nin sınırı 100)
+//   NABIZ        filo konumu tazeleme aralığı, saniye (120)
+//   OGRENILEN    öğrenilenlerin dosyası (kopru\ogrenilen.json)
 //
 // Uç noktalar:
-//   /arac-konumlari        GTFS-RT VehiclePosition  → OTP "vehicle-positions"
-//   /sefer-guncellemeleri  GTFS-RT TripUpdate       → OTP "stop-time-updater"
+//   /arac-konumlari        GTFS-RT VehiclePosition  → OTP VEHICLE_POSITIONS
+//   /sefer-guncellemeleri  GTFS-RT TripUpdate       → OTP STOP_TIME_UPDATER
 //   /durum                 insan için JSON özet
 
 import { createServer } from 'node:http';
 import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
+import { butceyiBol, SaatlikButce } from './butce.mjs';
 import { filoKonumlari, hatKodlari, Kapi, SinirHatasi } from './iett.mjs';
 import { araclariEslestir, gecikmeAkisi, konumAkisi, SeferHafizasi } from './kopru.mjs';
-import { Tarayici } from './tarama.mjs';
+import { oku, yaz } from './ogrenilen.mjs';
+import { Tarayici, yogunlukTahmini } from './tarama.mjs';
 import { tarifeyiKur } from './tarife.mjs';
+import { KonumIzi } from './yon.mjs';
 
+const KLASOR = dirname(fileURLToPath(import.meta.url));
 const ZIP = process.env.GTFS_ZIP ?? 'C:\\otp\\istanbul\\istanbul-iett-gtfs.zip';
 // 8080 OTP, 8081 Expo Metro. Köprü 8082'de duruyor.
 const PORT = Number(process.env.PORT ?? 8082);
-const NABIZ = Number(process.env.NABIZ ?? 40) * 1000;
-const DAKIKADA = Number(process.env.DAKIKADA ?? 18);
+const BUTCE = Number(process.env.BUTCE ?? 80);
+const NABIZ = Number(process.env.NABIZ ?? 120) * 1000;
+const OGRENILEN = process.env.OGRENILEN ?? join(KLASOR, 'ogrenilen.json');
+/** Son başarılı nabız bundan eskiyse boş akış yayımlanır: bayat gecikme, hiç gecikme göstermemekten kötü. */
+const BAYAT_MS = 5 * 60_000;
+const KAYIT_ARALIGI = 5 * 60_000;
+const HAT_LISTESI_OMRU = 24 * 3_600_000;
 
+if (BUTCE > 95) {
+  console.error(`BUTCE=${BUTCE} çok yüksek: İBB'nin sınırı saatte 100 istek ve bizim görmediğimiz istekleri de sayıyor.`);
+  process.exit(1);
+}
 if (!existsSync(ZIP)) {
   console.error(`GTFS zip bulunamadı: ${ZIP}\nGTFS_ZIP ortam değişkeniyle yolu verebilirsin.`);
   process.exit(1);
@@ -44,13 +59,29 @@ console.log(`tarife okunuyor: ${ZIP}`);
 const tarife = tarifeyiKur(ZIP);
 console.log(`  ${tarife.kurulumMs} ms · ${JSON.stringify(tarife.sayilar)}`);
 
-const kapi = new Kapi({ dakikadaEnFazla: DAKIKADA });
-const tarayici = new Tarayici(kapi);
+const onceki = oku(OGRENILEN);
+const pay = butceyiBol(BUTCE, NABIZ);
+const butce = new SaatlikButce({ saatte: BUTCE, gecmis: onceki.istekler ?? [] });
+const kapi = new Kapi({ butce, kapaliyaKadar: onceki.kapaliyaKadar ?? 0 });
+const tarayici = new Tarayici(kapi, { aralikMs: pay.taramaAralikMs, tahminiYogunluk: yogunlukTahmini(tarife) });
+tarayici.yukle(onceki);
 const hafiza = new SeferHafizasi();
+const iz = new KonumIzi();
+let hatListesi = onceki.hatListesi ?? null;
+
+console.log(
+  `bütçe: saatte ${BUTCE} istek → ${pay.nabizSaatte} nabız + ${pay.taramaSaatte} hat taraması ` +
+    `(${Math.round(pay.taramaAralikMs / 1000)} sn arayla)`,
+);
+if (tarayici.atama.size) console.log(`öğrenilenler yüklendi: ${tarayici.atama.size} aracın hattı biliniyor`);
+const kullanilan = butce.kullanilan();
+if (kullanilan) console.log(`son 60 dakikada zaten ${kullanilan} istek gitmiş; bütçe ona göre işliyor`);
+if (kapi.kalanCeza()) console.log(`önceki çalışmadan kalan ceza: ${Math.round(kapi.kalanCeza() / 60_000)} dk`);
 
 const durum = {
   baslatildi: new Date().toISOString(),
   sonNabiz: null,
+  bayat: true,
   filoAraci: 0,
   sayac: null,
   eslesenSefer: 0,
@@ -59,17 +90,46 @@ const durum = {
   hata: null,
 };
 
-let konumlar = konumAkisi([], new Date());
-let gecikmeler = gecikmeAkisi([], new Date());
-let hatlarAlindi = 0;
+const BOS_KONUM = () => konumAkisi([], new Date());
+const BOS_GECIKME = () => gecikmeAkisi([], new Date());
+let konumlar = BOS_KONUM();
+let gecikmeler = BOS_GECIKME();
+let sonBasari = 0;
 
 async function hatlariTazele() {
-  // Hat listesi seyrek değişir; günde bir yenilemek yeterli.
-  if (tarayici.hatlar.length && Date.now() - hatlarAlindi < 24 * 3600 * 1000) return;
+  // Hat listesi seyrek değişir; günde bir yeter. Diskteki listeyle açılışta istek harcanmaz.
+  if (hatListesi && Date.now() - hatListesi.alindi < HAT_LISTESI_OMRU) {
+    if (!tarayici.hatlar.length) tarayici.hatlariAyarla(hatListesi.hatlar);
+    return;
+  }
   const hatlar = await hatKodlari(kapi);
+  hatListesi = { alindi: Date.now(), hatlar };
   tarayici.hatlariAyarla(hatlar);
-  hatlarAlindi = Date.now();
   console.log(`hat listesi: ${hatlar.length} hat`);
+}
+
+function kaydet() {
+  try {
+    yaz(OGRENILEN, {
+      ...tarayici.disaAktar(),
+      hatListesi,
+      istekler: butce.disaAktar(),
+      kapaliyaKadar: kapi.kapaliyaKadar,
+    });
+  } catch (e) {
+    console.error(`öğrenilenler yazılamadı: ${e.message}`);
+  }
+}
+
+function durumuTazele() {
+  durum.tarama = tarayici.ozet();
+  durum.kapi = {
+    ...kapi.sayac,
+    son60dk: butce.kullanilan(),
+    butce: BUTCE,
+    kalanCezaSn: Math.round(kapi.kalanCeza() / 1000),
+  };
+  durum.bayat = !sonBasari || Date.now() - sonBasari > BAYAT_MS;
 }
 
 async function nabiz() {
@@ -77,10 +137,11 @@ async function nabiz() {
     await hatlariTazele();
     const araclar = await filoKonumlari(kapi);
     const simdi = new Date();
-    const { eslesenler, sayac } = araclariEslestir(tarife, araclar, hafiza, tarayici, simdi);
+    const { eslesenler, sayac } = araclariEslestir(tarife, araclar, hafiza, tarayici, simdi, iz);
 
     konumlar = konumAkisi(eslesenler, simdi);
     gecikmeler = gecikmeAkisi(eslesenler, simdi);
+    sonBasari = simdi.getTime();
 
     durum.sonNabiz = simdi.toISOString();
     durum.filoAraci = araclar.length;
@@ -88,21 +149,18 @@ async function nabiz() {
     durum.eslesenSefer = new Set(eslesenler.map((e) => e.seferId)).size;
     durum.hata = null;
 
-    const gec = eslesenler.filter((e) => e.gecikme > 120).length;
-    const erken = eslesenler.filter((e) => e.gecikme < -120).length;
     const t = tarayici.ozet();
     console.log(
       `${simdi.toLocaleTimeString('tr-TR')} · filo ${araclar.length} · hattı bilinen ${t.bilinenArac} · ` +
-        `${eslesenler.length} eşleşti (${durum.eslesenSefer} sefer) · ${gec} geç, ${erken} erken · ` +
-        `tarama ${t.hatSoruldu} hat${t.sinir ? ` · ${t.sinir} sınır` : ''}`,
+        `${eslesenler.length} eşleşti (${durum.eslesenSefer} sefer) · ` +
+        `taranan hat ${t.sorulanHat}/${t.toplamHat} · son 60 dk ${butce.kullanilan()}/${BUTCE} istek`,
     );
   } catch (e) {
     durum.hata = e instanceof SinirHatasi ? 'hız sınırı — geri çekiliyoruz' : e.message;
-    const kalan = Math.round(kapi.kalanCeza() / 1000);
-    console.error(`nabız: ${durum.hata}${kalan ? ` (${kalan} sn bekleniyor)` : ''}`);
+    const kalan = Math.round(kapi.kalanCeza() / 60_000);
+    console.error(`nabız: ${durum.hata}${kalan ? ` (${kalan} dk bekleniyor)` : ''}`);
   } finally {
-    durum.tarama = tarayici.ozet();
-    durum.kapi = { ...kapi.sayac, kalanCezaSn: Math.round(kapi.kalanCeza() / 1000) };
+    durumuTazele();
   }
 }
 
@@ -113,25 +171,38 @@ function yanitla(cevap, govde, tur) {
 
 createServer((istek, cevap) => {
   const yol = (istek.url ?? '/').split('?')[0];
-  if (yol === '/arac-konumlari') return yanitla(cevap, konumlar, 'application/x-protobuf');
-  if (yol === '/sefer-guncellemeleri') return yanitla(cevap, gecikmeler, 'application/x-protobuf');
+  const bayat = !sonBasari || Date.now() - sonBasari > BAYAT_MS;
+  if (yol === '/arac-konumlari') return yanitla(cevap, bayat ? BOS_KONUM() : konumlar, 'application/x-protobuf');
+  if (yol === '/sefer-guncellemeleri') return yanitla(cevap, bayat ? BOS_GECIKME() : gecikmeler, 'application/x-protobuf');
   if (yol === '/durum' || yol === '/') {
+    durumuTazele();
     return yanitla(cevap, Buffer.from(JSON.stringify(durum, null, 2)), 'application/json; charset=utf-8');
   }
   cevap.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
   cevap.end('Bilinmeyen adres. /durum, /arac-konumlari, /sefer-guncellemeleri\n');
 }).listen(PORT, () => {
-  console.log(`köprü http://localhost:${PORT} · nabız ${NABIZ / 1000} sn · İBB'ye dakikada en fazla ${DAKIKADA} istek`);
+  console.log(`köprü http://localhost:${PORT} · nabız ${NABIZ / 1000} sn`);
 });
 
-// Tarama arka planda kendi hızında döner; nabızla yarışmaz, ikisi de aynı kapıdan geçer.
+// Nabzın kendi zamanlaması: bir nabız bütçe yüzünden beklerken yenisi üst üste binmesin.
+async function nabizDongusu() {
+  for (;;) {
+    const bas = Date.now();
+    await nabiz();
+    await new Promise((r) => setTimeout(r, Math.max(5_000, NABIZ - (Date.now() - bas))));
+  }
+}
+
+// Tarama arka planda kendi hızında döner; ikisi de aynı kapıdan, aynı bütçeden geçer.
 tarayici.basla();
-await nabiz();
-setInterval(nabiz, NABIZ);
+nabizDongusu();
+setInterval(kaydet, KAYIT_ARALIGI);
 
 for (const sinyal of ['SIGINT', 'SIGTERM']) {
   process.on(sinyal, () => {
     tarayici.dur();
+    kaydet();
+    console.log('öğrenilenler kaydedildi, köprü kapanıyor');
     process.exit(0);
   });
 }

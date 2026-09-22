@@ -19,7 +19,23 @@ Sunucu `http://localhost:8082` adresinde üç uç nokta açar:
 | `/durum` | insan için JSON özet | — |
 
 Ortam değişkenleri: `GTFS_ZIP` (varsayılan `C:\otp\istanbul\istanbul-iett-gtfs.zip`),
-`PORT` (8082 — 8080 OTP'nin, 8081 Expo'nun), `NABIZ` (40 saniye), `DAKIKADA` (18).
+`PORT` (8082 — 8080 OTP'nin, 8081 Expo'nun), `BUTCE` (saatte 80 istek; İBB'nin sınırı
+100, 95'in üstü reddediliyor), `NABIZ` (120 saniye), `OGRENILEN` (öğrenilenlerin
+dosyası, varsayılan `kopru\ogrenilen.json`).
+
+Kapının açık olup olmadığına **tek istekle** bakmak için (köprü kapalıyken):
+
+```powershell
+node kopru\hiz-siniri.mjs
+```
+
+Köprü ve OTP açıkken zincirin baştan sona çalıştığını görmek için:
+
+```powershell
+node kopru\canli-kontrol.mjs
+```
+
+Birim testleri: `npm test` (kopru klasöründe).
 
 ## OTP tarafı
 
@@ -69,25 +85,57 @@ Grafiği yeniden derlemeye gerek yok; OTP'yi `--load --serve` ile yeniden başla
 
 ## Nasıl çalışıyor
 
-**İBB'nin ağ geçidi hız sınırlı.** İlk tasarım 784 hattı 45 saniyede bir tarıyordu ve
-kapıyı kapattırdı (`Policy Falsified / Rate limit exceeded`). Mimari buna göre kuruldu:
-bütün istekler tek bir kapıdan geçiyor, kapı hızı sınırlıyor ve sınıra takılınca ceza
-süresi katlanarak artıyor. Israr etmek sınırı uzatır.
+**İBB'nin kotası saatte 100 istek.** İETT Web Servis Kullanım Dokümanı: "Bu servise bir
+saat içerisinde en fazla 100 kere istek gönderilebilmektedir." Köprünün ilk iki tasarımı
+bunu bilmeden yazıldı ve ikisi de kapıyı kapattırdı: ilki 45 saniyede 784 istek, ikincisi
+dakikada ~20 istekle ~12 dakikada 100'ü doldurdu.
 
-İki hızda çalışıyor:
+Şimdi bütün istekler tek bir kapıdan geçiyor ve **son 60 dakikada en fazla 80 istek**
+kuralına uyuyor (`butce.mjs`); tasarım gereği aşılamıyor. 20'lik pay, İBB'nin bizim
+göremediğimiz istekleri de saymasına karşı. İki istek arasında en az 7 saniye var:
+aynı servisleri kullanan başka bir proje, ağ geçidinin arka arkaya ~15 hızlı istekte
+her servisi kestiğini yazmış. Yine de sınıra takılınırsa kapı 15 → 30 → 60 dakika
+kapanıyor; kota saatlik olduğu için dakikalar içinde yeniden denemek yalnızca cezayı
+uzatır.
 
-- **Nabız** (40 saniyede bir, **tek istek**) — `GetFiloAracKonum_json` bütün filonun
-  taze konumunu veriyor. Hat bilgisi içermiyor.
-- **Tarama** (arka planda, yavaş) — `GetHatOtoKonum_json` hat hat sorularak hangi
-  aracın hangi güzergâhta olduğu öğreniliyor. Bir otobüs turunu bitirene kadar hattını
-  değiştirmediği için bu eşleme dakikalarca geçerli kalıyor. Yoğun hatlar öne alınıyor.
+Bütçe ikiye bölünüyor:
 
-İkisi **kapı numarası** üzerinden birleşiyor. Sonra aracı seferine bağlamak için:
+- **Nabız** (2 dakikada bir, **tek istek**, saatte 30): `GetFiloAracKonum_json` bütün
+  filonun taze konumunu veriyor. Hat bilgisi içermiyor.
+- **Tarama** (kalan bütçe, ~75 saniyede bir hat, saatte ~48): `GetHatOtoKonum_json`
+  hat hat sorularak hangi aracın hangi hatta olduğu öğreniliyor. En yoğun hatlar önce;
+  hiç sorulmamış hatların yoğunluğu tarifedeki sefer sayısından tahmin ediliyor.
 
-1. Güzergâh kodu (`34G_G_D0`) → GTFS `route_code`. Ölçüldü: **%100 eşleşme**.
-2. Konum → o rotanın en yakın durağı. Filo servisi durak kodu vermediği için
-   mesafeden hesaplanıyor.
-3. O rotanın, o duraktan, şu ana en yakın saatte geçen aktif seferi seçilir.
+784 hattın bir turu bu hızla ~16 saat. Bunu işe yarar kılan gözlem: **bir İETT otobüsü
+gün boyu, çoğu zaman günlerce aynı hatta çalışıyor.** Öğrenilen "araç → hat" bilgisi
+`ogrenilen.json`'a yazılıyor ve bir hafta tutuluyor; köprü her açılışta sıfırdan
+başlamıyor, kapsama günden güne büyüyor. Son bir saatin istekleri de dosyada: köprüyü
+kapatıp açmak kotayı sıfırlamıyor. Hat listesi günde bir kez isteniyor.
+
+Aracı seferine bağlamanın üç yolu var, bu sırayla:
+
+1. **Önceki seferinde kal.** Araç önceki nabızda bir sefere bağlandıysa ve hâlâ o seferin
+   güzergâhında ilerliyorsa o seferde kalır. Araçların çoğu buradan geçer.
+2. **Taze güzergâh kodu.** Tarama aracı son 20 dakikada gördüyse güzergâh kodu
+   (`34G_G_D0`) doğrudan kullanılır; GTFS `route_code` ile eşleşmesi %100.
+3. **Hat biliniyor, yön hareketten** (`yon.mjs`). Yön her seferde değiştiği için eski
+   güzergâh kodu güvenilmez. Aracın iki ardışık konumuna bakılıyor: hattın varyantlarından
+   aracın durak sırasında ilerlediği varyantlar aday. Araç tarandığı güzergâhta hâlâ
+   ilerliyorsa o güzergâh; dönmüşse eski kodun **koridorundaki** (uçları aynı ya da yer
+   değiştirmiş) varyantlar kalıyor. Sonra saati en iyi tutan sefer seçiliyor.
+
+   Gerçek veriyle ölçüldü (276 araç, bayat güzergâh kodu): araç aynı yönde devam
+   ediyorsa **%100** doğru güzergâh; tarandıktan sonra dönmüşse **%99,6** doğru yol ve
+   **hiç ters yön yok**. "Yanlış varyant" sayılan durumların neredeyse hepsi (82/83)
+   durakları birebir aynı, yalnız tarifesi farklı varyantlar (`34G_D_D0` ile
+   `34G_D_D9006` gibi); orada şu ana en yakın seferi seçmek zaten en iyi tahmin.
+
+Her iki yolda da konum, o güzergâhın en yakın durağına çevriliyor (filo servisi durak
+kodu vermiyor) ve o duraktan şu ana en yakın saatte geçen aktif sefer seçiliyor.
+
+**Bayat veri yayımlanmıyor.** Son başarılı nabız 5 dakikadan eskiyse köprü boş akış
+sunuyor. İkinci tasarım kapı kapandıktan sonra da son veriyi sunmaya devam ediyordu ve
+OTP eski gecikmeleri uygulamayı sürdürdü.
 
 **Makul olmayan gecikmeler yayımlanmıyor** (10 dakikadan erken, 30 dakikadan geç).
 Böyle bir fark, o saatte o duraktan hiç sefer geçmediği anlamına geliyor: araç büyük
@@ -119,9 +167,10 @@ yeni tur başlamış sayılır ve eşleştirme yenilenir.
   yok; onlar tarifeye göre çalışmaya devam eder.
 - İBB'de varış tahmini servisi yok; gecikme aracın bulunduğu duraktaki sapmadan
   hesaplanıyor, OTP onu seferin geri kalanına yayıyor.
-- Veri 50–60 saniye geride geliyor.
 - Köprü OTP ile aynı makinede çalışmalı (ya da OTP'nin erişebileceği bir adreste).
 - Eşleşme oranı örnek veride **%91**. Kalan araçlar güzergâhın belirgin biçimde
   dışında: garajda ya da boş sefer yapıyorlar.
-- Hat eşlemesi taramanın tur süresi kadar eskiyebiliyor. Yeni sefere çıkan bir araç,
-  tarama ona uğrayana kadar akışta görünmez.
+- **Kapsama zamanla büyüyor.** İlk gün yoğun hatlar birkaç saatte, filonun çoğu bir iki
+  günde öğreniliyor. Hattı hiç taranmamış bir araç akışta görünmez. İBB'den daha yüksek
+  kota alınırsa `BUTCE` ile tarama hızlandırılabilir (ama 100'ün üstüne çıkmaz).
+- Nabız 2 dakikada bir: canlı konum en fazla ~3 dakika geride.

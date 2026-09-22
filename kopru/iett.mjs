@@ -1,12 +1,17 @@
 // İETT servislerine giden tek kapı.
 //
-// İlk tasarım 784 hattı 10 eşzamanlı istekle tarıyordu ve İBB'nin ağ geçidi bizi
-// "Rate limit exceeded" ile kapattı. Artık bütün istekler buradan geçiyor:
-// jeton kovası hızı sınırlıyor, sınıra takılınca da ceza süresi katlanarak artıyor.
-// Israr etmek sınırı uzatır; doğru davranış geri çekilmektir.
+// İBB'nin kotası saatte 100 istek (İETT Web Servis Kullanım Dokümanı). Bütün
+// istekler buradan geçiyor ve saatlik bütçeden (butce.mjs) izin almadan gitmiyor.
+// Sınıra yine de takılınırsa (İBB bizim görmediğimiz istekleri de sayıyor olabilir)
+// kapı kapanıyor ve bekleme katlanarak artıyor: 15 → 30 → 60 dakika. Kota saatlik
+// olduğu için dakikalar içinde yeniden denemek yalnızca cezayı uzatır.
 
-const FILO = 'https://api.ibb.gov.tr/iett/FiloDurum/SeferGerceklesme.asmx';
-const HAT_DURAK = 'https://api.ibb.gov.tr/iett/UlasimAnaVeri/HatDurakGuzergah.asmx';
+import { SaatlikButce } from './butce.mjs';
+
+// IETT_ADRESI yalnız sınama için: sahte bir İBB sunucusuna yönlendirmeye yarıyor.
+const TABAN = process.env.IETT_ADRESI ?? 'https://api.ibb.gov.tr';
+const FILO = `${TABAN}/iett/FiloDurum/SeferGerceklesme.asmx`;
+const HAT_DURAK = `${TABAN}/iett/UlasimAnaVeri/HatDurakGuzergah.asmx`;
 
 const COZ = { '&lt;': '<', '&gt;': '>', '&amp;': '&', '&quot;': '"', '&apos;': "'" };
 
@@ -19,20 +24,21 @@ export class SinirHatasi extends Error {
 
 const bekle = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Hız sınırına saygılı istek kapısı. Bütün çağrılar sırayla ve aralıklı gider. */
+/** Saatlik bütçeye saygılı istek kapısı. Bütün çağrılar sırayla gider. */
 export class Kapi {
   /**
-   * @param {number} dakikadaEnFazla üst sınır tahminimiz; ölçtükçe ayarlanabilir
-   * @param {number} ilkCeza sınıra takılınca ilk bekleme (ms)
-   * @param {number} enFazlaCeza cezanın tavanı (ms)
+   * @param {object} p
+   * @param {SaatlikButce} p.butce son 60 dakikanın istek sayacı
+   * @param {number} p.ilkCeza sınıra takılınca ilk bekleme (ms)
+   * @param {number} p.enFazlaCeza cezanın tavanı (ms)
+   * @param {number} p.kapaliyaKadar önceki çalışmadan kalan ceza bitişi (ms)
    */
-  constructor({ dakikadaEnFazla = 20, ilkCeza = 60_000, enFazlaCeza = 15 * 60_000 } = {}) {
-    this.aralik = 60_000 / dakikadaEnFazla;
+  constructor({ butce = new SaatlikButce(), ilkCeza = 15 * 60_000, enFazlaCeza = 60 * 60_000, kapaliyaKadar = 0 } = {}) {
+    this.butce = butce;
     this.ilkCeza = ilkCeza;
     this.enFazlaCeza = enFazlaCeza;
     this.ceza = ilkCeza;
-    this.kapaliyaKadar = 0;
-    this.sonIstek = 0;
+    this.kapaliyaKadar = kapaliyaKadar;
     this.kuyruk = Promise.resolve();
     this.sayac = { istek: 0, sinir: 0, hata: 0 };
   }
@@ -54,11 +60,13 @@ export class Kapi {
   }
 
   async #gonder(url, metot, parametreler, zamanAsimi) {
-    const ceza = this.kalanCeza();
-    if (ceza > 0) await bekle(ceza);
-    const gecen = Date.now() - this.sonIstek;
-    if (gecen < this.aralik) await bekle(this.aralik - gecen);
-    this.sonIstek = Date.now();
+    // Ceza ve bütçe beklemesi birbirini etkileyebilir; ikisi de sıfırlanana kadar bekle.
+    for (;;) {
+      const ms = Math.max(this.kalanCeza(), this.butce.bekleme(Date.now()));
+      if (ms <= 0) break;
+      await bekle(Math.min(ms, 60_000));
+    }
+    this.butce.kaydet(Date.now());
     this.sayac.istek++;
 
     const alanlar = Object.entries(parametreler)

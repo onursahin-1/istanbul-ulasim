@@ -1,46 +1,79 @@
-// Hangi aracın hangi güzergâhta olduğunu yavaş yavaş öğrenir.
+// Hangi aracın hangi hatta çalıştığını yavaş yavaş öğrenir ve unutmaz.
 //
 // Canlı filo servisi tek çağrıyla bütün araçların konumunu veriyor ama hat bilgisi
-// vermiyor. Hat bilgisi yalnızca hat hat sorulan servisten geliyor ve o servis hız
-// sınırlı. Çözüm: arka planda hatları sırayla, ağır ağır gezip kapı numarası → güzergâh
-// eşlemesini kurmak. Bir otobüs turunu bitirene kadar hattını değiştirmediği için bu
-// eşleme dakikalarca geçerli kalır.
+// vermiyor. Hat bilgisi yalnızca hat hat sorulan servisten geliyor ve İBB'nin
+// kotası saatte 100 istek. Bütçenin çoğu filo konumuna gidince hat taramasına
+// saatte ~48 istek kalıyor: 784 hattın bir turu ~16 saat.
 //
-// Yoğun hatlar öne alınıyor: 130 araçlı 34G'yi sık, 1 araçlı bir mahalle hattını
-// seyrek sormak hem daha faydalı hem de sınıra daha saygılı.
+// Bunu mümkün kılan gözlem: bir İETT otobüsü gün boyu, çoğu zaman günlerce aynı
+// hatta çalışıyor. O yüzden öğrenilen "araç → hat" bilgisi diske yazılıyor ve bir
+// hafta tutuluyor; köprü her açılışta sıfırdan başlamıyor, kapsama günden güne
+// büyüyor. Yön ise saklanmıyor (her seferde değişiyor), aracın hareketinden
+// çıkarılıyor (yon.mjs). Taramanın verdiği güzergâh kodu yalnızca tazeyken
+// kullanılıyor.
+//
+// Sıra: en çok "gecikmiş" hat önce. Puan = geçen süre × (araç sayısı + 1). Hiç
+// sorulmamış hatların araç sayısı tarifedeki günlük sefer sayısından tahmin
+// ediliyor; ilk tur boş mahalle hatlarıyla değil, 34G ve 500T gibi yoğun hatlarla
+// başlıyor.
 
 import { hattakiAraclar, SinirHatasi } from './iett.mjs';
 
+/** Bu kadar süre taramada görülmeyen aracın hat bilgisi unutulur. */
+export const HAT_OMRU_MS = 7 * 24 * 3_600_000;
+
+const bekle = (ms) => new Promise((r) => setTimeout(r, ms));
+
 export class Tarayici {
   /**
-   * @param {object} kapi hız sınırlı istek kapısı
-   * @param {number} unutmaDk bu süre boyunca görülmeyen araç eşlemesi düşer
+   * @param {object} kapi bütçeli istek kapısı
+   * @param {object} p
+   * @param {number} p.aralikMs iki hat sorgusu arası (bütçeden hesaplanır)
+   * @param {Map<string, number>} p.tahminiYogunluk hat → tahmini araç sayısı
    */
-  constructor(kapi, { unutmaDk = 30 } = {}) {
+  constructor(kapi, { aralikMs = 75_000, tahminiYogunluk = new Map() } = {}) {
     this.kapi = kapi;
-    this.unutmaMs = unutmaDk * 60_000;
-    /** kapı no → { guzergah, hat, an } */
+    this.aralikMs = aralikMs;
+    this.tahmin = tahminiYogunluk;
+    /** kapı no → { hat, guzergah, an } */
     this.atama = new Map();
-    /** hat kodu → { sonBakilan, aracSayisi } */
+    /** hat kodu → { sonBakilan, aracSayisi, soruldu } */
     this.hatDurumu = new Map();
     this.hatlar = [];
     this.calisiyor = false;
-    this.sayac = { tur: 0, hatSoruldu: 0, sinir: 0, hata: 0 };
+    this.sayac = { hatSoruldu: 0, sinir: 0, hata: 0 };
   }
 
   hatlariAyarla(hatlar) {
     this.hatlar = hatlar;
     for (const h of hatlar) {
-      if (!this.hatDurumu.has(h)) this.hatDurumu.set(h, { sonBakilan: 0, aracSayisi: 1 });
+      if (!this.hatDurumu.has(h)) {
+        this.hatDurumu.set(h, { sonBakilan: 0, aracSayisi: this.tahmin.get(h.toUpperCase()) ?? 0, soruldu: false });
+      }
     }
   }
 
-  /**
-   * Sıradaki hat: en çok "gecikmiş" olan.
-   * Puan = geçen süre × (araç sayısı + 1). Yoğun hat daha sık sıraya gelir.
-   */
-  #sıradakiHat() {
-    const simdi = Date.now();
+  /** Diskten okunan öğrenilmişleri geri yükler. */
+  yukle({ atama = {}, hatDurumu = {} } = {}, simdi = Date.now()) {
+    for (const [kapi, k] of Object.entries(atama)) {
+      if (k?.hat && simdi - k.an <= HAT_OMRU_MS) this.atama.set(kapi, k);
+    }
+    for (const [hat, d] of Object.entries(hatDurumu)) {
+      if (d && Number.isFinite(d.sonBakilan)) this.hatDurumu.set(hat, { ...d, soruldu: true });
+    }
+  }
+
+  /** Diske yazılacak özet. */
+  disaAktar() {
+    return {
+      atama: Object.fromEntries(this.atama),
+      hatDurumu: Object.fromEntries(
+        [...this.hatDurumu].filter(([, d]) => d.soruldu).map(([h, d]) => [h, { sonBakilan: d.sonBakilan, aracSayisi: d.aracSayisi }]),
+      ),
+    };
+  }
+
+  sıradakiHat(simdi = Date.now()) {
     let enIyi = null;
     let enYuksek = -1;
     for (const hat of this.hatlar) {
@@ -54,36 +87,41 @@ export class Tarayici {
     return enIyi;
   }
 
-  /** Arka plan döngüsü. Kapı kapalıysa kendiliğinden bekler. */
+  /** Bir hat sorgusunun sonucunu işler (testlerden de çağrılıyor). */
+  isle(hat, araclar, an = Date.now()) {
+    const durum = this.hatDurumu.get(hat) ?? { sonBakilan: 0, aracSayisi: 0 };
+    durum.sonBakilan = an;
+    durum.aracSayisi = araclar.length;
+    durum.soruldu = true;
+    this.hatDurumu.set(hat, durum);
+    for (const a of araclar) {
+      if (a.kapiNo) this.atama.set(a.kapiNo, { hat: a.hat || hat, guzergah: a.guzergah || null, an });
+    }
+  }
+
+  /** Arka plan döngüsü. Bütçe ve ceza beklemesini kapı uyguluyor. */
   async basla() {
-    if (this.calisiyor) return;
+    if (this.calisiyor || !Number.isFinite(this.aralikMs)) return;
     this.calisiyor = true;
     while (this.calisiyor) {
-      const hat = this.#sıradakiHat();
+      const hat = this.sıradakiHat();
       if (!hat) {
-        await new Promise((r) => setTimeout(r, 5000));
+        await bekle(5000);
         continue;
       }
-      const durum = this.hatDurumu.get(hat);
-      durum.sonBakilan = Date.now();
       try {
         const araclar = await hattakiAraclar(this.kapi, hat);
         this.sayac.hatSoruldu++;
-        durum.aracSayisi = araclar.length;
-        const an = Date.now();
-        for (const a of araclar) {
-          if (a.kapiNo && a.guzergah) this.atama.set(a.kapiNo, { guzergah: a.guzergah, hat: a.hat, an });
-        }
-        if (this.hatlar.length && this.sayac.hatSoruldu % this.hatlar.length === 0) this.sayac.tur++;
+        this.isle(hat, araclar);
       } catch (e) {
-        if (e instanceof SinirHatasi) {
-          this.sayac.sinir++;
-          // Kapı zaten ceza süresini uyguluyor; burada ayrıca beklemeye gerek yok.
-        } else {
-          this.sayac.hata++;
-        }
+        // Hata da olsa bu hattı bir süre sorma: aynı hatta takılı kalmayalım.
+        const d = this.hatDurumu.get(hat);
+        if (d) d.sonBakilan = Date.now();
+        if (e instanceof SinirHatasi) this.sayac.sinir++;
+        else this.sayac.hata++;
       }
-      this.#unut();
+      this.unut();
+      await bekle(this.aralikMs);
     }
   }
 
@@ -91,29 +129,43 @@ export class Tarayici {
     this.calisiyor = false;
   }
 
-  #unut() {
-    const sinir = Date.now() - this.unutmaMs;
+  unut(simdi = Date.now()) {
     for (const [kapiNo, k] of this.atama) {
-      if (k.an < sinir) this.atama.delete(kapiNo);
+      if (simdi - k.an > HAT_OMRU_MS) this.atama.delete(kapiNo);
     }
   }
 
-  /** Bir aracın güzergâhı; bilinmiyorsa null. */
-  guzergah(kapiNo) {
-    return this.atama.get(kapiNo)?.guzergah ?? null;
+  /** Bir aracın bilinen hattı ve (varsa) son görülen güzergâhı; bilinmiyorsa null. */
+  bilgi(kapiNo) {
+    return this.atama.get(kapiNo) ?? null;
   }
 
-  ozet() {
-    const simdi = Date.now();
-    const yaslar = [...this.atama.values()].map((k) => (simdi - k.an) / 1000);
-    yaslar.sort((a, b) => a - b);
+  ozet(simdi = Date.now()) {
+    const sorulanHat = [...this.hatDurumu.values()].filter((d) => d.soruldu).length;
     return {
       bilinenArac: this.atama.size,
-      hatSoruldu: this.sayac.hatSoruldu,
-      tamTur: this.sayac.tur,
+      sorulanHat,
+      toplamHat: this.hatlar.length,
+      buOturumdaSorulan: this.sayac.hatSoruldu,
       sinir: this.sayac.sinir,
       hata: this.sayac.hata,
-      eslemeYasiOrtancaSn: yaslar.length ? Math.round(yaslar[yaslar.length >> 1]) : null,
+      taramaAraligiSn: Number.isFinite(this.aralikMs) ? Math.round(this.aralikMs / 1000) : null,
     };
   }
+}
+
+/**
+ * Hat başına tahmini yoğunluk: tarifedeki sefer sayısı / 10. Yalnız ilk turun
+ * sırasını belirliyor; hat bir kez sorulunca gerçek araç sayısı geçerli oluyor.
+ */
+export function yogunlukTahmini(tarife) {
+  const rotaHat = new Map();
+  for (const [hat, rotalar] of tarife.kisaAdtanRotalar) for (const r of rotalar) rotaHat.set(r, hat);
+  const sayi = new Map();
+  for (let s = 0; s < tarife.seferRota.length; s++) {
+    const hat = rotaHat.get(tarife.seferRota[s]);
+    if (hat) sayi.set(hat, (sayi.get(hat) ?? 0) + 1);
+  }
+  for (const [hat, n] of sayi) sayi.set(hat, n / 10);
+  return sayi;
 }

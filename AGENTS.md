@@ -14,6 +14,14 @@ OpenTripPlanner 2.10, kullanıcının bilgisayarında `C:\otp` altında çalış
 `http://<bilgisayarın IP'si>:8080/otp/gtfs/v1` adresine bağlanır, yani telefon aynı
 Wi-Fi'de olmak zorunda. Adres `EXPO_PUBLIC_OTP_URL` ile değiştirilebilir.
 
+### İBB servis kotası
+
+İETT canlı servislerinin kotası **saatte 100 istek** (İETT Web Servis Kullanım
+Dokümanı). Hız sınaması, deneme betiği ve köprü aynı kotadan yer. `api.ibb.gov.tr`'ye
+istek atan her yeni kod `kopru/butce.mjs`'teki `SaatlikButce`'den geçmeli; kısa bir
+patlama sınamasının geçmesi uzun süreli bir döngünün sınırın altında kalacağını
+göstermez. Köprü bu kurala iki kez takıldı, ayrıntılar `kopru/README.md`'de.
+
 ### OTP yapılandırması ve Türkçe dil ayarı
 
 OTP yapılandırma dosyalarındaki enum değerlerini **enum adının kendisiyle** yaz:

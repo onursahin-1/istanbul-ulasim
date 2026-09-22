@@ -5,7 +5,8 @@
   "type": "module",
   "description": "İETT canlı araç verisini GTFS-RT'ye çevirip OTP'ye sunan köprü",
   "scripts": {
-    "start": "node --max-old-space-size=2048 sunucu.mjs"
+    "start": "node --max-old-space-size=2048 sunucu.mjs",
+    "test": "node --test \"test/*.test.mjs\""
   },
   "dependencies": {
     "gtfs-realtime-bindings": "^1.1.1"

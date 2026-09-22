@@ -12,6 +12,14 @@
 import GtfsRealtimeBindings from 'gtfs-realtime-bindings';
 
 import { enYakinDurak, gununServisleri, seferBul } from './tarife.mjs';
+import { koridoraGoreSuz, yonluAdaylar } from './yon.mjs';
+
+/**
+ * Taramanın verdiği güzergâh kodu bu kadar süre doğrudan kullanılır. Sonrasında
+ * araç büyük ihtimalle yön değiştirmiştir; yalnız hattı kullanılır, yön hareketten
+ * çıkarılır.
+ */
+export const TAZE_GUZERGAH_MS = 20 * 60_000;
 
 const { FeedMessage, FeedHeader, TripDescriptor, VehiclePosition, TripUpdate } =
   GtfsRealtimeBindings.transit_realtime;
@@ -81,11 +89,9 @@ export class SeferHafizasi {
     this.unutmaSn = unutmaSn;
   }
 
-  al(kapiNo, rotaIdx) {
-    const k = this.kayit.get(kapiNo);
-    if (!k) return null;
-    if (k.rota !== rotaIdx) return null; // araç hat değiştirmiş
-    return k;
+  /** Aracın son bağlandığı sefer; hangi rotada olduğu kayıtta. */
+  al(kapiNo) {
+    return this.kayit.get(kapiNo) ?? null;
   }
 
   koy(kapiNo, rotaIdx, seferIdx, sira, an) {
@@ -107,75 +113,125 @@ export class SeferHafizasi {
  * Canlı araç kayıtlarını eşleştirir.
  *
  * Girdi, filo servisinden gelen kayıtlar: kapı numarası, enlem, boylam, saat.
- * Hat bilgisi taramadan (`tarayici`) geliyor, durak ise konumdan hesaplanıyor —
- * filo servisi durak kodu vermiyor.
+ * Aracın seferi üç yoldan biriyle bulunuyor, bu sırayla:
  *
+ *  1. Araç önceki nabızda bir sefere bağlandıysa ve hâlâ o seferin güzergâhında
+ *     ilerliyorsa, o seferde kalır. En güvenilir yol; araçların çoğu buradan geçer.
+ *  2. Tarama aracın güzergâh kodunu yakın zamanda verdiyse (TAZE_GUZERGAH_MS) o
+ *     güzergâh kullanılır.
+ *  3. Yalnız hattı biliniyorsa, hattın varyantlarından aracın ilerlediği yöndekiler
+ *     aday olur (yon.mjs) ve saati en iyi tutan sefer seçilir.
+ *
+ * @param {object} iz KonumIzi — aracın bir önceki konumu (yön çıkarımı için)
  * @returns {{eslesenler: object[], sayac: object}}
  */
-export function araclariEslestir(tarife, araclar, hafiza, tarayici, simdi = new Date()) {
+export function araclariEslestir(tarife, araclar, hafiza, tarayici, simdi = new Date(), iz = null) {
   const aktif = gununServisleri(tarife, simdi);
+  const an = simdi.getTime();
   const eslesenler = [];
   const sayac = {
-    toplam: 0, hatBilinmiyor: 0, rotaYok: 0, durakYok: 0, seferYok: 0, surdurulen: 0, yeni: 0, eskimis: 0, makulDisi: 0,
+    toplam: 0, hatBilinmiyor: 0, rotaYok: 0, durakYok: 0, yonBilinmiyor: 0, seferYok: 0,
+    surdurulen: 0, tazeGuzergah: 0, yondenBulunan: 0, eskimis: 0, makulDisi: 0,
   };
 
   for (const a of araclar) {
     sayac.toplam++;
     const kapiNo = String(a.kapiNo ?? '').trim();
-    const guzergah = kapiNo ? tarayici.guzergah(kapiNo) : null;
-    if (!guzergah) {
-      sayac.hatBilinmiyor++;
-      continue;
-    }
-    const rotaIdx = tarife.guzergahtanRota.get(guzergah);
-    if (rotaIdx === undefined) {
-      sayac.rotaYok++;
-      continue;
-    }
     if (!Number.isFinite(a.enlem) || !Number.isFinite(a.boylam)) {
       sayac.durakYok++;
       continue;
     }
-    const yakin = enYakinDurak(tarife, rotaIdx, a.enlem, a.boylam);
-    if (!yakin) {
-      // Araç güzergâhın 400 metre dışında: ya garajda ya da eşleme eskimiş.
-      sayac.durakYok++;
-      continue;
-    }
-    const durakIdx = yakin.durak;
     const zaman = zamaniCoz(a.saat, simdi);
-    if (!zaman) {
-      sayac.eskimis++;
-      continue;
-    }
     // Çok eski kayıtlar yanıltıcı; 10 dakikadan eskisini yok sayıyoruz.
-    if ((simdi - zaman.tarih) / 1000 > 600) {
+    if (!zaman || (simdi - zaman.tarih) / 1000 > 600) {
       sayac.eskimis++;
       continue;
     }
+    // Önceki konum, güncellemeden önce okunmalı.
+    const onceki = kapiNo && iz ? iz.onceki(kapiNo, an) : null;
+    if (kapiNo && iz) iz.guncelle(kapiNo, a.enlem, a.boylam, an);
 
     let secilen = null;
+    let rotaIdx = null;
+    let durakIdx = null;
+    let metre = null;
 
-    // 1) Araç zaten bir sefere bağlıysa ve o sefer bu duraktan geçiyorsa, seferde kal.
-    const onceki = kapiNo ? hafiza.al(kapiNo, rotaIdx) : null;
-    if (onceki) {
-      const plan = planlananSaat(tarife, onceki.sefer, durakIdx);
+    // 1) Önceki seferinde kal.
+    const kayit = kapiNo ? hafiza.al(kapiNo) : null;
+    if (kayit) {
+      const yakin = enYakinDurak(tarife, kayit.rota, a.enlem, a.boylam);
+      const plan = yakin ? planlananSaat(tarife, kayit.sefer, yakin.durak) : null;
       // Durak sırası geriye gitmemeli: gittiyse araç yeni bir tura başlamış demektir.
-      if (plan && plan.sira >= onceki.sira - 1) {
-        secilen = { sefer: onceki.sefer, planlanan: plan.saniye, sira: plan.sira, surduruldu: true };
+      if (plan && plan.sira >= kayit.sira - 1) {
+        secilen = { sefer: kayit.sefer, planlanan: plan.saniye, sira: plan.sira };
+        rotaIdx = kayit.rota;
+        durakIdx = yakin.durak;
+        metre = yakin.metre;
         sayac.surdurulen++;
       }
     }
 
-    // 2) Değilse şu ana en yakın planlı seferi seç.
     if (!secilen) {
-      const bulunan = seferBul(tarife, rotaIdx, durakIdx, zaman.saniye, aktif);
-      if (!bulunan) {
+      const bilgi = kapiNo ? tarayici.bilgi(kapiNo) : null;
+      if (!bilgi) {
+        sayac.hatBilinmiyor++;
+        continue;
+      }
+
+      let adaylar;
+      let yoldan;
+      const tazeRota = bilgi.guzergah && an - bilgi.an <= TAZE_GUZERGAH_MS
+        ? tarife.guzergahtanRota.get(String(bilgi.guzergah).toUpperCase())
+        : undefined;
+      if (tazeRota !== undefined) {
+        // 2) Taze güzergâh kodu.
+        const yakin = enYakinDurak(tarife, tazeRota, a.enlem, a.boylam);
+        if (!yakin) {
+          // Araç güzergâhın dışında: ya garajda ya da eşleme eskimiş.
+          sayac.durakYok++;
+          continue;
+        }
+        adaylar = [{ rota: tazeRota, durak: yakin.durak, metre: yakin.metre }];
+        yoldan = 'tazeGuzergah';
+      } else {
+        // 3) Hat biliniyor, yön hareketten.
+        const hatRotalari = tarife.kisaAdtanRotalar.get(String(bilgi.hat ?? '').trim().toUpperCase());
+        if (!hatRotalari?.length) {
+          sayac.rotaYok++;
+          continue;
+        }
+        if (!onceki) {
+          sayac.yonBilinmiyor++;
+          continue;
+        }
+        adaylar = yonluAdaylar(tarife, hatRotalari, onceki, a);
+        if (!adaylar.length) {
+          sayac.yonBilinmiyor++;
+          continue;
+        }
+        // Bayat güzergâh kodu yönü söylemez ama koridoru söyler.
+        const bayatRota = bilgi.guzergah ? tarife.guzergahtanRota.get(String(bilgi.guzergah).toUpperCase()) : undefined;
+        adaylar = koridoraGoreSuz(tarife, adaylar, bayatRota);
+        yoldan = 'yondenBulunan';
+      }
+
+      // Adaylar arasında saati en iyi tutan sefer.
+      let enIyi = null;
+      for (const aday of adaylar) {
+        const bulunan = seferBul(tarife, aday.rota, aday.durak, zaman.saniye, aktif);
+        if (bulunan && (!enIyi || Math.abs(bulunan.sapma) < Math.abs(enIyi.bulunan.sapma))) {
+          enIyi = { aday, bulunan };
+        }
+      }
+      if (!enIyi) {
         sayac.seferYok++;
         continue;
       }
-      secilen = { ...bulunan, surduruldu: false };
-      sayac.yeni++;
+      secilen = enIyi.bulunan;
+      rotaIdx = enIyi.aday.rota;
+      durakIdx = enIyi.aday.durak;
+      metre = enIyi.aday.metre;
+      sayac[yoldan]++;
     }
 
     // Gecikme: gözlem anı − planlanan an. Pozitif = geç kalmış.
@@ -200,11 +256,12 @@ export function araclariEslestir(tarife, araclar, hafiza, tarayici, simdi = new 
       enlem: a.enlem,
       boylam: a.boylam,
       damga: Math.floor(zaman.tarih.getTime() / 1000),
-      durakMesafe: Math.round(yakin.metre),
+      durakMesafe: Math.round(metre),
     });
   }
 
   hafiza.temizle(simdi);
+  iz?.temizle(an);
   return { eslesenler, sayac };
 }
 
