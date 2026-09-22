@@ -81,6 +81,16 @@ değişiklikten sonra `python veri/dogrula.py C:\otp\istanbul` çalıştır; hat
 (12 metro, 3 Marmaray, 3 tramvay, 3 füniküler, 2 teleferik, ~100 vapur) bu tür bir
 karışıklığı hemen gösterir.
 
+## Commit
+
+Commit'leri proje sahibi kendisi atar. Claude değişiklikleri yapar, test eder ve
+bırakır; `git commit` ve `git push` çalıştırmaz, commit iletisine `Co-Authored-By`
+ya da oturum bağlantısı eklemez. İstenirse önerilen commit iletisini metin olarak verir.
+
+Depodaki bütün commit'ler `ONUR ŞAHİN <156543601+onursahin-1@users.noreply.github.com>`
+kimliğiyle. `onur-5534@outlook.com` GitHub'da başka bir hesaba (onursahin55) bağlı;
+o adresle atılan commit o hesabı katkıcı olarak gösterir, kullanma.
+
 ## Dil
 
 Kod, değişken adları, yorumlar ve kullanıcıya görünen bütün metinler Türkçedir.

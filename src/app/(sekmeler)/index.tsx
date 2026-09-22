@@ -12,7 +12,7 @@ import { useKayitlar, type YerTuru } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
 import { OtpHatasi, yakinDuraklariGetir, type YakinDurak } from '@/lib/otp';
 import { baslikYap, useTema, yonYaz, type Tema } from '@/lib/tema';
-import { kacDakikaSonra, mesafeYaz } from '@/lib/zaman';
+import { mesafeYaz } from '@/lib/zaman';
 
 const YENILEME_ARALIGI = 30_000;
 
@@ -189,7 +189,7 @@ export default function AnaEkran() {
                   <Text style={s.seferYon} numberOfLines={1}>
                     {baslikYap(k.headsign)}
                   </Text>
-                  <Dakika dakika={kacDakikaSonra(k.serviceDay ?? 0, k.realtimeDeparture ?? k.scheduledDeparture ?? 0)} />
+                  <Dakika an={(k.serviceDay ?? 0) + (k.realtimeDeparture ?? k.scheduledDeparture ?? 0)} />
                 </View>
               ))}
             </Pressable>

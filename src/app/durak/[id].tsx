@@ -11,7 +11,7 @@ import { favoriDegistir, useKayitlar } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
 import { durakSaatleriYedekli, OtpHatasi, type DurakSaatleri } from '@/lib/otp';
 import { baslikYap, hatEtiketi, hatRengi, useTema, yonYaz, type Tema } from '@/lib/tema';
-import { kacDakikaSonra, saniyedenSaat } from '@/lib/zaman';
+import { kacDakikaSonra, kalkisGosterimi, saniyedenSaat } from '@/lib/zaman';
 
 const YENILEME_ARALIGI = 30_000;
 
@@ -65,6 +65,7 @@ export default function DurakEkrani() {
         const kalkislar = (d.stoptimes ?? [])
           .map((k) => ({
             saniye: k.realtimeDeparture ?? k.scheduledDeparture ?? 0,
+            an: (k.serviceDay ?? 0) + (k.realtimeDeparture ?? k.scheduledDeparture ?? 0),
             canli: !!k.realtime,
             dakika: kacDakikaSonra(k.serviceDay ?? 0, k.realtimeDeparture ?? k.scheduledDeparture ?? 0),
           }))
@@ -195,7 +196,7 @@ export default function DurakEkrani() {
                   style={s.sefer}
                   onPress={() => y.hat && router.push({ pathname: '/hat/[id]', params: { id: y.hat.gtfsId } })}
                   accessibilityRole="button"
-                  accessibilityLabel={`${y.hat?.shortName ?? ''} · ${y.yon} · ${y.kalkislar[0].dakika} dakika sonra`}
+                  accessibilityLabel={`${y.hat?.shortName ?? ''} · ${y.yon} · ${kalkisGosterimi(y.kalkislar[0].an).seslendirme}`}
                 >
                   <View style={{ width: 62 }}>
                     <HatRozeti hat={y.hat} />
@@ -213,7 +214,7 @@ export default function DurakEkrani() {
                       {y.kalkislar.slice(0, 3).map((k) => saniyedenSaat(k.saniye)).join('  ·  ')}
                     </Text>
                   </View>
-                  <Dakika dakika={y.kalkislar[0].dakika} />
+                  <Dakika an={y.kalkislar[0].an} />
                 </Pressable>
               ))}
             </View>

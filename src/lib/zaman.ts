@@ -31,6 +31,45 @@ export function kacDakikaSonra(serviceDay: number, saniye: number): number {
   return Math.round((serviceDay + saniye - Date.now() / 1000) / 60);
 }
 
+/**
+ * Kalkış bundan uzaksa dakika yerine saat yazılır. "351 dk" okunmuyor; gece
+ * yarısı bir sonraki otobüsü soran yolcu "05:51" görmek istiyor.
+ */
+export const SAAT_ESIGI_DK = 60;
+
+/** Unix saniyesini İstanbul saatiyle "05:51" biçiminde yazar. */
+export function istanbulSaatiYaz(anSaniye: number): string {
+  const d = new Date((anSaniye + 3 * 3600) * 1000);
+  return `${IKI(d.getUTCHours())}:${IKI(d.getUTCMinutes())}`;
+}
+
+export type KalkisGosterimi = {
+  /** Büyük yazılan kısım: "Şimdi", "7" ya da "05:51". */
+  metin: string;
+  /** Küçük birim; saat gösterilirken ve "Şimdi"de yok. */
+  birim: 'dk' | null;
+  /** Kaç dakika kaldığı; renk ve sıralama için. */
+  dakika: number;
+  /** Ekran okuyucunun söyleyeceği tam cümle parçası. */
+  seslendirme: string;
+};
+
+/**
+ * Bir kalkışın ekranda nasıl yazılacağı.
+ *
+ * Saat, dakikadan geri hesaplanmıyor, kalkışın kendi anından yazılıyor: dakika
+ * yuvarlandığı için geri hesap bir dakika kayabiliyordu (05:51 yerine 05:50).
+ *
+ * @param anSaniye kalkışın mutlak anı, Unix saniyesi (serviceDay + saniye)
+ */
+export function kalkisGosterimi(anSaniye: number, simdiMs: number = Date.now()): KalkisGosterimi {
+  const dakika = Math.round((anSaniye - simdiMs / 1000) / 60);
+  if (dakika <= 0) return { metin: 'Şimdi', birim: null, dakika, seslendirme: 'şimdi kalkıyor' };
+  if (dakika < SAAT_ESIGI_DK) return { metin: String(dakika), birim: 'dk', dakika, seslendirme: `${dakika} dakika sonra` };
+  const saat = istanbulSaatiYaz(anSaniye);
+  return { metin: saat, birim: null, dakika, seslendirme: `saat ${saat}` };
+}
+
 /** ISO saatin şu andan kaç dakika sonra olduğunu verir ("2026-09-17T20:04:00+03:00"). */
 export function isoDakikaSonra(iso?: string | null): number | null {
   if (!iso) return null;

@@ -10,11 +10,10 @@ import { aramalariTemizle, favoriDegistir, useKayitlar, type YerTuru } from '@/l
 import { useKonum } from '@/lib/konum';
 import { durakDetayiGetir } from '@/lib/otp';
 import { baslikYap, useTema, type Tema } from '@/lib/tema';
-import { kacDakikaSonra } from '@/lib/zaman';
 
 const YER_ADI: Record<YerTuru, string> = { ev: 'Ev', is: 'İş' };
 
-/** Favori durakların sıradaki kalkışı: durak kimliği → kaç dakika sonra. */
+/** Favori durakların sıradaki kalkışı: durak kimliği → kalkış anı (Unix saniyesi); yoksa null. */
 type Dakikalar = Record<string, number | null>;
 
 export default function KayitliEkrani() {
@@ -34,9 +33,10 @@ export default function KayitliEkrani() {
       favoriler.map(async (f) => {
         try {
           const durak = await durakDetayiGetir(f.gtfsId);
+          const simdi = Date.now() / 1000 - 30;
           const sirada = (durak?.kalkislar ?? [])
-            .map((k) => kacDakikaSonra(k.serviceDay ?? 0, k.realtimeDeparture ?? k.scheduledDeparture ?? 0))
-            .filter((d) => d >= 0)
+            .map((k) => (k.serviceDay ?? 0) + (k.realtimeDeparture ?? k.scheduledDeparture ?? 0))
+            .filter((an) => an >= simdi)
             .sort((a, b) => a - b)[0];
           sonuc[f.gtfsId] = sirada ?? null;
         } catch {
@@ -134,7 +134,7 @@ export default function KayitliEkrani() {
                 <Text style={s.satirAlt}>Kaldırmak için basılı tut</Text>
               </View>
               {dakikalar[f.gtfsId] != null ? (
-                <Dakika dakika={dakikalar[f.gtfsId] as number} />
+                <Dakika an={dakikalar[f.gtfsId] as number} />
               ) : (
                 <Text style={s.satirAlt}>—</Text>
               )}

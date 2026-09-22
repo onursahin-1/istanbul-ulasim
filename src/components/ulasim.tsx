@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } fro
 import { ActivityIndicator, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { tazelikYaz } from '@/lib/onbellek';
+import { kalkisGosterimi } from '@/lib/zaman';
 import type { Bacak, Hat } from '@/lib/otp';
 import { aracSimgesi, hatEtiketi, hatRengi, metrobusMu, rozetRenkleri, useTema, type Tema } from '@/lib/tema';
 
@@ -177,13 +178,20 @@ export function CevrimdisiSerit({ zaman, tekrarDene }: { zaman: number; tekrarDe
   );
 }
 
-export function Dakika({ dakika, style }: { dakika: number; style?: StyleProp<ViewStyle> }) {
+/**
+ * Bir kalkışın ne zaman olduğu: bir saatten yakınsa "7 dk", uzaksa "05:51".
+ *
+ * @param an kalkışın mutlak anı, Unix saniyesi (serviceDay + saniye). Dakika değil
+ *           an alınıyor: saat yuvarlanmış dakikadan geri hesaplanırsa bir dakika kayıyor.
+ */
+export function Dakika({ an, style }: { an: number; style?: StyleProp<ViewStyle> }) {
   const tema = useTema();
-  const yakin = dakika <= 3;
+  const g = kalkisGosterimi(an);
+  const yakin = g.dakika <= 3;
   return (
-    <View style={[stil.dakika, style]}>
-      <Text style={[stil.dakikaSayi, { color: yakin ? tema.vurgu : tema.yazi }]}>{dakika <= 0 ? 'Şimdi' : dakika}</Text>
-      {dakika > 0 && <Text style={[stil.dakikaBirim, { color: tema.soluk }]}>dk</Text>}
+    <View style={[stil.dakika, style]} accessible accessibilityLabel={g.seslendirme}>
+      <Text style={[stil.dakikaSayi, { color: yakin ? tema.vurgu : tema.yazi }]}>{g.metin}</Text>
+      {g.birim && <Text style={[stil.dakikaBirim, { color: tema.soluk }]}>{g.birim}</Text>}
     </View>
   );
 }

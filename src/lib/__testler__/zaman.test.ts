@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { isodanSaniye, mesafeYaz, saatYaz, saniyedenSaat, sureYaz } from '../zaman';
+import { istanbulSaatiYaz, isodanSaniye, kalkisGosterimi, mesafeYaz, saatYaz, saniyedenSaat, sureYaz } from '../zaman';
 
 describe('saatYaz', () => {
   it('ISO saatten saat ve dakikayı alır', () => {
@@ -80,5 +80,54 @@ describe('mesafeYaz', () => {
 
   it('eksik değerde boş döner', () => {
     assert.equal(mesafeYaz(null), '');
+  });
+});
+
+describe('kalkisGosterimi', () => {
+  // 2026-09-22 00:00:00 İstanbul = 2026-09-21 21:00:00 UTC
+  const GECE_YARISI = Date.UTC(2026, 8, 21, 21, 0, 0);
+  const an = (saat: number, dakika: number, saniye = 0) => GECE_YARISI / 1000 + saat * 3600 + dakika * 60 + saniye;
+
+  it('bir saatten yakın kalkışı dakika olarak yazar', () => {
+    const g = kalkisGosterimi(an(0, 7), GECE_YARISI);
+    assert.deepEqual([g.metin, g.birim, g.dakika], ['7', 'dk', 7]);
+    assert.equal(g.seslendirme, '7 dakika sonra');
+  });
+
+  it('bir saat ve ötesini saat olarak yazar — "351 dk" değil "05:51"', () => {
+    const g = kalkisGosterimi(an(5, 51), GECE_YARISI);
+    assert.deepEqual([g.metin, g.birim], ['05:51', null]);
+    assert.equal(g.dakika, 351, 'sıralama için dakika yine de dönüyor');
+    assert.equal(g.seslendirme, 'saat 05:51');
+  });
+
+  it('sınırda: 59 dakika dakika, 60 dakika saat', () => {
+    assert.equal(kalkisGosterimi(an(0, 59), GECE_YARISI).birim, 'dk');
+    assert.equal(kalkisGosterimi(an(1, 0), GECE_YARISI).metin, '01:00');
+  });
+
+  it('saati dakikadan geri hesaplamaz, kaymaz', () => {
+    // Şu an 00:00:40; kalkış 05:51:00. Dakika 350.3 → 350'ye yuvarlanıyor;
+    // şimdiden 350 dk ileri gitmek 05:50:40 verirdi ve "05:50" yazardı.
+    const g = kalkisGosterimi(an(5, 51), GECE_YARISI + 40_000);
+    assert.equal(g.metin, '05:51');
+  });
+
+  it('geçmiş ve şimdiki kalkışta "Şimdi" yazar', () => {
+    assert.equal(kalkisGosterimi(an(0, 0, 20), GECE_YARISI).metin, 'Şimdi');
+    assert.equal(kalkisGosterimi(an(0, 0), GECE_YARISI + 90_000).metin, 'Şimdi');
+    assert.equal(kalkisGosterimi(an(0, 0), GECE_YARISI).birim, null);
+  });
+
+  it('ertesi güne taşan kalkışı da doğru saatle yazar', () => {
+    // 23:30'da, ertesi sabah 06:10'daki sefer
+    assert.equal(kalkisGosterimi(an(30, 10), GECE_YARISI + 23.5 * 3600_000).metin, '06:10');
+  });
+});
+
+describe('istanbulSaatiYaz', () => {
+  it('UTC+3 ile yazar ve sıfırla doldurur', () => {
+    assert.equal(istanbulSaatiYaz(Date.UTC(2026, 8, 22, 2, 51) / 1000), '05:51');
+    assert.equal(istanbulSaatiYaz(Date.UTC(2026, 8, 22, 21, 5) / 1000), '00:05');
   });
 });
