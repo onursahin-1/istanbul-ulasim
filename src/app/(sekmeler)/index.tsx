@@ -2,10 +2,11 @@
 
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, type LongPressEvent } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AltYaprak } from '@/components/alt-yaprak';
 import { Dakika, HataKutusu, HatRozeti, Ikon, useStiller, Yukleniyor } from '@/components/ulasim';
 import { useKayitlar, type YerTuru } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
@@ -25,7 +26,11 @@ export default function AnaEkran() {
 
   const [duraklar, setDuraklar] = useState<YakinDurak[] | null>(null);
   const [hata, setHata] = useState<string | null>(null);
-  const [yenileniyor, setYenileniyor] = useState(false);
+  // Alt yaprağın ölçüleri: ekranın boyu ve arama kutusunun bittiği yer.
+  const [ekranBoyu, setEkranBoyu] = useState(0);
+  const [aramaAlti, setAramaAlti] = useState(0);
+  // Harita, yaprağın kapladığı yeri boşluk sayar; konum noktası yaprağın altında kalmaz.
+  const [yaprakBoyu, setYaprakBoyu] = useState(320);
 
   const { latitude, longitude } = konum.nokta;
   const hazir = konum.tur !== 'bekleniyor';
@@ -67,14 +72,9 @@ export default function AnaEkran() {
     router.push({ pathname: '/rota', params: { ...buradan, vLat: String(lat), vLon: String(lon), vAd: 'Haritada seçilen nokta' } });
   };
 
-  const yenile = async () => {
-    setYenileniyor(true);
-    await duraklariYukle();
-    setYenileniyor(false);
-  };
 
   return (
-    <View style={s.kok}>
+    <View style={s.kok} onLayout={(e) => setEkranBoyu(e.nativeEvent.layout.height)}>
       <MapView
         ref={harita}
         style={StyleSheet.absoluteFill}
@@ -85,7 +85,7 @@ export default function AnaEkran() {
         showsPointsOfInterests={false}
         toolbarEnabled={false}
         onLongPress={haritadanSec}
-        mapPadding={{ top: 150, right: 0, bottom: 320, left: 0 }}
+        mapPadding={{ top: 150, right: 0, bottom: yaprakBoyu, left: 0 }}
       >
         {konum.tur === 'varsayilan' && <Marker coordinate={konum.nokta} title="Örnek konum" pinColor={tema.konum} />}
         {duraklar?.map(({ durak }) =>
@@ -102,7 +102,10 @@ export default function AnaEkran() {
         )}
       </MapView>
 
-      <View style={[s.ust, { paddingTop: kenar.top + 8 }]}>
+      <View
+        style={[s.ust, { paddingTop: kenar.top + 8 }]}
+        onLayout={(e) => setAramaAlti(e.nativeEvent.layout.y + e.nativeEvent.layout.height)}
+      >
         <Pressable
           style={s.arama}
           accessibilityRole="search"
@@ -126,15 +129,18 @@ export default function AnaEkran() {
         )}
       </View>
 
-      <View style={[s.panel, { paddingBottom: kenar.bottom + 8 }]}>
-        <View style={s.tutamac} />
-        <View style={s.panelBaslik}>
-          <Text style={s.panelBaslikYazi}>Yakındaki duraklar</Text>
-          <Text style={s.ipucu}>Hedef seçmek için haritaya basılı tut</Text>
-        </View>
-        <ScrollView
-          style={s.liste}
-          refreshControl={<RefreshControl refreshing={yenileniyor} onRefresh={yenile} tintColor={tema.vurgu} />}
+      {ekranBoyu > 0 && (
+        <AltYaprak
+          kapsayiciYukseklik={ekranBoyu}
+          ustPay={aramaAlti + 12}
+          onDurum={(_, boy) => setYaprakBoyu(boy)}
+          erisilebilirlikEtiketi="Yakındaki durakları aç ya da kapat"
+          baslik={
+            <View style={s.panelBaslik}>
+              <Text style={s.panelBaslikYazi}>Yakındaki duraklar</Text>
+              <Text style={s.ipucu}>Hedef seçmek için haritaya basılı tut</Text>
+            </View>
+          }
         >
           {favoriler.length > 0 && (
             <View style={s.favoriler}>
@@ -188,8 +194,8 @@ export default function AnaEkran() {
               ))}
             </Pressable>
           ))}
-        </ScrollView>
-      </View>
+        </AltYaprak>
+      )}
     </View>
   );
 }
@@ -222,7 +228,8 @@ const golge = {
 
 const stiller = (t: Tema) =>
   StyleSheet.create({
-  kok: { flex: 1, backgroundColor: t.zemin },
+  // overflow: yaprak aşağı itildiğinde sekme çubuğunun üstüne taşmasın.
+  kok: { flex: 1, backgroundColor: t.zemin, overflow: 'hidden' },
   ust: { position: 'absolute', left: 14, right: 14, top: 0, gap: 10 },
   arama: {
     flexDirection: 'row',
@@ -254,24 +261,9 @@ const stiller = (t: Tema) =>
   kisayolAlt: { fontSize: 11, color: t.soluk },
   uyari: { flexDirection: 'row', gap: 6, alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.94)', borderRadius: 10, padding: 8 },
   uyariYazi: { flex: 1, fontSize: 12, color: t.soluk },
-  panel: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    maxHeight: '48%',
-    backgroundColor: t.yuzey,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 8,
-    paddingHorizontal: 16,
-    ...golge,
-  },
-  tutamac: { width: 38, height: 5, borderRadius: 3, backgroundColor: t.cizgi, alignSelf: 'center', marginBottom: 10 },
-  panelBaslik: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 },
+  panelBaslik: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 },
   panelBaslikYazi: { fontSize: 18, fontWeight: '700', color: t.yazi },
   ipucu: { fontSize: 11, color: t.soluk },
-  liste: { flexGrow: 0 },
   favoriler: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingVertical: 6 },
   favori: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: t.vurguAcik, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, maxWidth: '100%' },
   favoriYazi: { fontSize: 12.5, fontWeight: '600', color: t.yazi, flexShrink: 1 },
