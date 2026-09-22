@@ -47,12 +47,22 @@ kuralını çiğniyor, ama bizi ilgilendiren sorguların geçerliliği.
 npm test
 ```
 
-Saf mantık `src/lib/__testler__/` altında Node'un kendi test koşucusuyla denenir
-(`node --import tsx --test`). Test edilebilmesi için saf parçalar React Native'e
-dokunmayan dosyalarda tutulur: `metin.ts` (Türkçe metin ve hat kodu), `bacak.ts`
-(durak dizisi), `sorgular.ts` (GraphQL metinleri ve rota tercihleri). `tema.ts` ve
-`otp.ts` bunları yeniden dışa açar, böylece çağrı yerleri değişmez. **Yeni bir saf
-işlev yazarken onu bu dosyalardan birine koy**, yoksa test edilemez hâle gelir.
+Saf mantık `src/lib/__testler__/` altında Node'un kendi test koşucusuyla denenir.
+Hiçbir bağımlılık kullanmıyor: Node kendi TypeScript soyucusuyla çalışıyor,
+`scripts/ts-cozucu.mjs` de yalnız uzantısız göreli içe aktarmaları çözüyor. Eskiden
+tsx kullanılıyordu ama tsx esbuild'e bağlı ve esbuild ikilisi işletim sistemine özel:
+`node_modules` Windows'ta kurulunca Linux'ta, Linux'ta kurulunca Windows'ta kırılıyordu.
+
+Test edilebilmesi için saf parçalar React Native'e dokunmayan dosyalarda tutulur:
+`metin.ts` (Türkçe metin ve hat kodu), `bacak.ts` (durak dizisi), `sorgular.ts`
+(GraphQL metinleri ve rota tercihleri), `renk.ts`, `vapur.ts`, `istasyon.ts`,
+`onbellek.ts`, `ag.ts`. `tema.ts` ve `otp.ts` bunları yeniden dışa açar, böylece çağrı
+yerleri değişmez. **Yeni bir saf işlev yazarken onu bu dosyalardan birine koy**, yoksa
+test edilemez hâle gelir.
+
+Testi yazdıktan sonra `git status` ile dosyanın gerçekten depoya girdiğini doğrula:
+bir kez `vapur.test.ts` yazılıp koşturuldu ama hiç işlenmedi, commit iletisi 15 test
+eklendiğini söylerken depoda test yoktu.
 
 Test dosyaları `tsconfig.json`'da hariç tutulur (Node tipleri kurulu değil); doğruluğu
 `npm test` gösterir.

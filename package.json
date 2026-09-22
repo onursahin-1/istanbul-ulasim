@@ -49,8 +49,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "sorgu": "node --import tsx scripts/sorgu-dogrula.ts",
-    "test": "node --import tsx --test \"src/lib/__testler__/*.test.ts\""
+    "sorgu": "node --experimental-strip-types --import ./scripts/ts-cozucu.mjs scripts/sorgu-dogrula.ts",
+    "test": "node --experimental-strip-types --no-warnings --import ./scripts/ts-cozucu.mjs --test \"src/lib/__testler__/*.test.ts\""
   },
   "private": true
 }
