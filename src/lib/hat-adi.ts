@@ -35,6 +35,30 @@ export function aracAdi(mode?: string | null): string {
   return MOD_ADLARI[(mode ?? '').toUpperCase()] ?? '';
 }
 
+/**
+ * GTFS route_type kodundan rota motorunun araç tipi adına.
+ *
+ * Ağ haritasının verisi doğrudan GTFS'ten geliyor ve orada araç tipi sayı;
+ * rozet ve renk işlevleri ise OTP'nin sözcüklerini bekliyor.
+ */
+const TUR_MODLARI: Record<string, string> = {
+  '0': 'TRAM',
+  '1': 'SUBWAY',
+  '2': 'RAIL',
+  '3': 'BUS',
+  '4': 'FERRY',
+  '5': 'TRAM',        // nostaljik tramvay
+  '6': 'GONDOLA',
+  '7': 'FUNICULAR',
+  '11': 'TROLLEYBUS',
+  '12': 'MONORAIL',
+};
+
+/** "1" → "SUBWAY". Bilinmeyen kodlarda boş dizi döner. */
+export function aracModu(routeType?: string | number | null): string {
+  return TUR_MODLARI[String(routeType ?? '').trim()] ?? '';
+}
+
 /** İşletmeci adından yolcunun tanıdığı sözcüğü çıkarır. */
 function isletmeciAdi(isletmeci?: string | null): string {
   const d = (isletmeci ?? '').toLocaleLowerCase('tr-TR');

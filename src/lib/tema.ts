@@ -20,7 +20,7 @@ import { karistir, okunurYap } from './renk';
 // Metin ve hat kodu yardımcıları ayrı, bağımlılıksız bir dosyada durur (test edilebilsin diye);
 // çağrı yerleri değişmesin diye buradan da açılıyor.
 export { baslikYap, hatAnahtari, metrobusMu, trBuyuk, trKucuk, yonYaz };
-export { aracAdi, hatEtiketi } from './hat-adi';
+export { aracAdi, aracModu, hatEtiketi } from './hat-adi';
 
 export type Tema = {
   koyu: boolean;

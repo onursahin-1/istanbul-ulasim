@@ -27,7 +27,19 @@ export function Ikon({ ad, boyut = 20, renkKodu }: { ad: IkonAdi; boyut?: number
  * Rozette yazan metin `hatEtiketi` ile belirleniyor: minibüs ve dolmuş hatlarının
  * "kısa adı" güzergâhın tamamı olduğu için onlarda araç tipi yazıyor.
  */
-export function HatRozeti({ hat, kucuk = false }: { hat?: Hat | string | null; kucuk?: boolean }) {
+/**
+ * Rozetin ihtiyacı olan en az bilgi. `Hat` bunu karşılıyor, ama ağ haritası gibi
+ * veriyi doğrudan GTFS'ten alan yerlerde gtfsId olmuyor; rozet için de gerekmiyor.
+ */
+export type RozetHatti = {
+  shortName?: string | null;
+  color?: string | null;
+  textColor?: string | null;
+  mode?: string | null;
+  agency?: { name: string } | null;
+};
+
+export function HatRozeti({ hat, kucuk = false }: { hat?: RozetHatti | string | null; kucuk?: boolean }) {
   const tema = useTema();
   const kisaAd = typeof hat === 'string' ? hat : hat?.shortName;
   const tur = typeof hat === 'string' ? null : hat?.mode;

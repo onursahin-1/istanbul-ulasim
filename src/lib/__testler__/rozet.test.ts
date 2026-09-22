@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { aracAdi, hatEtiketi } from '../hat-adi';
+import { aracAdi, aracModu, hatEtiketi } from '../hat-adi';
 import { karistir, karsitlik, okunurYap, parlaklik, renkCoz, renkYaz } from '../renk';
 
 describe('hatEtiketi', () => {
@@ -60,6 +60,29 @@ describe('aracAdi', () => {
   it('bilinmeyen tipte boş döner', () => {
     assert.equal(aracAdi('UZAY_MEKIGI'), '');
     assert.equal(aracAdi(null), '');
+  });
+});
+
+describe('aracModu', () => {
+  it('GTFS araç tipi kodunu rota motorunun adına çevirir', () => {
+    assert.equal(aracModu('1'), 'SUBWAY');
+    assert.equal(aracModu('2'), 'RAIL');
+    assert.equal(aracModu('4'), 'FERRY');
+    assert.equal(aracModu('7'), 'FUNICULAR');
+  });
+
+  it('nostaljik tramvayı da tramvay sayar', () => {
+    assert.equal(aracModu('5'), aracModu('0'));
+  });
+
+  it('sayı da kabul eder', () => {
+    assert.equal(aracModu(1), 'SUBWAY');
+  });
+
+  it('bilinmeyen kodda boş döner', () => {
+    assert.equal(aracModu('99'), '');
+    assert.equal(aracModu(null), '');
+    assert.equal(aracModu(''), '');
   });
 });
 

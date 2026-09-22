@@ -98,7 +98,18 @@ export default function HatlarEkrani() {
   return (
     <View style={[s.kok, { paddingTop: kenar.top + 6 }]}>
       <View style={s.ust}>
-        <Text style={s.baslik}>Hatlar</Text>
+        <View style={s.baslikSatiri}>
+          <Text style={s.baslik}>Hatlar</Text>
+          <Pressable
+            onPress={() => router.push('/ag')}
+            style={s.haritaDugmesi}
+            accessibilityRole="button"
+            accessibilityLabel="Ağ haritası"
+          >
+            <Ikon ad="map-outline" boyut={16} renkKodu={tema.vurgu} />
+            <Text style={s.haritaYazi}>Harita</Text>
+          </Pressable>
+        </View>
         <View style={s.girdi}>
           <Ikon ad="search" boyut={18} renkKodu={tema.soluk} />
           <TextInput
@@ -188,7 +199,18 @@ const stiller = (t: Tema) =>
   StyleSheet.create({
     kok: { flex: 1, backgroundColor: t.zemin },
     ust: { backgroundColor: t.yuzey, paddingHorizontal: 16, paddingBottom: 12, gap: 10 },
+    baslikSatiri: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     baslik: { fontSize: 26, fontWeight: '800', color: t.yazi, letterSpacing: -0.4 },
+    haritaDugmesi: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingVertical: 7,
+      paddingHorizontal: 12,
+      borderRadius: 999,
+      backgroundColor: t.vurguAcik,
+    },
+    haritaYazi: { fontSize: 13.5, fontWeight: '600', color: t.vurgu },
     girdi: {
       flexDirection: 'row',
       alignItems: 'center',
