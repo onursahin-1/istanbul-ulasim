@@ -184,10 +184,34 @@ def kumele(duraklar, rayli_mi):
     return {k: v for k, v in kume.items() if len(v) > 1}
 
 
-def istasyon_adi(uyeler):
-    """Kümenin adı: en çok tekrar eden yazım, eşitlikte en kısası."""
+# Ad seçilirken araç tipi öncelik sırası. Metro ve tren önde: füniküler ve
+# teleferik istasyonları genelde semtin adını taşıyor, metro istasyonunun kendi
+# adı daha ayırt edici (M2'nin "Şişhane"si, F2'nin "Beyoğlu"su yerine).
+ONCELIK = {'1': 0, '2': 0, '0': 1, '5': 1, '7': 2, '6': 2, '4': 3, '3': 4}
+
+
+def istasyon_adi(uyeler, durTur):
+    """Kümenin adı.
+
+    Önce **raylı** durağın yazımı: aynı kümede bir metro istasyonu ile yanındaki
+    minibüs durağı olabiliyor ve minibüs yazımı hem daha çok tekrar ediyor hem de
+    tamamen büyük harf oluyor — M4'ün istasyonları "TAVŞANTEPE", "SOĞANLIK METRO"
+    diye çıkıyordu. Eşitlikte en çok tekrar eden, sonra en kısa yazım.
+
+    Tamamen büyük harfli yazımlar da geriye atılıyor: "Soğanlık" > "SOĞANLIK".
+    """
     sayac = collections.Counter(u['stop_name'].strip() for u in uyeler)
-    return min(sayac, key=lambda a: (-sayac[a], len(a), a))
+    enIyiTur = {}
+    for u in uyeler:
+        ad = u['stop_name'].strip()
+        tur = min((ONCELIK.get(t, 3) for t in durTur[u['stop_id']]), default=3)
+        enIyiTur[ad] = min(enIyiTur.get(ad, 9), tur)
+
+    def sira(ad):
+        hepsiBuyuk = ad == ad.replace('i', 'İ').replace('ı', 'I').upper() and any(h.isalpha() for h in ad)
+        return (enIyiTur[ad], 1 if hepsiBuyuk else 0, -sayac[ad], len(ad), ad)
+
+    return min(sayac, key=sira)
 
 
 def main(zip_yolu):
@@ -227,7 +251,7 @@ def main(zip_yolu):
         enlem = sum(float(u['stop_lat']) for u in uyeler) / len(uyeler)
         boylam = sum(float(u['stop_lon']) for u in uyeler) / len(uyeler)
         satir = {a: '' for a in alanlar}
-        satir.update({'stop_id': durak_id, 'stop_name': istasyon_adi(uyeler),
+        satir.update({'stop_id': durak_id, 'stop_name': istasyon_adi(uyeler, durTur),
                       'stop_lat': f'{enlem:.6f}', 'stop_lon': f'{boylam:.6f}',
                       'location_type': '1', 'parent_station': ''})
         istasyonlar.append(satir)
@@ -248,7 +272,7 @@ def main(zip_yolu):
         print(f'  küme çapı: ortanca {caplar[len(caplar) // 2]:.0f} m, '
               f'%95 {caplar[int(len(caplar) * 0.95)]:.0f} m, en büyük {caplar[-1]:.0f} m')
     for v in sorted(kumeler.values(), key=len, reverse=True)[:5]:
-        print(f"  {len(v):3} durak · {istasyon_adi(v)}")
+        print(f"  {len(v):3} durak · {istasyon_adi(v, durTur)}")
 
 
 main(sys.argv[1])
