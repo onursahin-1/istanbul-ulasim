@@ -29,8 +29,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { butceyiBol, SaatlikButce } from './butce.mjs';
-import { duyurulariDuzenle } from './duyuru.mjs';
-import { duyurular as duyurulariIste, filoKonumlari, hatKodlari, Kapi, SinirHatasi } from './iett.mjs';
+import { duyurulariDuzenle, duyurulariEslestir } from './duyuru.mjs';
+import { duyurular as duyurulariIste, filoKonumlari, hatlar as hatlariIste, Kapi, SinirHatasi } from './iett.mjs';
 import { araclariEslestir, gecikmeAkisi, konumAkisi, SeferHafizasi } from './kopru.mjs';
 import { oku, yaz } from './ogrenilen.mjs';
 import { Tarayici, yogunlukTahmini } from './tarama.mjs';
@@ -106,14 +106,16 @@ let sonBasari = 0;
 
 async function hatlariTazele() {
   // Hat listesi seyrek değişir; günde bir yeter. Diskteki listeyle açılışta istek harcanmaz.
-  if (hatListesi && Date.now() - hatListesi.alindi < HAT_LISTESI_OMRU) {
+  // Eski kayıtlarda hat adları yok (duyurular için sonradan eklendi); onlar bir kez yenilenir.
+  if (hatListesi?.adlar && Date.now() - hatListesi.alindi < HAT_LISTESI_OMRU) {
     if (!tarayici.hatlar.length) tarayici.hatlariAyarla(hatListesi.hatlar);
     return;
   }
-  const hatlar = await hatKodlari(kapi);
-  hatListesi = { alindi: Date.now(), hatlar };
+  const liste = await hatlariIste(kapi);
+  const hatlar = liste.map((h) => h.kod);
+  hatListesi = { alindi: Date.now(), hatlar, adlar: liste.filter((h) => h.ad) };
   tarayici.hatlariAyarla(hatlar);
-  console.log(`hat listesi: ${hatlar.length} hat`);
+  console.log(`hat listesi: ${hatlar.length} hat (${hatListesi.adlar.length} adıyla)`);
 }
 
 function kaydet() {
@@ -174,8 +176,17 @@ async function nabiz() {
 
 async function duyurulariTazele() {
   try {
-    duyuruListesi = { alindi: new Date().toISOString(), duyurular: duyurulariDuzenle(await duyurulariIste(kapi)) };
-    durum.duyuru = { alindi: duyuruListesi.alindi, sayi: duyuruListesi.duyurular.length };
+    const liste = duyurulariEslestir(
+      duyurulariDuzenle(await duyurulariIste(kapi)),
+      hatListesi?.adlar ?? [],
+      tarife.uzunAdlar,
+    );
+    duyuruListesi = { alindi: new Date().toISOString(), duyurular: liste };
+    durum.duyuru = {
+      alindi: duyuruListesi.alindi,
+      sayi: liste.length,
+      hattaBaglanamayan: liste.filter((d) => !d.kodlar.length).map((d) => d.hat),
+    };
   } catch (e) {
     // Duyuru süs: alınamazsa eldeki liste kalır, nabız etkilenmez.
     durum.duyuru = { ...(durum.duyuru ?? {}), hata: e instanceof SinirHatasi ? 'hız sınırı' : e.message };
@@ -207,9 +218,11 @@ createServer((istek, cevap) => {
 
 // Nabzın kendi zamanlaması: bir nabız bütçe yüzünden beklerken yenisi üst üste binmesin.
 async function nabizDongusu() {
-  for (;;) {
+  for (let ilk = true; ; ilk = false) {
     const bas = Date.now();
     await nabiz();
+    // İlk duyuru turu ilk nabızdan sonra: hat adları (duyuruyu hatta bağlamak için) o zaman hazır.
+    if (ilk) duyurulariTazele();
     await new Promise((r) => setTimeout(r, Math.max(5_000, NABIZ - (Date.now() - bas))));
   }
 }
@@ -217,7 +230,6 @@ async function nabizDongusu() {
 // Tarama arka planda kendi hızında döner; ikisi de aynı kapıdan, aynı bütçeden geçer.
 tarayici.basla();
 nabizDongusu();
-duyurulariTazele();
 setInterval(duyurulariTazele, DUYURU_ARALIGI);
 setInterval(kaydet, KAYIT_ARALIGI);
 

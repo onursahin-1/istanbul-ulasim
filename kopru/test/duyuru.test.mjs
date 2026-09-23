@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { duyurulariDuzenle } from '../duyuru.mjs';
+import { adAnahtari, duyurulariDuzenle, duyurulariEslestir } from '../duyuru.mjs';
 
 describe('duyurulariDuzenle', () => {
   it('alanları okur, boşları ve tekrarları atar, hatta göre sıralar', () => {
@@ -25,5 +25,52 @@ describe('duyurulariDuzenle', () => {
   it('beklenmeyen gövdede boş liste', () => {
     assert.deepEqual(duyurulariDuzenle(null), []);
     assert.deepEqual(duyurulariDuzenle('metin'), []);
+  });
+});
+
+
+describe('adAnahtari', () => {
+  it('Türkçe harfleri ve noktalamayı katlar', () => {
+    assert.equal(adAnahtari('İETT İKİTELLİ GARAJI - TAKSİM'), 'IETT IKITELLI GARAJI TAKSIM');
+    assert.equal(adAnahtari('IETT IKITELLI GARAJI-TAKSIM'), 'IETT IKITELLI GARAJI TAKSIM');
+    assert.equal(adAnahtari('YENI MAHALLE METRO / KIRAZLI - AKSARAY'), 'YENI MAHALLE METRO KIRAZLI AKSARAY');
+  });
+});
+
+describe('duyurulariEslestir', () => {
+  const d = (hat) => ({ hat, tip: 'Günlük', saat: '09:46', mesaj: 'x' });
+
+  it('İETT hat listesindeki adla birebir eşleştirir', () => {
+    const [s] = duyurulariEslestir([d('IETT IKITELLI GARAJI-TAKSIM')], [
+      { kod: '89C', ad: 'İETT İKİTELLİ GARAJI - TAKSİM' },
+      { kod: '89T', ad: 'İETT İKİTELLİ GARAJI - TAKSİM' },
+      { kod: '98A', ad: 'GÖZTEPE MAHALLESİ - BAKIRKÖY' },
+    ]);
+    assert.deepEqual(s.kodlar, ['89C', '89T']);
+  });
+
+  it('bulamazsa GTFS güzergâh adlarında bütün sözcükleri arar', () => {
+    const [s] = duyurulariEslestir([d('GÖZTEPE MAHALLESI - AKSARAY')], [], [
+      { kisa: '91E', uzun: 'GÖZTEPE MAHALLESİ - AKSARAY RİNG' },
+      { kisa: '91E', uzun: 'AKSARAY - GÖZTEPE MAHALLESİ' },
+      { kisa: '98A', uzun: 'GÖZTEPE MAHALLESİ - BAKIRKÖY' },
+    ]);
+    assert.deepEqual(s.kodlar, ['91E']);
+  });
+
+  it('çok hatta tutan ad belirsiz: bağlamaz', () => {
+    const gtfs = Array.from({ length: 6 }, (_, i) => ({ kisa: `H${i}`, uzun: `AKSARAY - YER ${i}` }));
+    const [s] = duyurulariEslestir([d('AKSARAY')], [], gtfs);
+    assert.deepEqual(s.kodlar, []);
+  });
+
+  it('hiç tutmazsa boş liste', () => {
+    assert.deepEqual(duyurulariEslestir([d('BÜYÜKADA TAKSI')])[0].kodlar, []);
+  });
+});
+
+describe('kayıt saati', () => {
+  it('"Kayit Saati: 06:35" → "06:35"', () => {
+    assert.equal(duyurulariDuzenle([{ HAT: 'X', MESAJ: 'm', GUNCELLEME_SAATI: 'Kayit Saati: 06:35' }])[0].saat, '06:35');
   });
 });

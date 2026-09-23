@@ -24,3 +24,12 @@ describe('hatlarinDuyurulari', () => {
     );
   });
 });
+
+describe('köprünün bulduğu kodlar', () => {
+  it('duyuru adla gelse de kodla eşleşir', () => {
+    const d = { hat: 'IETT IKITELLI GARAJI-TAKSIM', tip: 'Günlük', saat: '21:28', mesaj: 'asfalt', kodlar: ['89C', '89T'] };
+    assert.deepEqual(hattinDuyurulari([d], '89c').map((x) => x.mesaj), ['asfalt']);
+    assert.deepEqual(hattinDuyurulari([d], '89'), []);
+    assert.deepEqual(hattinDuyurulari([{ ...d, kodlar: [] }], '89C'), []);
+  });
+});

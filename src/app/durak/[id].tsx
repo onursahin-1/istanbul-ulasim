@@ -273,7 +273,11 @@ export default function DurakEkrani() {
                     <DuyuruKarti
                       key={i}
                       duyuru={d}
-                      hat={hatlar.find((h) => (h.shortName ?? '').toLocaleUpperCase('tr-TR') === d.hat) ?? d.hat}
+                      hat={
+                        hatlar.find((h) =>
+                          (d.kodlar ?? [d.hat]).includes((h.shortName ?? '').toLocaleUpperCase('tr-TR')),
+                        ) ?? null
+                      }
                     />
                   ))}
                   {liste.length > gorunen.length && (

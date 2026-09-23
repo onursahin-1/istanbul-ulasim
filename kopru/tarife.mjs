@@ -59,6 +59,7 @@ export function tarifeyiKur(zipYolu) {
   const rotaAd = [];
   const guzergahtanRota = new Map(); // "34G_G_D0" → sıra
   const kisaAdtanRotalar = new Map(); // "34G" → [sıra]
+  const uzunAdlar = []; // [{kisa: "91E", uzun: "GÖZTEPE MAHALLESİ - AKSARAY RİNG"}] — duyuru eşleştirmesi için
   for (const r of rotalar) {
     const no = rotaAd.length;
     rotaNo.set(r.route_id, no);
@@ -69,6 +70,8 @@ export function tarifeyiKur(zipYolu) {
     if (kisa) {
       if (!kisaAdtanRotalar.has(kisa)) kisaAdtanRotalar.set(kisa, []);
       kisaAdtanRotalar.get(kisa).push(no);
+      const uzun = (r.route_long_name ?? '').trim();
+      if (uzun) uzunAdlar.push({ kisa, uzun });
     }
   }
 
@@ -270,6 +273,7 @@ export function tarifeyiKur(zipYolu) {
     durakBoylam,
     guzergahtanRota,
     kisaAdtanRotalar,
+    uzunAdlar,
     kodtanDurak,
     rotaAd,
     durakAd,

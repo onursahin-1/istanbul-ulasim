@@ -118,10 +118,19 @@ export class Kapi {
 
 // ---------- servis çağrıları ----------
 
-/** Bütün hat kodları. Günde bir yenilemek yeterli. */
-export async function hatKodlari(kapi) {
+/**
+ * Bütün hatlar: kod ve ad. Günde bir yenilemek yeterli. Ad duyuruları hatta
+ * bağlamak için (duyurular kodla değil adla geliyor).
+ */
+export async function hatlar(kapi) {
   const liste = await kapi.cagir(HAT_DURAK, 'GetHat_json', { HatKodu: '' });
-  return liste.map((h) => String(h.SHATKODU).trim()).filter(Boolean);
+  const alan = (h, ...adlar) => {
+    const k = Object.keys(h ?? {}).find((x) => adlar.includes(x.toUpperCase()));
+    return k ? String(h[k] ?? '').trim() : '';
+  };
+  return (Array.isArray(liste) ? liste : [])
+    .map((h) => ({ kod: alan(h, 'SHATKODU', 'HATKODU'), ad: alan(h, 'SHATADI', 'HATADI', 'HAT_ADI') }))
+    .filter((h) => h.kod);
 }
 
 /**

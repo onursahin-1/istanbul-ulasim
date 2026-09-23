@@ -731,31 +731,30 @@ function OtobusKutusu({
   const s = useStiller(stiller);
   const dk = binis ? Math.round((Date.parse(binis) - Date.now()) / 60_000) : null;
   const soluk = otobus.sinif === 'eski';
+  // Tek satır: yolculuk adımlarının arasında yer kaplamasın.
   return (
-    <View style={[s.otobusKutu, { borderColor: soluk ? tema.cizgi : renk }]}>
+    <View style={s.otobusKutu}>
       <View style={[s.otobusSimge, { backgroundColor: soluk ? tema.soluk : renk }]}>
-        <Ikon ad="bus" boyut={13} renkKodu="#fff" />
+        <Ikon ad="bus" boyut={11} renkKodu="#fff" />
       </View>
-      <View style={{ flex: 1 }}>
+      <Text style={s.otobusYazi} numberOfLines={1}>
         <Text style={s.otobusBaslik}>
-          {`Otobüs ${kalanYaz(kalan)}`}
+          {kalanYaz(kalan)}
           {dk != null && dk > 0 ? ` · ~${dk} dk` : ''}
         </Text>
         <Text style={s.otobusAlt}>
-          {uyari
-            ? `${YAKLASMA_ESIGI} durak kalınca haber verilecek · uygulama açık kalmalı`
-            : `Konum ${yasYaz(otobus.yasSn)} güncellendi`}
+          {uyari ? ` · ${YAKLASMA_ESIGI} durak kala haber verilecek` : ` · ${yasYaz(otobus.yasSn)}`}
         </Text>
-      </View>
+      </Text>
       <Pressable
         onPress={uyariDegistir}
-        hitSlop={8}
-        style={[s.otobusZil, uyari && { backgroundColor: renk }]}
+        hitSlop={10}
+        style={[s.otobusZil, uyari && { backgroundColor: renk, borderColor: renk }]}
         accessibilityRole="switch"
         accessibilityState={{ checked: uyari }}
-        accessibilityLabel={`Otobüs ${YAKLASMA_ESIGI} durak kalınca haber ver`}
+        accessibilityLabel={`Otobüs ${YAKLASMA_ESIGI} durak kalınca haber ver. Uygulama açıkken çalışır.`}
       >
-        <Ikon ad={uyari ? 'notifications' : 'notifications-outline'} boyut={17} renkKodu={uyari ? '#fff' : tema.soluk} />
+        <Ikon ad={uyari ? 'notifications' : 'notifications-outline'} boyut={14} renkKodu={uyari ? '#fff' : tema.soluk} />
       </Pressable>
     </View>
   );
@@ -870,23 +869,15 @@ const stiller = (t: Tema) =>
   adimBaslik: { fontSize: 14, fontWeight: '700', color: t.yazi },
   adimAlt: { fontSize: 12.5, color: t.soluk, flexShrink: 1, flexGrow: 1 },
   adimCanli: { fontSize: 12.5, fontWeight: '700', color: t.vurgu },
-  otobusKutu: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginTop: 6,
-    padding: 10,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    backgroundColor: t.yuzeyIkincil,
-  },
-  otobusSimge: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  otobusBaslik: { fontSize: 14, fontWeight: '700', color: t.yazi },
-  otobusAlt: { fontSize: 12, color: t.soluk, marginTop: 1 },
+  otobusKutu: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 6, paddingLeft: 2 },
+  otobusSimge: { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  otobusYazi: { flex: 1, fontSize: 12.5 },
+  otobusBaslik: { fontWeight: '700', color: t.yazi },
+  otobusAlt: { color: t.soluk },
   otobusZil: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth,
