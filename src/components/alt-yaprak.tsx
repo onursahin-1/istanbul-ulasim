@@ -43,6 +43,9 @@ const KARAR_ESIGI = 6;
 
 const YAY = { damping: 24, stiffness: 240, mass: 0.9 };
 
+/** Listenin altındaki boşluk. İçerik ancak bundan fazla taşıyorsa liste kaydırılır. */
+const ALT_BOSLUK = 24;
+
 type Ozellikler = {
   /** Yaprağın içinde durduğu alanın yüksekliği (onLayout ile ölçülür). */
   kapsayiciYukseklik: number;
@@ -81,6 +84,12 @@ export function AltYaprak({
 
   // React tarafı: kaydırmanın açılıp kapanması ve erişilebilirlik için.
   const [durum, setDurum] = useState<YaprakDurumu>(baslangic);
+  // İçerik yaprağa sığıyorsa (ya da yalnız alttaki boşluk taşıyorsa) liste kaymaz.
+  // Yoksa birkaç noktalık taşma yüzünden liste parmakla oynayıp geri sekiyordu.
+  const [gorunenBoy, setGorunenBoy] = useState(0);
+  const [icerikBoy, setIcerikBoy] = useState(0);
+  const kaydirilabilir = icerikBoy - gorunenBoy > ALT_BOSLUK;
+  const listeKayar = durum === 'acik' && kaydirilabilir;
   const durumRef = useRef<YaprakDurumu>(baslangic);
   const liste = useRef<ScrollView>(null);
   const onDurumRef = useRef(onDurum);
@@ -165,6 +174,13 @@ export function AltYaprak({
     [dokunusX, dokunusY, durumS, kaydirma, ofset, tutulan, yS, durakDegisti],
   );
 
+  useEffect(() => {
+    if (!kaydirilabilir) {
+      liste.current?.scrollTo({ y: 0, animated: false });
+      kaydirma.value = 0;
+    }
+  }, [kaydirilabilir, kaydirma]);
+
   const kaydirildi = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       kaydirma.value = e.nativeEvent.contentOffset.y;
@@ -191,12 +207,14 @@ export function AltYaprak({
           ref={liste}
           style={stiller.liste}
           contentContainerStyle={stiller.icerik}
-          scrollEnabled={durum === 'acik'}
+          scrollEnabled={listeKayar}
           bounces={false}
           overScrollMode="never"
           onScroll={kaydirildi}
           scrollEventThrottle={16}
-          showsVerticalScrollIndicator={durum === 'acik'}
+          showsVerticalScrollIndicator={listeKayar}
+          onLayout={(e) => setGorunenBoy(e.nativeEvent.layout.height)}
+          onContentSizeChange={(_, h) => setIcerikBoy(h)}
         >
           {children}
         </ScrollView>
@@ -223,5 +241,5 @@ const stiller = StyleSheet.create({
   },
   tutamac: { width: 38, height: 5, borderRadius: 3, alignSelf: 'center', marginBottom: 10 },
   liste: { flex: 1 },
-  icerik: { paddingBottom: 24 },
+  icerik: { paddingBottom: ALT_BOSLUK },
 });
