@@ -19,6 +19,7 @@ import {
 
 import type { CanliBilgi, CanliSinif } from '@/lib/canli';
 import { tazelikYaz } from '@/lib/onbellek';
+import type { Duyuru } from '@/lib/duyuru';
 import { istanbulSaatiYaz, kalkisGosterimi } from '@/lib/zaman';
 import type { Bacak, Hat } from '@/lib/otp';
 import { aracSimgesi, hatEtiketi, hatRengi, metrobusMu, rozetRenkleri, useTema, type Tema } from '@/lib/tema';
@@ -313,6 +314,33 @@ export function TarifeEtiketi({ saat }: { saat?: string }) {
   );
 }
 
+/**
+ * İETT duyurusu: sefer iptali, güzergâh değişikliği. Uzun mesaj üç satırda kesilir,
+ * dokununca açılır. `hat` verilirse (durak ekranı, birden çok hattın duyurusu) başta
+ * hattın rozeti durur.
+ */
+export function DuyuruKarti({ duyuru, hat }: { duyuru: Duyuru; hat?: RozetHatti | string | null }) {
+  const tema = useTema();
+  const [acik, setAcik] = useState(false);
+  const ust = [duyuru.tip, duyuru.saat].filter(Boolean).join(' · ');
+  return (
+    <Pressable
+      onPress={() => setAcik((a) => !a)}
+      style={[stil.duyuru, { backgroundColor: tema.uyariAcik, borderColor: tema.uyari }]}
+      accessibilityRole="button"
+      accessibilityLabel={`Duyuru${ust ? `, ${ust}` : ''}: ${duyuru.mesaj}`}
+    >
+      <View style={stil.duyuruUst}>
+        {hat ? <HatRozeti hat={hat} kucuk /> : <Ionicons name="warning-outline" size={15} color={tema.uyari} />}
+        {!!ust && <Text style={[stil.duyuruTip, { color: tema.uyari }]}>{ust}</Text>}
+      </View>
+      <Text style={[stil.duyuruMesaj, { color: tema.yazi }]} numberOfLines={acik ? undefined : 3}>
+        {duyuru.mesaj}
+      </Text>
+    </Pressable>
+  );
+}
+
 /** Yaklaşma şeridinde gösterilen durak sayısı (yolcunun durağı hariç). */
 const SERIT_DURAK = 4;
 
@@ -353,6 +381,10 @@ export function useStiller<T>(uret: (tema: Tema) => T): T {
 }
 
 const stil = StyleSheet.create({
+  duyuru: { borderRadius: 12, borderWidth: 1, padding: 10, gap: 5 },
+  duyuruUst: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  duyuruTip: { fontSize: 11.5, fontWeight: '700' },
+  duyuruMesaj: { fontSize: 13, lineHeight: 18 },
   seritCizgi: { position: 'absolute', height: 2, borderRadius: 1 },
   seritNokta: { position: 'absolute', width: 4, height: 4, borderRadius: 2 },
   seritHalka: { position: 'absolute', width: 10, height: 10, borderRadius: 5, borderWidth: 2.5 },

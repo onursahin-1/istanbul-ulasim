@@ -16,6 +16,7 @@ Sunucu `http://localhost:8082` adresinde üç uç nokta açar:
 |---|---|---|
 | `/arac-konumlari` | GTFS-RT VehiclePosition | `VEHICLE_POSITIONS` |
 | `/sefer-guncellemeleri` | GTFS-RT TripUpdate | `STOP_TIME_UPDATER` |
+| `/duyurular` | İETT hat duyuruları, JSON (15 dakikada bir tazelenir) | uygulama doğrudan okur |
 | `/durum` | insan için JSON özet | — |
 
 Ortam değişkenleri: `GTFS_ZIP` (varsayılan `C:\otp\istanbul\istanbul-iett-gtfs.zip`),

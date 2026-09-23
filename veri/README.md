@@ -18,6 +18,7 @@ python durak-birlestir.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python durak-birlestir.py C:\otp\istanbul\istanbul-iett-gtfs.zip
 python dogrula.py C:\otp\istanbul                                          # sağlama
 python ag-cikar.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip ..\assets\veri\ag.json
+python siklik-cikar.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip ..\assets\veri\siklik.json
 ```
 
 Yarıda kalmış bir zip'e yeniden çalıştırmak yerine `hazirla-gtfs.mjs` ile baştan
@@ -237,3 +238,14 @@ cd C:\otp
 java -Xmx6G -jar otp-shaded-2.10.0.jar --build --save istanbul
 java -Xmx6G -jar otp-shaded-2.10.0.jar --load --serve istanbul
 ```
+
+## Minibüs ve dolmuş sıklıkları
+
+```powershell
+python siklik-cikar.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip ..\assets\veri\siklik.json
+```
+
+Minibüs ve dolmuş seferleri GTFS'te saatli değil, sıklık pencereleri olarak duruyor
+(`frequencies.txt`). OTP bunları durak kalkışlarında göstermiyor ve API'sinde sıklık
+alanı yok; uygulama "Her 5 dk · son sefer 23:00" yazısını bu dosyadan üretiyor
+(`src/lib/siklik.ts`). GTFS yenilenince bu betik de yeniden çalıştırılmalı.

@@ -1,9 +1,10 @@
 // Köprü sunucusu: İETT'yi izler, GTFS-RT üretir, OTP'ye sunar.
 //
 // İBB'nin kotası saatte 100 istek. Köprü kendine saatte 80 istek ayırıyor ve
-// bunu ikiye bölüyor:
+// bunu bölüyor:
 //   • Nabız (2 dakikada bir, tek istek) — bütün filonun taze konumu.
-//   • Tarama (kalan bütçe, ~75 saniyede bir hat) — hangi aracın hangi hatta olduğu.
+//   • Duyurular (15 dakikada bir, tek istek) — sefer iptali, güzergâh değişikliği.
+//   • Tarama (kalan bütçe, ~80 saniyede bir hat) — hangi aracın hangi hatta olduğu.
 // Öğrenilen "araç → hat" bilgisi diske yazılıyor; kapsama günden güne büyüyor.
 //
 // Kullanım (OTP'nin yanında):
@@ -19,6 +20,7 @@
 // Uç noktalar:
 //   /arac-konumlari        GTFS-RT VehiclePosition  → OTP VEHICLE_POSITIONS
 //   /sefer-guncellemeleri  GTFS-RT TripUpdate       → OTP STOP_TIME_UPDATER
+//   /duyurular             İETT hat duyuruları, JSON → uygulama
 //   /durum                 insan için JSON özet
 
 import { createServer } from 'node:http';
@@ -27,7 +29,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { butceyiBol, SaatlikButce } from './butce.mjs';
-import { filoKonumlari, hatKodlari, Kapi, SinirHatasi } from './iett.mjs';
+import { duyurulariDuzenle } from './duyuru.mjs';
+import { duyurular as duyurulariIste, filoKonumlari, hatKodlari, Kapi, SinirHatasi } from './iett.mjs';
 import { araclariEslestir, gecikmeAkisi, konumAkisi, SeferHafizasi } from './kopru.mjs';
 import { oku, yaz } from './ogrenilen.mjs';
 import { Tarayici, yogunlukTahmini } from './tarama.mjs';
@@ -45,6 +48,7 @@ const OGRENILEN = process.env.OGRENILEN ?? join(KLASOR, 'ogrenilen.json');
 const BAYAT_MS = 5 * 60_000;
 const KAYIT_ARALIGI = 5 * 60_000;
 const HAT_LISTESI_OMRU = 24 * 3_600_000;
+const DUYURU_ARALIGI = 15 * 60_000;
 
 if (BUTCE > 95) {
   console.error(`BUTCE=${BUTCE} çok yüksek: İBB'nin sınırı saatte 100 istek ve bizim görmediğimiz istekleri de sayıyor.`);
@@ -60,7 +64,8 @@ const tarife = tarifeyiKur(ZIP);
 console.log(`  ${tarife.kurulumMs} ms · ${JSON.stringify(tarife.sayilar)}`);
 
 const onceki = oku(OGRENILEN);
-const pay = butceyiBol(BUTCE, NABIZ);
+// Pay: günde bir hat listesi (2) + saatte dört duyuru isteği.
+const pay = butceyiBol(BUTCE, NABIZ, 2 + Math.ceil(3_600_000 / DUYURU_ARALIGI));
 const butce = new SaatlikButce({ saatte: BUTCE, gecmis: onceki.istekler ?? [] });
 const kapi = new Kapi({ butce, kapaliyaKadar: onceki.kapaliyaKadar ?? 0 });
 const tarayici = new Tarayici(kapi, { aralikMs: pay.taramaAralikMs, tahminiYogunluk: yogunlukTahmini(tarife) });
@@ -87,8 +92,11 @@ const durum = {
   eslesenSefer: 0,
   tarama: null,
   kapi: null,
+  duyuru: null,
   hata: null,
 };
+
+let duyuruListesi = { alindi: null, duyurular: [] };
 
 const BOS_KONUM = () => konumAkisi([], new Date());
 const BOS_GECIKME = () => gecikmeAkisi([], new Date());
@@ -164,6 +172,16 @@ async function nabiz() {
   }
 }
 
+async function duyurulariTazele() {
+  try {
+    duyuruListesi = { alindi: new Date().toISOString(), duyurular: duyurulariDuzenle(await duyurulariIste(kapi)) };
+    durum.duyuru = { alindi: duyuruListesi.alindi, sayi: duyuruListesi.duyurular.length };
+  } catch (e) {
+    // Duyuru süs: alınamazsa eldeki liste kalır, nabız etkilenmez.
+    durum.duyuru = { ...(durum.duyuru ?? {}), hata: e instanceof SinirHatasi ? 'hız sınırı' : e.message };
+  }
+}
+
 function yanitla(cevap, govde, tur) {
   cevap.writeHead(200, { 'Content-Type': tur, 'Content-Length': govde.length, 'Cache-Control': 'no-store' });
   cevap.end(govde);
@@ -174,12 +192,15 @@ createServer((istek, cevap) => {
   const bayat = !sonBasari || Date.now() - sonBasari > BAYAT_MS;
   if (yol === '/arac-konumlari') return yanitla(cevap, bayat ? BOS_KONUM() : konumlar, 'application/x-protobuf');
   if (yol === '/sefer-guncellemeleri') return yanitla(cevap, bayat ? BOS_GECIKME() : gecikmeler, 'application/x-protobuf');
+  if (yol === '/duyurular') {
+    return yanitla(cevap, Buffer.from(JSON.stringify(duyuruListesi)), 'application/json; charset=utf-8');
+  }
   if (yol === '/durum' || yol === '/') {
     durumuTazele();
     return yanitla(cevap, Buffer.from(JSON.stringify(durum, null, 2)), 'application/json; charset=utf-8');
   }
   cevap.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-  cevap.end('Bilinmeyen adres. /durum, /arac-konumlari, /sefer-guncellemeleri\n');
+  cevap.end('Bilinmeyen adres. /durum, /arac-konumlari, /sefer-guncellemeleri, /duyurular\n');
 }).listen(PORT, () => {
   console.log(`köprü http://localhost:${PORT} · nabız ${NABIZ / 1000} sn`);
 });
@@ -196,6 +217,8 @@ async function nabizDongusu() {
 // Tarama arka planda kendi hızında döner; ikisi de aynı kapıdan, aynı bütçeden geçer.
 tarayici.basla();
 nabizDongusu();
+duyurulariTazele();
+setInterval(duyurulariTazele, DUYURU_ARALIGI);
 setInterval(kaydet, KAYIT_ARALIGI);
 
 for (const sinyal of ['SIGINT', 'SIGTERM']) {

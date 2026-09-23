@@ -20,7 +20,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AltYaprak } from '@/components/alt-yaprak';
 import { DurakIsareti, OtobusIsareti } from '@/components/harita-isaretleri';
-import { canliRenk, HataKutusu, HatRozeti, Ikon, NabizNoktasi, useStiller, Yukleniyor } from '@/components/ulasim';
+import { canliRenk, DuyuruKarti, HataKutusu, HatRozeti, Ikon, NabizNoktasi, useStiller, Yukleniyor } from '@/components/ulasim';
+import { hattinDuyurulari, type Duyuru } from '@/lib/duyuru';
 import {
   araclariYerlestir,
   gecikmeKisa,
@@ -33,7 +34,7 @@ import {
 import { polylineCoz, type Nokta } from '@/lib/cografya';
 import { canliBilgi } from '@/lib/canli';
 import { trKucuk } from '@/lib/metin';
-import { hatAraclariGetir, hatDetayiGetir, OtpHatasi, type HatDetayi } from '@/lib/otp';
+import { duyurulariGetir, hatAraclariGetir, hatDetayiGetir, OtpHatasi, type HatDetayi } from '@/lib/otp';
 import { aracAdi, baslikYap, haritaRengi, hatRengi, useTema, yaziRengi, type Tema } from '@/lib/tema';
 
 export default function HatEkrani() {
@@ -53,6 +54,14 @@ export default function HatEkrani() {
   const [yon, setYon] = useState<number | null>(null);
   const [araclar, setAraclar] = useState<Record<string, HamArac[]>>({});
   const [simdi, setSimdi] = useState(() => Date.now());
+  const [tumDuyurular, setTumDuyurular] = useState<Duyuru[]>([]);
+  useEffect(() => {
+    let acik = true;
+    duyurulariGetir().then((l) => acik && setTumDuyurular(l));
+    return () => {
+      acik = false;
+    };
+  }, []);
   const liste = useRef<{ kaydir: (y: number) => void }>(null);
   const kaydirildi = useRef(false);
   const harita = useRef<MapView>(null);
@@ -329,6 +338,13 @@ export default function HatEkrani() {
                 </View>
               }
             >
+              {hattinDuyurulari(tumDuyurular, hat?.shortName).length > 0 && (
+                <View style={s.duyurular}>
+                  {hattinDuyurulari(tumDuyurular, hat?.shortName).map((d, i) => (
+                    <DuyuruKarti key={i} duyuru={d} />
+                  ))}
+                </View>
+              )}
               {yonSecici}
               {duraklar.length === 0 && <Text style={s.bos}>Bu hattın durak bilgisi veride yok.</Text>}
               <View style={s.liste}>
@@ -520,6 +536,7 @@ const stiller = (t: Tema) =>
     bos: { color: t.soluk, textAlign: 'center', padding: 20 },
     dipnot: { color: t.soluk, fontSize: 12, lineHeight: 18, paddingTop: 18 },
     kalin: { fontWeight: '700', color: t.yazi },
+    duyurular: { gap: 8, paddingBottom: 10 },
     canliOzet: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     canliOzetYazi: { fontSize: 12, color: t.soluk, fontWeight: '600' },
     durakEtiket: {

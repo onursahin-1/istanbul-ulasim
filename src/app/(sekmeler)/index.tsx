@@ -24,6 +24,8 @@ import { useKonum } from '@/lib/konum';
 import { OtpHatasi, yakinDuraklariGetir, type Hat, type YakinDurak } from '@/lib/otp';
 import { baslikYap, hatEtiketi, useTema, yonYaz, type Tema } from '@/lib/tema';
 import { mesafeYaz } from '@/lib/zaman';
+import { siklikOzeti } from '@/lib/siklik';
+import { hatSikligi } from '@/lib/siklik-verisi';
 
 const YENILEME_ARALIGI = 30_000;
 
@@ -245,7 +247,7 @@ export default function AnaEkran() {
                     <View style={s.saatsizNot}>
                       <Ikon ad="time-outline" boyut={11} renkKodu={tema.soluk} />
                       <Text style={s.saatsizYazi} numberOfLines={1}>
-                        {`${g.adlar.length} hat · saat bilgisi yok`}
+                        {`${g.adlar.length} hat · ${siklikOzeti(g.hatlar.map((h) => hatSikligi(h.shortName))) ?? 'saat bilgisi yok'}`}
                       </Text>
                     </View>
                   </View>

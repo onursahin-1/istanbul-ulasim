@@ -10,6 +10,7 @@ import {
   CanliAciklama,
   CevrimdisiSerit,
   Dakika,
+  DuyuruKarti,
   HataKutusu,
   HatRozeti,
   Ikon,
@@ -23,9 +24,20 @@ import {
 import { araclariYerlestir, kalanYaz, yaklasanOtobus, yasYaz } from '@/lib/arac-konum';
 import { kalkisCanli } from '@/lib/canli';
 import { trKucuk } from '@/lib/metin';
+import { siklikYaz } from '@/lib/siklik';
+import { hatSikligi } from '@/lib/siklik-verisi';
 import { favoriDegistir, useKayitlar } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
-import { durakSaatleriYedekli, OtpHatasi, saatsizHatlariGetir, saatsizHatMi, type DurakSaatleri, type Hat } from '@/lib/otp';
+import { hatlarinDuyurulari, type Duyuru } from '@/lib/duyuru';
+import {
+  duyurulariGetir,
+  durakSaatleriYedekli,
+  OtpHatasi,
+  saatsizHatlariGetir,
+  saatsizHatMi,
+  type DurakSaatleri,
+  type Hat,
+} from '@/lib/otp';
 import { baslikYap, hatEtiketi, hatRengi, useTema, yonYaz, type Tema } from '@/lib/tema';
 import { istanbulSaatiYaz, kacDakikaSonra, kalkisGosterimi, saniyedenSaat } from '@/lib/zaman';
 
@@ -44,6 +56,15 @@ export default function DurakEkrani() {
   const [yenileniyor, setYenileniyor] = useState(false);
   // Minibüs ve dolmuş: saatleri yok; aynı meydandaki aynı adlı duraklardan da toplanıyor.
   const [saatsiz, setSaatsiz] = useState<Hat[]>([]);
+  const [tumDuyurular, setTumDuyurular] = useState<Duyuru[]>([]);
+  const [tumDuyurularAcik, setTumDuyurularAcik] = useState(false);
+  useEffect(() => {
+    let acik = true;
+    duyurulariGetir().then((l) => acik && setTumDuyurular(l));
+    return () => {
+      acik = false;
+    };
+  }, []);
 
   const yukle = useCallback(async () => {
     if (!id) return;
@@ -237,6 +258,35 @@ export default function DurakEkrani() {
               </View>
             )}
 
+            {(() => {
+              // Bu duraktan geçen hatların duyuruları; kalabalık duraklarda ilk üçü, gerisi dokununca.
+              const liste = hatlarinDuyurulari(
+                tumDuyurular,
+                hatlar.map((h) => h.shortName),
+              );
+              if (!liste.length) return null;
+              const gorunen = tumDuyurularAcik ? liste : liste.slice(0, 3);
+              return (
+                <View style={{ gap: 8 }}>
+                  <Text style={s.altBaslik}>DUYURULAR</Text>
+                  {gorunen.map((d, i) => (
+                    <DuyuruKarti
+                      key={i}
+                      duyuru={d}
+                      hat={hatlar.find((h) => (h.shortName ?? '').toLocaleUpperCase('tr-TR') === d.hat) ?? d.hat}
+                    />
+                  ))}
+                  {liste.length > gorunen.length && (
+                    <Pressable onPress={() => setTumDuyurularAcik(true)} accessibilityRole="button">
+                      <Text style={[s.bilgi, { color: tema.vurgu, fontWeight: '700' }]}>
+                        {`${liste.length - gorunen.length} duyuru daha`}
+                      </Text>
+                    </Pressable>
+                  )}
+                </View>
+              );
+            })()}
+
             {(yonler.length > 0 || saatsiz.length === 0) && (
             <View style={{ gap: 4 }}>
               <Text style={s.altBaslik}>YÖNE GÖRE SONRAKİ KALKIŞLAR</Text>
@@ -333,7 +383,10 @@ export default function DurakEkrani() {
                         <Text style={s.seferYon} numberOfLines={2}>
                           {guzergah || baslikYap(h.shortName)}
                         </Text>
-                        <Text style={s.seferSaat}>Saat bilgisi yok · sık aralıklarla çalışır</Text>
+                        <Text style={s.seferSaat}>
+                          {siklikYaz(hatSikligi(h.shortName)) ??
+                            'Saat bilgisi yok · sık aralıklarla çalışır'}
+                        </Text>
                       </View>
                       <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.soluk} />
                     </Pressable>

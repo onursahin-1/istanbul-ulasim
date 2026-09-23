@@ -12,6 +12,7 @@ import { SaatlikButce } from './butce.mjs';
 const TABAN = process.env.IETT_ADRESI ?? 'https://api.ibb.gov.tr';
 const FILO = `${TABAN}/iett/FiloDurum/SeferGerceklesme.asmx`;
 const HAT_DURAK = `${TABAN}/iett/UlasimAnaVeri/HatDurakGuzergah.asmx`;
+const DUYURU = `${TABAN}/iett/UlasimDinamikVeri/Duyurular.asmx`;
 
 const COZ = { '&lt;': '<', '&gt;': '>', '&amp;': '&', '&quot;': '"', '&apos;': "'" };
 
@@ -150,4 +151,9 @@ export async function hattakiAraclar(kapi, hatKodu) {
     yakinDurak: String(a.yakinDurakKodu ?? '').trim(),
     zaman: String(a.son_konum_zamani ?? '').trim(),
   }));
+}
+
+/** Bütün hatların güncel duyuruları — tek istek. Ham liste; duyuru.mjs düzenliyor. */
+export async function duyurular(kapi) {
+  return kapi.cagir(DUYURU, 'GetDuyurular_json');
 }

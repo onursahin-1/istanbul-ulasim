@@ -21,6 +21,14 @@ function adresBul(): string {
 
 export const OTP_ADRESI = adresBul();
 
+/**
+ * Canlı veri köprüsünün adresi (kopru/): OTP ile aynı bilgisayarda, 8082'de.
+ * EXPO_PUBLIC_KOPRU_URL ile ayrıca verilebilir.
+ */
+export const KOPRU_ADRESI = (
+  process.env.EXPO_PUBLIC_KOPRU_URL ?? OTP_ADRESI.replace(/:8080$/, ':8082')
+).replace(/\/+$/, '');
+
 export class OtpHatasi extends Error {}
 
 // Sorgu metinleri ayrı dosyada; oradan içe aktarılıp buradan yeniden dışa açılıyor.
@@ -30,6 +38,7 @@ export { bacakDuraklari } from './bacak';
 export type { RotaSecenekleri, RotaTercihi } from './sorgular';
 import { SORGULAR as S, VARSAYILAN_SECENEKLER, tercihleriYap, type RotaSecenekleri } from './sorgular';
 import type { HamArac } from './arac-konum';
+import type { Duyuru } from './duyuru';
 import { isletmeciAdi } from './hat-adi';
 import { aramayiIndir, ayniAdliSaatsizHatlar, saatsizHatlariKatla, yakinlariIndir, type Ebeveynli } from './istasyon';
 import { gunuKaydir } from './onbellek';
@@ -368,6 +377,32 @@ export async function seferAraclariGetir(seferId: string, sinyal?: AbortSignal):
   type Cevap = { trip: { pattern: { vehiclePositions: HamArac[] | null } | null } | null };
   const veri = await sorgula<Cevap>(S.SEFER_ARACLARI, { id: seferId }, sinyal);
   return veri.trip?.pattern?.vehiclePositions ?? [];
+}
+
+// Duyurular 15 dakikada bir değişiyor; ekranlar arası gezinirken her seferinde
+// sormamak için beş dakika bellekte tutuluyor.
+let duyuruOnbellek: { an: number; liste: Promise<Duyuru[]> } | null = null;
+const DUYURU_OMRU = 5 * 60_000;
+
+/**
+ * İETT hat duyuruları, köprüden. Köprü kapalıysa ya da yanıt vermezse boş liste:
+ * duyuru süs, ekranlar onsuz da çalışıyor.
+ */
+export function duyurulariGetir(): Promise<Duyuru[]> {
+  if (duyuruOnbellek && Date.now() - duyuruOnbellek.an < DUYURU_OMRU) return duyuruOnbellek.liste;
+  // AbortSignal.timeout React Native'de her sürümde yok; elle zaman aşımı.
+  const iptal = new AbortController();
+  const zamanlayici = setTimeout(() => iptal.abort(), 8_000);
+  const liste = fetch(`${KOPRU_ADRESI}/duyurular`, { signal: iptal.signal })
+    .then((y) => (y.ok ? y.json() : { duyurular: [] }))
+    .then((g: { duyurular?: Duyuru[] }) => (Array.isArray(g?.duyurular) ? g.duyurular : []))
+    .catch(() => {
+      duyuruOnbellek = null;
+      return [] as Duyuru[];
+    })
+    .finally(() => clearTimeout(zamanlayici));
+  duyuruOnbellek = { an: Date.now(), liste };
+  return liste;
 }
 
 /** Durak ekranındaki bir satır: hat + yön + sıradaki kalkışlar. */
