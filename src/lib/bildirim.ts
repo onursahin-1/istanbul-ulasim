@@ -138,6 +138,21 @@ export async function hatirlaticiKur(taslak: Taslak): Promise<Hatirlatici | null
   }
 }
 
+/**
+ * Hemen gösterilen bildirim (otobüs yaklaştı). Zamanlanmış hatırlatıcılardan farkı:
+ * kaydedilmiyor, listede görünmüyor; uygulama açıkken canlı konuma bakılarak atılıyor.
+ */
+export async function hemenBildir(baslik: string, metin: string): Promise<void> {
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: { title: baslik, body: metin, sound: true },
+      trigger: null,
+    });
+  } catch {
+    // Bildirim gönderilemezse ekrandaki kutu yine gösteriyor.
+  }
+}
+
 /** Bir yolculuğun bütün hatırlatıcılarını tek seferde kurar. Kurulanları döner. */
 export async function hatirlaticilariKur(taslaklar: Taslak[]): Promise<Hatirlatici[]> {
   const kurulan: Hatirlatici[] = [];

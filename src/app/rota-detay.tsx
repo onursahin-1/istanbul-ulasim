@@ -15,7 +15,7 @@ import { OtobusIsareti } from '@/components/harita-isaretleri';
 import { HatirlatmaSayfasi, type InisBilgisi } from '@/components/hatirlatma';
 import { canliRenk, GeriCubugu, HatRozeti, Ikon, useStiller, type IkonAdi } from '@/components/ulasim';
 import { bacakCanli } from '@/lib/canli';
-import { useHatirlaticilar } from '@/lib/bildirim';
+import { hemenBildir, izinIste, useHatirlaticilar } from '@/lib/bildirim';
 import { useKayitlar } from '@/lib/kayitlar';
 import { mesafeMetre, polylineCoz, type Nokta } from '@/lib/cografya';
 import { araclariYerlestir, kalanYaz, yaklasanOtobus, yasYaz, type YerlesikArac } from '@/lib/arac-konum';
@@ -117,6 +117,23 @@ export default function RotaDetayEkrani() {
   // ve biniş durağına kaç durak kaldığı. Yarım dakikada bir tazeleniyor; alınamazsa
   // sessizce boş kalıyor (canlı konum süs, yolculuk onsuz da planlanmış).
   const [binisOtobusleri, setBinisOtobusleri] = useState<Record<number, { otobus: YerlesikArac; kalan: number }>>({});
+
+  // "Otobüs yaklaşınca haber ver": açık olan bacaklar ve uyarısı atılmış olanlar.
+  // Canlı konuma bakarak çalışıyor, bu yüzden yalnız uygulama açıkken; kapalıyken
+  // haber vermek sunucudan itme bildirimi ister (sırada).
+  const [yaklasmaUyarisi, setYaklasmaUyarisi] = useState<Record<number, boolean>>({});
+  const uyarildi = useRef(new Set<number>());
+  const yaklasmaUyarisiRef = useRef(yaklasmaUyarisi);
+  yaklasmaUyarisiRef.current = yaklasmaUyarisi;
+  const uyariDegistir = useCallback(async (i: number) => {
+    const acilacak = !yaklasmaUyarisiRef.current[i];
+    if (acilacak && !(await izinIste())) {
+      Alert.alert('Bildirim izni yok', 'Ayarlar › Bildirimler bölümünden bu uygulamaya izin verebilirsin.');
+      return;
+    }
+    uyarildi.current.delete(i);
+    setYaklasmaUyarisi((o) => ({ ...o, [i]: acilacak }));
+  }, []);
   useEffect(() => {
     let acik = true;
     const yukle = async () => {
@@ -148,6 +165,21 @@ export default function RotaDetayEkrani() {
       clearInterval(zamanlayici);
     };
   }, [bacaklar]);
+
+  useEffect(() => {
+    for (const [anahtar, { otobus, kalan }] of Object.entries(binisOtobusleri)) {
+      const i = Number(anahtar);
+      if (!yaklasmaUyarisi[i] || uyarildi.current.has(i) || kalan > YAKLASMA_ESIGI || otobus.sinif === 'eski') continue;
+      uyarildi.current.add(i);
+      const b = bacaklar[i];
+      const hat = b?.route?.shortName ?? 'Otobüs';
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+      hemenBildir(
+        `${hat} ${kalanYaz(kalan)}`,
+        `${baslikYap(b?.from.name)} durağında ol: otobüs ${kalan === 0 ? 'durakta' : 'geliyor'}.`,
+      );
+    }
+  }, [binisOtobusleri, yaklasmaUyarisi, bacaklar]);
 
   /** Bacak açıldığında biniş durağının o hatta ait kalkışlarını bir kez çeker. */
   const seferleriYukle = useCallback(
@@ -458,6 +490,8 @@ export default function RotaDetayEkrani() {
                               otobus={binisOtobusleri[i].otobus}
                               binis={b.start.estimated?.time ?? b.start.scheduledTime}
                               renk={renkKodu}
+                              uyari={!!yaklasmaUyarisi[i]}
+                              uyariDegistir={() => uyariDegistir(i)}
                             />
                           )}
 
@@ -670,6 +704,9 @@ export default function RotaDetayEkrani() {
   );
 }
 
+/** Otobüs biniş durağına bu kadar durak kalınca haber verilir. */
+const YAKLASMA_ESIGI = 3;
+
 /**
  * Bineceğin otobüs: "Otobüs 2 durak uzakta · ~4 dk". Dakika biniş durağından
  * kalkışa kalan süre (canlı gecikmeyle düzeltilmiş); yürümeye ne zaman başlaman
@@ -680,11 +717,15 @@ function OtobusKutusu({
   otobus,
   binis,
   renk,
+  uyari,
+  uyariDegistir,
 }: {
   kalan: number;
   otobus: YerlesikArac;
   binis: string | null | undefined;
   renk: string;
+  uyari: boolean;
+  uyariDegistir: () => void;
 }) {
   const tema = useTema();
   const s = useStiller(stiller);
@@ -700,8 +741,22 @@ function OtobusKutusu({
           {`Otobüs ${kalanYaz(kalan)}`}
           {dk != null && dk > 0 ? ` · ~${dk} dk` : ''}
         </Text>
-        <Text style={s.otobusAlt}>{`Konum ${yasYaz(otobus.yasSn)} güncellendi`}</Text>
+        <Text style={s.otobusAlt}>
+          {uyari
+            ? `${YAKLASMA_ESIGI} durak kalınca haber verilecek · uygulama açık kalmalı`
+            : `Konum ${yasYaz(otobus.yasSn)} güncellendi`}
+        </Text>
       </View>
+      <Pressable
+        onPress={uyariDegistir}
+        hitSlop={8}
+        style={[s.otobusZil, uyari && { backgroundColor: renk }]}
+        accessibilityRole="switch"
+        accessibilityState={{ checked: uyari }}
+        accessibilityLabel={`Otobüs ${YAKLASMA_ESIGI} durak kalınca haber ver`}
+      >
+        <Ikon ad={uyari ? 'notifications' : 'notifications-outline'} boyut={17} renkKodu={uyari ? '#fff' : tema.soluk} />
+      </Pressable>
     </View>
   );
 }
@@ -828,6 +883,15 @@ const stiller = (t: Tema) =>
   otobusSimge: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   otobusBaslik: { fontSize: 14, fontWeight: '700', color: t.yazi },
   otobusAlt: { fontSize: 12, color: t.soluk, marginTop: 1 },
+  otobusZil: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: t.cizgi,
+  },
 
   bacakDugme: {
     flexDirection: 'row',
