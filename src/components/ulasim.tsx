@@ -3,11 +3,23 @@
 
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import {
+  AccessibilityInfo,
+  ActivityIndicator,
+  Animated,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type StyleProp,
+  type TextStyle,
+  type ViewStyle,
+} from 'react-native';
 
+import type { CanliBilgi, CanliSinif } from '@/lib/canli';
 import { tazelikYaz } from '@/lib/onbellek';
-import { kalkisGosterimi } from '@/lib/zaman';
+import { istanbulSaatiYaz, kalkisGosterimi } from '@/lib/zaman';
 import type { Bacak, Hat } from '@/lib/otp';
 import { aracSimgesi, hatEtiketi, hatRengi, metrobusMu, rozetRenkleri, useTema, type Tema } from '@/lib/tema';
 
@@ -178,20 +190,115 @@ export function CevrimdisiSerit({ zaman, tekrarDene }: { zaman: number; tekrarDe
   );
 }
 
+/** Canlı kalkışın rengi: zamanında, geç, çok geç, erken. */
+export function canliRenk(sinif: CanliSinif, tema: Tema): string {
+  if (sinif === 'gec') return tema.uyari;
+  if (sinif === 'cokGec') return tema.hata;
+  if (sinif === 'erken') return tema.konum;
+  return tema.vurgu;
+}
+
+/** Sistemde "hareketi azalt" açıksa animasyonları durdurmak için. */
+function useHareketAzalt(): boolean {
+  const [azalt, setAzalt] = useState(false);
+  useEffect(() => {
+    let acik = true;
+    AccessibilityInfo.isReduceMotionEnabled().then((d) => acik && setAzalt(d));
+    const abone = AccessibilityInfo.addEventListener('reduceMotionChanged', setAzalt);
+    return () => {
+      acik = false;
+      abone.remove();
+    };
+  }, []);
+  return azalt;
+}
+
+/**
+ * Canlı veriyi gösteren nabız noktası: dolu bir nokta ve etrafında yayılıp sönen
+ * bir halka. Sabit bir nokta "seçili" ya da "okunmamış" gibi okunabiliyor;
+ * atan halka "şu an geliyor" diyor.
+ */
+export function NabizNoktasi({ renk, boyut = 7 }: { renk: string; boyut?: number }) {
+  const azalt = useHareketAzalt();
+  const ilerleme = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (azalt) return;
+    const dongu = Animated.loop(Animated.timing(ilerleme, { toValue: 1, duration: 1800, useNativeDriver: true }));
+    dongu.start();
+    return () => dongu.stop();
+  }, [azalt, ilerleme]);
+  const halka = boyut * 2.2;
+  return (
+    <View style={{ width: halka, height: halka, alignItems: 'center', justifyContent: 'center' }}>
+      {!azalt && (
+        <Animated.View
+          style={{
+            position: 'absolute',
+            width: halka,
+            height: halka,
+            borderRadius: halka / 2,
+            borderWidth: 1.5,
+            borderColor: renk,
+            opacity: ilerleme.interpolate({ inputRange: [0, 1], outputRange: [0.7, 0] }),
+            transform: [{ scale: ilerleme.interpolate({ inputRange: [0, 1], outputRange: [0.45, 1] }) }],
+          }}
+        />
+      )}
+      <View style={{ width: boyut, height: boyut, borderRadius: boyut / 2, backgroundColor: renk }} />
+    </View>
+  );
+}
+
 /**
  * Bir kalkışın ne zaman olduğu: bir saatten yakınsa "7 dk", uzaksa "05:51".
+ *
+ * Canlıysa önünde nabız noktası durur ve rakam gecikmenin rengini alır.
  *
  * @param an kalkışın mutlak anı, Unix saniyesi (serviceDay + saniye). Dakika değil
  *           an alınıyor: saat yuvarlanmış dakikadan geri hesaplanırsa bir dakika kayıyor.
  */
-export function Dakika({ an, style }: { an: number; style?: StyleProp<ViewStyle> }) {
+export function Dakika({ an, canli, style }: { an: number; canli?: CanliBilgi | null; style?: StyleProp<ViewStyle> }) {
   const tema = useTema();
   const g = kalkisGosterimi(an);
-  const yakin = g.dakika <= 3;
+  const renk = canli ? canliRenk(canli.sinif, tema) : g.dakika <= 3 ? tema.vurgu : tema.yazi;
+  const etiket = canli ? `${g.seslendirme}, canlı, ${canli.metin}` : g.seslendirme;
   return (
-    <View style={[stil.dakika, style]} accessible accessibilityLabel={g.seslendirme}>
-      <Text style={[stil.dakikaSayi, { color: yakin ? tema.vurgu : tema.yazi }]}>{g.metin}</Text>
-      {g.birim && <Text style={[stil.dakikaBirim, { color: tema.soluk }]}>{g.birim}</Text>}
+    <View style={[stil.dakika, style]} accessible accessibilityLabel={etiket}>
+      {canli && <NabizNoktasi renk={renk} />}
+      <View style={stil.dakikaMetin}>
+        <Text style={[stil.dakikaSayi, { color: renk }]}>{g.metin}</Text>
+        {g.birim && <Text style={[stil.dakikaBirim, { color: tema.soluk }]}>{g.birim}</Text>}
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Canlı kalkışın açıklaması: "07:45 · 3 dk gecikmeli". `an` verilmezse yalnız
+ * gecikme yazılır (dar yerler için; saat zaten sağdaki dakikada).
+ */
+export function CanliAciklama({ canli, an, style }: { canli: CanliBilgi; an?: number; style?: StyleProp<TextStyle> }) {
+  const tema = useTema();
+  const metin = an != null ? `${istanbulSaatiYaz(an)} · ${canli.metin}` : canli.metin;
+  return (
+    <Text style={[stil.canliYazi, { color: canliRenk(canli.sinif, tema) }, style]} numberOfLines={1}>
+      {metin}
+    </Text>
+  );
+}
+
+/**
+ * Canlı verisi olmayan kalkış: "tarifeye göre". Aynı listede canlı kalkışlar
+ * varken hangisinin tahmin olduğunu açıkça söylemek için.
+ */
+export function TarifeEtiketi({ saat }: { saat?: string }) {
+  const tema = useTema();
+  return (
+    <View style={stil.tarifeEtiketi}>
+      <Ionicons name="time-outline" size={11} color={tema.soluk} />
+      <Text style={[stil.canliYazi, { color: tema.soluk }]} numberOfLines={1}>
+        {saat ? `tarifeye göre · ${saat}` : 'tarifeye göre'}
+      </Text>
     </View>
   );
 }
@@ -234,7 +341,10 @@ const stil = StyleSheet.create({
   durumYazi: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
   tekrarDugme: { borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
   tekrarYazi: { fontWeight: '700' },
-  dakika: { flexDirection: 'row', alignItems: 'baseline', gap: 2, minWidth: 44, justifyContent: 'flex-end' },
+  dakika: { flexDirection: 'row', alignItems: 'center', gap: 3, minWidth: 44, justifyContent: 'flex-end' },
+  dakikaMetin: { flexDirection: 'row', alignItems: 'baseline', gap: 2 },
+  canliYazi: { fontSize: 12, fontWeight: '600' },
+  tarifeEtiketi: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   dakikaSayi: { fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
   dakikaBirim: { fontSize: 11, fontWeight: '500' },
 });

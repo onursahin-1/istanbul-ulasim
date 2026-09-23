@@ -7,7 +7,8 @@ import MapView, { Marker, type LongPressEvent } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AltYaprak } from '@/components/alt-yaprak';
-import { Dakika, HataKutusu, HatRozeti, Ikon, useStiller, Yukleniyor } from '@/components/ulasim';
+import { CanliAciklama, Dakika, HataKutusu, HatRozeti, Ikon, TarifeEtiketi, useStiller, Yukleniyor } from '@/components/ulasim';
+import { kalkisCanli } from '@/lib/canli';
 import { useKayitlar, type YerTuru } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
 import { OtpHatasi, yakinDuraklariGetir, type YakinDurak } from '@/lib/otp';
@@ -181,17 +182,25 @@ export default function AnaEkran() {
                 <Text style={s.durakMesafe}>{mesafeYaz(mesafe)}</Text>
               </View>
               {durak.kalkislar.length === 0 && <Text style={s.seferYok}>Yakın zamanda sefer yok</Text>}
-              {durak.kalkislar.slice(0, 2).map((k, i) => (
-                <View key={i} style={s.sefer}>
-                  <View style={s.seferRozet}>
-                    <HatRozeti hat={k.trip?.route} />
+              {(() => {
+                const ilkIki = durak.kalkislar.slice(0, 2).map((k) => ({ k, canli: kalkisCanli(k) }));
+                // Aynı durakta canlı kalkış varsa canlı olmayanlar "tarifeye göre" diye ayrılıyor.
+                const canliVar = ilkIki.some((x) => x.canli);
+                return ilkIki.map(({ k, canli }, i) => (
+                  <View key={i} style={s.sefer}>
+                    <View style={s.seferRozet}>
+                      <HatRozeti hat={k.trip?.route} />
+                    </View>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={s.seferYon} numberOfLines={1}>
+                        {baslikYap(k.headsign)}
+                      </Text>
+                      {canli ? <CanliAciklama canli={canli} /> : canliVar ? <TarifeEtiketi /> : null}
+                    </View>
+                    <Dakika an={(k.serviceDay ?? 0) + (k.realtimeDeparture ?? k.scheduledDeparture ?? 0)} canli={canli} />
                   </View>
-                  <Text style={s.seferYon} numberOfLines={1}>
-                    {baslikYap(k.headsign)}
-                  </Text>
-                  <Dakika an={(k.serviceDay ?? 0) + (k.realtimeDeparture ?? k.scheduledDeparture ?? 0)} />
-                </View>
-              ))}
+                ));
+              })()}
             </Pressable>
           ))}
         </AltYaprak>

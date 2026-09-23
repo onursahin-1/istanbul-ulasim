@@ -5,7 +5,20 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { BacakZinciri, CevrimdisiSerit, GeriCubugu, HataKutusu, Ikon, SureSeridi, useStiller, Yukleniyor, type IkonAdi } from '@/components/ulasim';
+import {
+  BacakZinciri,
+  canliRenk,
+  CevrimdisiSerit,
+  GeriCubugu,
+  HataKutusu,
+  Ikon,
+  NabizNoktasi,
+  SureSeridi,
+  useStiller,
+  Yukleniyor,
+  type IkonAdi,
+} from '@/components/ulasim';
+import { bacakCanli } from '@/lib/canli';
 import { OtpHatasi, rotaPlanlaYedekli, type Guzergah, type Konum, type RotaTercihi } from '@/lib/otp';
 import { rotaSecenekleriKaydet, useKayitlar } from '@/lib/kayitlar';
 import { guzergahlariSakla } from '@/lib/secim';
@@ -290,13 +303,32 @@ export default function RotaEkrani() {
                 <Text style={s.altYazi}>{g.numberOfTransfers === 0 ? 'Aktarmasız' : `${g.numberOfTransfers} aktarma`}</Text>
                 {ucretler[sira] && <Text style={[s.altYazi, s.ucret]}>{ucretler[sira]}</Text>}
               </View>
-              {ilkArac && (
-                <Text style={s.ilkArac}>
-                  {`${hatYazisi(ilkArac)} · ${baslikYap(ilkArac.from.name)} durağından ${saatYaz(
-                    ilkArac.start.estimated?.time ?? ilkArac.start.scheduledTime,
-                  )}`}
-                </Text>
-              )}
+              {ilkArac &&
+                (() => {
+                  const canli = bacakCanli(ilkArac.start.scheduledTime, ilkArac.start.estimated?.time);
+                  const saat = saatYaz(ilkArac.start.estimated?.time ?? ilkArac.start.scheduledTime);
+                  const bas = `${hatYazisi(ilkArac)} · ${baslikYap(ilkArac.from.name)} durağından `;
+                  if (!canli) return <Text style={s.ilkArac}>{`${bas}${saat}`}</Text>;
+                  const renk = canliRenk(canli.sinif, tema);
+                  // İlk bacak canlıyken sonraki araçların hangisinin tahmin olduğunu söyle.
+                  const tarifeli = g.legs.filter((b) => b.transitLeg && b !== ilkArac && !b.start.estimated);
+                  return (
+                    <View style={s.canliBlok}>
+                      <View style={s.canliSatir}>
+                        <NabizNoktasi renk={renk} />
+                        <Text style={[s.ilkArac, s.esnek]} numberOfLines={2}>
+                          {bas}
+                          <Text style={{ color: renk, fontWeight: '700' }}>{`${saat} · ${canli.metin}`}</Text>
+                        </Text>
+                      </View>
+                      {tarifeli.length > 0 && (
+                        <Text style={s.tarifeNotu} numberOfLines={1}>
+                          {`${[...new Set(tarifeli.map((b) => hatEtiketi(b.route?.shortName, b.route?.mode ?? b.mode, b.route?.agency?.name).rozet))].join(', ')} aktarması tarifeye göre`}
+                        </Text>
+                      )}
+                    </View>
+                  );
+                })()}
               {sonrakiler.length > 0 && (
                 <View style={s.sonraki}>
                   <Text style={s.sonrakiBaslik}>{ilkArac ? 'AYNI ROTADA SONRAKİ KALKIŞLAR' : 'SONRAKİ SEÇENEKLER'}</Text>
@@ -523,6 +555,10 @@ const stiller = (t: Tema) =>
   kalin: { color: t.yazi, fontWeight: '700' },
   ucret: { color: t.vurgu, fontWeight: '700' },
   ilkArac: { fontSize: 12.5, color: t.vurgu, fontWeight: '600' },
+  canliBlok: { gap: 3 },
+  canliSatir: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: -3 },
+  esnek: { flex: 1, minWidth: 0 },
+  tarifeNotu: { fontSize: 11.5, color: t.soluk, paddingLeft: 16 },
   not: { fontSize: 12, color: t.soluk, textAlign: 'center', paddingTop: 6 },
   sonraki: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.cizgi, paddingTop: 10, gap: 7 },
   sonrakiBaslik: { fontSize: 11, letterSpacing: 0.6, color: t.soluk, fontWeight: '700' },

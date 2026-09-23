@@ -11,7 +11,8 @@ import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HatirlatmaSayfasi, type InisBilgisi } from '@/components/hatirlatma';
-import { GeriCubugu, HatRozeti, Ikon, useStiller, type IkonAdi } from '@/components/ulasim';
+import { canliRenk, GeriCubugu, HatRozeti, Ikon, useStiller, type IkonAdi } from '@/components/ulasim';
+import { bacakCanli } from '@/lib/canli';
 import { useHatirlaticilar } from '@/lib/bildirim';
 import { useKayitlar } from '@/lib/kayitlar';
 import { mesafeMetre, polylineCoz, type Nokta } from '@/lib/cografya';
@@ -324,10 +325,19 @@ export default function RotaDetayEkrani() {
             const aktarma = aktarmaSuresi(bacaklar, i);
             // Takip sırasında kullanıcının bulunduğu durağın listedeki sırası.
             const simdikiDurak = aktifBacak === i && takip ? liste.length - 1 - takip.kalanDurak : -1;
+            // Canlı veriyle güncellenmiş kalkışın tarifeden sapması (yalnız araç bacakları).
+            const canli = b.transitLeg ? bacakCanli(b.start.scheduledTime, b.start.estimated?.time) : null;
 
             return (
               <View key={i} style={[s.adim, aktifBacak === i && s.adimAktif]}>
-                <Text style={s.adimSaat}>{saatYaz(b.start.estimated?.time ?? b.start.scheduledTime)}</Text>
+                <View style={s.adimSaatSutun}>
+                  <Text style={s.adimSaat}>{saatYaz(b.start.estimated?.time ?? b.start.scheduledTime)}</Text>
+                  {canli && (
+                    <Text style={[s.adimSapma, { color: canliRenk(canli.sinif, tema) }]} numberOfLines={1}>
+                      {canli.dakika === 0 ? 'canlı' : canli.dakika > 0 ? `+${canli.dakika} dk` : `${canli.dakika} dk`}
+                    </Text>
+                  )}
+                </View>
                 <View style={s.cizgiSutun}>
                   <View style={[s.adimNokta, { borderColor: renkKodu }]} />
                   <View style={[s.adimCizgi, b.transitLeg ? { backgroundColor: renkKodu } : s.adimCizgiYuru]} />
@@ -668,7 +678,9 @@ const stiller = (t: Tema) =>
   ozetSaat: { fontSize: 14, fontWeight: '700', color: t.yazi, fontVariant: ['tabular-nums'] },
   adim: { flexDirection: 'row', gap: 8, borderRadius: 10 },
   adimAktif: { backgroundColor: t.vurguAcik },
-  adimSaat: { width: 42, fontSize: 12.5, fontWeight: '700', color: t.yazi, paddingTop: 1, fontVariant: ['tabular-nums'] },
+  adimSaatSutun: { width: 42, gap: 1 },
+  adimSapma: { fontSize: 10.5, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  adimSaat: { fontSize: 12.5, fontWeight: '700', color: t.yazi, paddingTop: 1, fontVariant: ['tabular-nums'] },
   cizgiSutun: { width: 16, alignItems: 'center' },
   adimNokta: { width: 14, height: 14, borderRadius: 7, borderWidth: 3, backgroundColor: t.yuzey, marginTop: 2, zIndex: 1 },
   varisNokta: { borderColor: t.yazi, backgroundColor: t.yazi, borderRadius: 3 },

@@ -6,12 +6,24 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'r
 import MapView, { Marker } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CevrimdisiSerit, Dakika, HataKutusu, HatRozeti, Ikon, useStiller, Yukleniyor } from '@/components/ulasim';
+import {
+  CanliAciklama,
+  CevrimdisiSerit,
+  Dakika,
+  HataKutusu,
+  HatRozeti,
+  Ikon,
+  NabizNoktasi,
+  TarifeEtiketi,
+  useStiller,
+  Yukleniyor,
+} from '@/components/ulasim';
+import { kalkisCanli } from '@/lib/canli';
 import { favoriDegistir, useKayitlar } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
 import { durakSaatleriYedekli, OtpHatasi, type DurakSaatleri } from '@/lib/otp';
 import { baslikYap, hatEtiketi, hatRengi, useTema, yonYaz, type Tema } from '@/lib/tema';
-import { kacDakikaSonra, kalkisGosterimi, saniyedenSaat } from '@/lib/zaman';
+import { istanbulSaatiYaz, kacDakikaSonra, kalkisGosterimi, saniyedenSaat } from '@/lib/zaman';
 
 const YENILEME_ARALIGI = 30_000;
 
@@ -66,7 +78,7 @@ export default function DurakEkrani() {
           .map((k) => ({
             saniye: k.realtimeDeparture ?? k.scheduledDeparture ?? 0,
             an: (k.serviceDay ?? 0) + (k.realtimeDeparture ?? k.scheduledDeparture ?? 0),
-            canli: !!k.realtime,
+            canli: kalkisCanli(k),
             dakika: kacDakikaSonra(k.serviceDay ?? 0, k.realtimeDeparture ?? k.scheduledDeparture ?? 0),
           }))
           .filter((k) => k.dakika >= 0)
@@ -84,6 +96,10 @@ export default function DurakEkrani() {
       .filter((x) => x.hat && x.kalkislar.length > 0);
     return liste.sort((a, b) => a.kalkislar[0].dakika - b.kalkislar[0].dakika);
   }, [durak]);
+
+  // Ekranda canlı kalkış varsa, canlı olmayanlar "tarifeye göre" diye ayrılıyor.
+  // Bütünüyle tarifeli bir durakta (metro, vapur) her satıra bunu yazmak gürültü olur.
+  const canliVar = yonler.some((y) => y.kalkislar[0].canli);
 
   const yolTarifi = () => {
     if (durak?.lat == null || durak.lon == null) return;
@@ -196,7 +212,14 @@ export default function DurakEkrani() {
                   style={s.sefer}
                   onPress={() => y.hat && router.push({ pathname: '/hat/[id]', params: { id: y.hat.gtfsId } })}
                   accessibilityRole="button"
-                  accessibilityLabel={`${y.hat?.shortName ?? ''} · ${y.yon} · ${kalkisGosterimi(y.kalkislar[0].an).seslendirme}`}
+                  accessibilityLabel={[
+                    y.hat?.shortName ?? '',
+                    y.yon,
+                    kalkisGosterimi(y.kalkislar[0].an).seslendirme,
+                    y.kalkislar[0].canli ? `canlı, ${y.kalkislar[0].canli.metin}` : canliVar ? 'tarifeye göre' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
                 >
                   <View style={{ width: 62 }}>
                     <HatRozeti hat={y.hat} />
@@ -210,22 +233,46 @@ export default function DurakEkrani() {
                         {y.guzergah}
                       </Text>
                     )}
-                    <Text style={s.seferSaat}>
-                      {y.kalkislar.slice(0, 3).map((k) => saniyedenSaat(k.saniye)).join('  ·  ')}
-                    </Text>
+                    {y.kalkislar[0].canli ? (
+                      <CanliAciklama canli={y.kalkislar[0].canli} an={y.kalkislar[0].an} />
+                    ) : canliVar ? (
+                      <TarifeEtiketi saat={istanbulSaatiYaz(y.kalkislar[0].an)} />
+                    ) : null}
+                    {y.kalkislar[0].canli || canliVar ? (
+                      // İlk kalkışın saati üstteki satırda; burada yalnız sonrakiler.
+                      y.kalkislar.length > 1 && (
+                        <Text style={s.seferSaat}>
+                          sonra {y.kalkislar.slice(1, 3).map((k) => saniyedenSaat(k.saniye)).join(' · ')}
+                        </Text>
+                      )
+                    ) : (
+                      <Text style={s.seferSaat}>
+                        {y.kalkislar.slice(0, 3).map((k) => saniyedenSaat(k.saniye)).join('  ·  ')}
+                      </Text>
+                    )}
                   </View>
-                  <Dakika an={y.kalkislar[0].an} />
+                  <Dakika an={y.kalkislar[0].an} canli={y.kalkislar[0].canli} />
                 </Pressable>
               ))}
             </View>
 
-            <View style={s.tarife}>
-              <View style={s.tarifeNokta} />
-              <Text style={s.tarifeYazi}>
-                Süreler tarifeye göredir; metro, Marmaray ve vapur saatleri İBB'nin eski verisinden geldiği için
-                yaklaşıktır. Canlı araç konumu eklendiğinde güncellenecek.
-              </Text>
-            </View>
+            {canliVar ? (
+              <View style={s.tarife}>
+                <NabizNoktasi renk={tema.vurgu} boyut={6} />
+                <Text style={s.tarifeYazi}>
+                  Canlı saatler İETT araç konumundan geliyor, 2 dakikada bir tazeleniyor. Metro, Marmaray, vapur ve
+                  henüz öğrenilmemiş hatlar tarifeye göre.
+                </Text>
+              </View>
+            ) : (
+              <View style={s.tarife}>
+                <View style={s.tarifeNokta} />
+                <Text style={s.tarifeYazi}>
+                  Süreler tarifeye göre. Metro, Marmaray ve vapur saatleri İBB'nin eski verisinden geldiği için
+                  yaklaşık.
+                </Text>
+              </View>
+            )}
           </>
         )}
       </ScrollView>
