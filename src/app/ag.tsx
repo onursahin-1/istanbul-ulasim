@@ -10,10 +10,11 @@
 
 import { router } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import MapView, { Marker, Polyline, type MapPressEvent, type Region } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AltYaprak } from '@/components/alt-yaprak';
 import { GeriCubugu, HatRozeti, Ikon, useStiller } from '@/components/ulasim';
 import { agCizgisi, agSiniri, AG_HATLARI, AG_SUZGECLERI, suzgeceUyar, type AgHatti } from '@/lib/ag';
 import { enYakinCizgi, metrePiksel } from '@/lib/cografya';
@@ -46,6 +47,10 @@ export default function AgEkrani() {
   const [suzgec, setSuzgec] = useState('tumu');
   const [secili, setSecili] = useState<AgHatti | null>(null);
   const [gidiliyor, setGidiliyor] = useState(false);
+  // Seçili hattın istasyon yaprağı ana ekrandaki gibi sürüklenebilir.
+  const [ekranBoyu, setEkranBoyu] = useState(0);
+  const [ustBoyu, setUstBoyu] = useState(110);
+  const [yaprakBoyu, setYaprakBoyu] = useState(300);
 
   const gorunen = useMemo(() => {
     const s = AG_SUZGECLERI.find((x) => x.anahtar === suzgec) ?? AG_SUZGECLERI[0];
@@ -119,7 +124,7 @@ export default function AgEkrani() {
   );
 
   return (
-    <View style={s.kok}>
+    <View style={s.kok} onLayout={(e) => setEkranBoyu(e.nativeEvent.layout.height)}>
       <MapView
         ref={harita}
         style={StyleSheet.absoluteFill}
@@ -131,7 +136,7 @@ export default function AgEkrani() {
         onRegionChangeComplete={(b) => {
           gorunenBolge.current = b;
         }}
-        mapPadding={{ top: 110, right: 0, bottom: secili ? 300 : 20, left: 0 }}
+        mapPadding={{ top: ustBoyu, right: 0, bottom: secili ? yaprakBoyu : 20, left: 0 }}
       >
         {gorunen.map((h) => {
           const seciliMi = secili?.id === h.id;
@@ -157,7 +162,10 @@ export default function AgEkrani() {
         ))}
       </MapView>
 
-      <View style={[s.ust, { paddingTop: kenar.top }]}>
+      <View
+        style={[s.ust, { paddingTop: kenar.top }]}
+        onLayout={(e) => setUstBoyu(e.nativeEvent.layout.height)}
+      >
         <GeriCubugu baslik="Ağ haritası" />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.suzgecler}>
           {AG_SUZGECLERI.map((x) => {
@@ -186,31 +194,37 @@ export default function AgEkrani() {
         </View>
       )}
 
-      {secili && (
-        <View style={[s.yaprak, { paddingBottom: kenar.bottom }]}>
-          <View style={s.tut} />
-          <View style={s.yaprakBas}>
-            <HatRozeti hat={{ shortName: secili.kod, color: secili.renk, mode: aracModu(secili.tur) }} />
-            <Pressable style={s.yaprakAd} onPress={() => hattaGit(secili)} accessibilityRole="button">
-              <Text style={s.yaprakBaslik} numberOfLines={1}>
-                {baslikYap(secili.ad)}
-              </Text>
-              <Text style={s.yaprakAlt}>{secili.duraklar.length} istasyon · sefer saatleri için dokun</Text>
-            </Pressable>
-            {gidiliyor ? (
-              <ActivityIndicator color={tema.vurgu} />
-            ) : (
-              <Pressable onPress={() => setSecili(null)} hitSlop={10} accessibilityLabel="Kapat">
-                <Ikon ad="close" boyut={20} renkKodu={tema.soluk} />
+      {secili && ekranBoyu > 0 && (
+        <AltYaprak
+          key={secili.id}
+          kapsayiciYukseklik={ekranBoyu}
+          ustPay={ustBoyu + 8}
+          kapaliYukseklik={84}
+          ortaOran={0.45}
+          onDurum={(_, boy) => setYaprakBoyu(boy)}
+          erisilebilirlikEtiketi="İstasyon listesini aç ya da kapat"
+          baslik={
+            <View style={s.yaprakBas}>
+              <HatRozeti hat={{ shortName: secili.kod, color: secili.renk, mode: aracModu(secili.tur) }} />
+              <Pressable style={s.yaprakAd} onPress={() => hattaGit(secili)} accessibilityRole="button">
+                <Text style={s.yaprakBaslik} numberOfLines={1}>
+                  {baslikYap(secili.ad)}
+                </Text>
+                <Text style={s.yaprakAlt}>{secili.duraklar.length} istasyon · sefer saatleri için dokun</Text>
               </Pressable>
-            )}
-          </View>
-          <FlatList
-            data={secili.duraklar}
-            keyExtractor={(i, n) => `${i.id}-${n}`}
-            style={s.liste}
-            renderItem={({ item, index }) => (
-              <Pressable style={s.istSatir} onPress={() => duragaGit(item.ad, item.lat, item.lon)}>
+              {gidiliyor ? (
+                <ActivityIndicator color={tema.vurgu} />
+              ) : (
+                <Pressable onPress={() => setSecili(null)} hitSlop={10} accessibilityLabel="Kapat">
+                  <Ikon ad="close" boyut={20} renkKodu={tema.soluk} />
+                </Pressable>
+              )}
+            </View>
+          }
+        >
+          <View style={{ paddingBottom: kenar.bottom }}>
+            {secili.duraklar.map((item, index) => (
+              <Pressable key={`${item.id}-${index}`} style={s.istSatir} onPress={() => duragaGit(item.ad, item.lat, item.lon)}>
                 <View style={s.izKutu}>
                   <View style={[s.iz, { backgroundColor: renk(secili) }]} />
                   <View
@@ -225,9 +239,9 @@ export default function AgEkrani() {
                   {baslikYap(item.ad)}
                 </Text>
               </Pressable>
-            )}
-          />
-        </View>
+            ))}
+          </View>
+        </AltYaprak>
       )}
     </View>
   );
@@ -260,32 +274,17 @@ const stiller = (t: Tema) =>
       paddingHorizontal: 12,
     },
     ipucuYazi: { flex: 1, fontSize: 12.5, color: t.soluk },
-    yaprak: {
-      position: 'absolute',
-      left: 0,
-      right: 0,
-      bottom: 0,
-      maxHeight: '58%',
-      backgroundColor: t.yuzey,
-      borderTopLeftRadius: 18,
-      borderTopRightRadius: 18,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: t.cizgi,
-    },
-    tut: { width: 34, height: 4, borderRadius: 2, backgroundColor: t.cizgi, alignSelf: 'center', marginTop: 8 },
     yaprakBas: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 10,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
+      paddingBottom: 10,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: t.cizgi,
     },
     yaprakAd: { flex: 1, minWidth: 0 },
     yaprakBaslik: { fontSize: 15, fontWeight: '600', color: t.yazi },
     yaprakAlt: { fontSize: 12, color: t.soluk, marginTop: 1 },
-    liste: { paddingHorizontal: 14 },
     istSatir: { flexDirection: 'row', alignItems: 'center', gap: 10, height: 38 },
     izKutu: { width: 14, alignItems: 'center', alignSelf: 'stretch', justifyContent: 'center' },
     iz: { position: 'absolute', top: 0, bottom: 0, width: 3, borderRadius: 2 },

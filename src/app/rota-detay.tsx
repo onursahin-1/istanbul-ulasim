@@ -6,10 +6,11 @@ import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AltYaprak } from '@/components/alt-yaprak';
 import { HatirlatmaSayfasi, type InisBilgisi } from '@/components/hatirlatma';
 import { canliRenk, GeriCubugu, HatRozeti, Ikon, useStiller, type IkonAdi } from '@/components/ulasim';
 import { bacakCanli } from '@/lib/canli';
@@ -104,7 +105,11 @@ export default function RotaDetayEkrani() {
     [bacaklar],
   );
 
-  const haritaYuksekligi = Math.round(height * 0.42);
+  // Alt yaprak: harita tüm ekranı kaplıyor, yaprak üstünde sürükleniyor (ana ekrandaki gibi).
+  // Yaprağın alanı alttaki "Yolculuğu başlat" çubuğunun üstünde bitiyor.
+  const [yaprakAlani, setYaprakAlani] = useState(0);
+  const [altCubuk, setAltCubuk] = useState(0);
+  const [yaprakBoyu, setYaprakBoyu] = useState(Math.round(height * 0.5));
 
   /** Bacak açıldığında biniş durağının o hatta ait kalkışlarını bir kez çeker. */
   const seferleriYukle = useCallback(
@@ -224,11 +229,24 @@ export default function RotaDetayEkrani() {
     }, 1500);
   };
 
+  // Harita, yaprağın ilk yerleşiminden sonra bir kez daha sığdırılıyor: ilk sığdırmada
+  // yaprağın boyu henüz ölçülmemiş oluyor. Sonra kullanıcı haritayı kendisi kaydırır.
+  const haritaHazir = useRef(false);
+  const sonSigdirma = useRef(false);
+  useEffect(() => {
+    if (!haritaHazir.current || sonSigdirma.current || !yaprakAlani || !altCubuk) return;
+    sonSigdirma.current = true;
+    haritayiSigdir();
+    // haritayiSigdir her çizimde yeniden kuruluyor; ölçüler yeter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [yaprakAlani, altCubuk, yaprakBoyu]);
+
   const haritayiSigdir = () => {
+    haritaHazir.current = true;
     const tum = cizgiler.flat();
     if (tum.length < 2) return;
     harita.current?.fitToCoordinates(tum, {
-      edgePadding: { top: kenar.top + 70, right: 40, bottom: 40, left: 40 },
+      edgePadding: { top: kenar.top + 70, right: 40, bottom: yaprakBoyu + altCubuk + 30, left: 40 },
       animated: false,
     });
   };
@@ -249,7 +267,7 @@ export default function RotaDetayEkrani() {
     <View style={s.kok}>
       <MapView
         ref={harita}
-        style={{ height: haritaYuksekligi }}
+        style={StyleSheet.absoluteFill}
         userInterfaceStyle={tema.haritaStili}
         onMapReady={haritayiSigdir}
         showsUserLocation={takipAcik}
@@ -302,260 +320,278 @@ export default function RotaDetayEkrani() {
         </View>
       )}
 
-      <View style={s.panel}>
-        <View style={s.tutamac} />
-        <View style={s.ozet}>
-          <View>
-            <Text style={s.sure}>{sureYaz(guzergah.duration)}</Text>
-            <Text style={s.ozetAlt}>
-              {guzergah.numberOfTransfers === 0 ? 'Aktarmasız' : `${guzergah.numberOfTransfers} aktarma`} · {sureYaz(guzergah.walkTime)} yürüme
-            </Text>
-          </View>
-          <Text style={s.ozetSaat}>{`${saatYaz(guzergah.start)}–${saatYaz(guzergah.end)}`}</Text>
-        </View>
-
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingVertical: 10 }}>
-          {bacaklar.map((b, i) => {
-            const renkKodu = b.transitLeg ? hatRengi(b.route, tema) : tema.yurume;
-            const liste = duraklar[i];
-            const durakSayisi = Math.max(liste.length - 1, 1);
-            const sonYuruyus = !b.transitLeg && i === bacaklar.length - 1;
-            const acik = !!acikBacaklar[i];
-            const sefer = seferler[i];
-            const aktarma = aktarmaSuresi(bacaklar, i);
-            // Takip sırasında kullanıcının bulunduğu durağın listedeki sırası.
-            const simdikiDurak = aktifBacak === i && takip ? liste.length - 1 - takip.kalanDurak : -1;
-            // Canlı veriyle güncellenmiş kalkışın tarifeden sapması (yalnız araç bacakları).
-            const canli = b.transitLeg ? bacakCanli(b.start.scheduledTime, b.start.estimated?.time) : null;
-
-            return (
-              <View key={i} style={[s.adim, aktifBacak === i && s.adimAktif]}>
-                <View style={s.adimSaatSutun}>
-                  <Text style={s.adimSaat}>{saatYaz(b.start.estimated?.time ?? b.start.scheduledTime)}</Text>
-                  {canli && (
-                    <Text style={[s.adimSapma, { color: canliRenk(canli.sinif, tema) }]} numberOfLines={1}>
-                      {canli.dakika === 0 ? 'canlı' : canli.dakika > 0 ? `+${canli.dakika} dk` : `${canli.dakika} dk`}
-                    </Text>
-                  )}
+      <View
+        style={{ flex: 1 }}
+        pointerEvents="box-none"
+        onLayout={(e) => setYaprakAlani(e.nativeEvent.layout.height)}
+      >
+        {yaprakAlani > 0 && (
+          <AltYaprak
+            kapsayiciYukseklik={yaprakAlani}
+            ustPay={kenar.top + 60}
+            kapaliYukseklik={92}
+            ortaOran={0.62}
+            onDurum={(_, boy) => setYaprakBoyu(boy)}
+            erisilebilirlikEtiketi="Yolculuk adımlarını aç ya da kapat"
+            baslik={
+              <View style={s.ozet}>
+                <View>
+                  <Text style={s.sure}>{sureYaz(guzergah.duration)}</Text>
+                  <Text style={s.ozetAlt}>
+                    {guzergah.numberOfTransfers === 0 ? 'Aktarmasız' : `${guzergah.numberOfTransfers} aktarma`} · {sureYaz(guzergah.walkTime)} yürüme
+                  </Text>
                 </View>
-                <View style={s.cizgiSutun}>
-                  <View style={[s.adimNokta, { borderColor: renkKodu }]} />
-                  <View style={[s.adimCizgi, b.transitLeg ? { backgroundColor: renkKodu } : s.adimCizgiYuru]} />
-                </View>
-                <View style={s.adimIcerik}>
-                  {b.transitLeg ? (
-                    <>
-                      <Text style={s.adimBaslik}>{baslikYap(b.from.name)}</Text>
-
-                      <Pressable
-                        onPress={() => bacagiAcKapa(i)}
-                        accessibilityRole="button"
-                        accessibilityState={{ expanded: acik }}
-                        accessibilityLabel={`${b.route?.shortName ?? ''} hattı, ${durakSayisi} durak. ${acik ? 'Durakları gizle' : 'Durakları göster'}`}
-                        style={[s.bacakDugme, acik && { borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottomWidth: 0 }]}
-                      >
-                        <HatRozeti hat={b.route} kucuk />
-                        <Text style={s.adimAlt} numberOfLines={1}>
-                          {[
-                            b.headsign ? `${baslikYap(b.headsign)} yönü` : aracAdi(b.route?.mode ?? b.mode),
-                            `${durakSayisi} durak`,
-                            sureYaz(b.duration),
-                          ]
-                            .filter(Boolean)
-                            .join(' · ')}
-                        </Text>
-                        <Ikon ad={acik ? 'chevron-up' : 'chevron-down'} boyut={15} renkKodu={acik ? renkKodu : tema.soluk} />
-                      </Pressable>
-
-                      {acik && (
-                        <View style={s.durakPaneli}>
-                          {sefer?.aralikDk != null && (
-                            <View style={s.siklik}>
-                              <Ikon ad="time-outline" boyut={13} renkKodu={renkKodu} />
-                              <Text style={[s.siklikYazi, { color: renkKodu }]}>{sikliktanYazi(sefer)}</Text>
-                            </View>
-                          )}
-                          {liste.map((d, j) => {
-                            const ilk = j === 0;
-                            const son = j === liste.length - 1;
-                            const burada = j === simdikiDurak;
-                            const saat = ilk
-                              ? saatYaz(b.start.estimated?.time ?? b.start.scheduledTime)
-                              : son
-                                ? saatYaz(b.end.estimated?.time ?? b.end.scheduledTime)
-                                : '';
-                            return (
-                              <View key={d.gtfsId} style={s.durakSatiri}>
-                                <View style={s.durakCizgi}>
-                                  <View
-                                    style={[
-                                      s.durakCizgiUst,
-                                      { backgroundColor: renkKodu },
-                                      ilk && { backgroundColor: 'transparent' },
-                                    ]}
-                                  />
-                                  <View
-                                    style={[
-                                      s.durakCizgiAlt,
-                                      { backgroundColor: renkKodu },
-                                      son && { backgroundColor: 'transparent' },
-                                    ]}
-                                  />
-                                  {burada ? (
-                                    <View style={[s.durakNoktaBurada, { backgroundColor: tema.vurgu, borderColor: tema.yuzey }]} />
-                                  ) : ilk || son ? (
-                                    <View style={[s.durakNoktaUc, { borderColor: renkKodu, backgroundColor: son ? renkKodu : tema.yuzey }]} />
-                                  ) : (
-                                    <View style={[s.durakNokta, { borderColor: renkKodu, backgroundColor: tema.yuzey }]} />
-                                  )}
-                                </View>
-                                <Text style={[s.durakAd, (ilk || son || burada) && s.durakAdKalin]} numberOfLines={1}>
-                                  {baslikYap(d.ad)}
-                                </Text>
-                                {burada ? (
-                                  <Text style={[s.durakBurada, { color: tema.vurgu }]}>şu an buradasın</Text>
-                                ) : (
-                                  <Text style={s.durakSaat}>{saat}</Text>
-                                )}
-                              </View>
-                            );
-                          })}
-                          {sefer && (sefer.sonSefer || sefer.sonrakiSaniye != null) && (
-                            <View style={[s.sonSefer, sefer.sonSefer && { backgroundColor: tema.uyariAcik }]}>
-                              <Ikon
-                                ad={sefer.sonSefer ? 'warning-outline' : 'repeat-outline'}
-                                boyut={13}
-                                renkKodu={sefer.sonSefer ? tema.uyari : tema.soluk}
-                              />
-                              <Text style={[s.sonSeferYazi, sefer.sonSefer && { color: tema.uyari, fontWeight: '700' }]}>
-                                {sefer.sonSefer
-                                  ? 'Bu, elimizdeki tarifedeki son sefer'
-                                  : `Sonraki sefer ${saniyedenSaat(sefer.sonrakiSaniye ?? 0)}`}
-                              </Text>
-                            </View>
-                          )}
-                        </View>
-                      )}
-
-                      {!!hatEtiketi(b.route?.shortName, b.route?.mode ?? b.mode, b.route?.agency?.name).ayrinti && (
-                        <Text style={s.hatGuzergah} numberOfLines={2}>
-                          {hatEtiketi(b.route?.shortName, b.route?.mode ?? b.mode, b.route?.agency?.name).ayrinti}
-                        </Text>
-                      )}
-                      <Text style={s.adimAlt}>{baslikYap(b.to.name)} durağında in</Text>
-                      {aktifBacak === i && takip && (
-                        <Text style={s.adimCanli}>
-                          {takip.kalanDurak === 0 ? 'Bu durakta in' : `İneceğin durağa ${takip.kalanDurak} durak kaldı`}
-                        </Text>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <Text style={s.adimBaslik}>
-                        {sonYuruyus ? 'Varış noktasına yürü' : `${baslikYap(b.to.name)} durağına yürü`}
-                      </Text>
-                      {yolTarifleri[i].length > 0 ? (
-                        <Pressable
-                          onPress={() => bacagiAcKapa(i)}
-                          accessibilityRole="button"
-                          accessibilityState={{ expanded: acik }}
-                          accessibilityLabel={`${sureYaz(b.duration)} yürüyüş, ${yolTarifleri[i].length} adım. ${
-                            acik ? 'Yol tarifini gizle' : 'Yol tarifini göster'
-                          }`}
-                          style={s.yuruDugme}
-                        >
-                          <Text style={s.adimAlt}>{`${sureYaz(b.duration)} · ${mesafeYaz(b.distance)}`}</Text>
-                          <Ikon ad={acik ? 'chevron-up' : 'chevron-down'} boyut={14} renkKodu={tema.soluk} />
-                        </Pressable>
-                      ) : (
-                        <Text style={s.adimAlt}>{`${sureYaz(b.duration)} · ${mesafeYaz(b.distance)}`}</Text>
-                      )}
-                      {acik && (
-                        <View style={s.yolTarifi}>
-                          {yolTarifleri[i].map((adim, j) => (
-                            <View key={j} style={s.tarifSatiri}>
-                              <Ikon ad={DONUS_SIMGELERI[adim.donus]} boyut={14} renkKodu={tema.soluk} />
-                              <Text style={s.tarifMetin}>{adim.metin}</Text>
-                              {!!adim.mesafe && <Text style={s.tarifMesafe}>{adim.mesafe}</Text>}
-                            </View>
-                          ))}
-                        </View>
-                      )}
-                      {aktarma != null && (
-                        <View style={[s.aktarma, aktarma.sikisik && { borderLeftColor: tema.uyari, backgroundColor: tema.uyariAcik }]}>
-                          <Text style={[s.aktarmaBaslik, aktarma.sikisik && { color: tema.uyari }]}>
-                            {aktarma.sikisik
-                              ? `Aktarma sıkışık: ${aktarma.dakika} dakikan var`
-                              : `Aktarma için ${aktarma.dakika} dakikan var`}
-                          </Text>
-                          <Text style={s.aktarmaAlt}>{`${sureYaz(b.duration)} yürüyüş bu sürenin içinde`}</Text>
-                        </View>
-                      )}
-                    </>
-                  )}
-                </View>
+                <Text style={s.ozetSaat}>{`${saatYaz(guzergah.start)}–${saatYaz(guzergah.end)}`}</Text>
               </View>
-            );
-          })}
-          <View style={s.adim}>
-            <Text style={s.adimSaat}>{saatYaz(guzergah.end)}</Text>
-            <View style={s.cizgiSutun}>
-              <View style={[s.adimNokta, s.varisNokta]} />
-            </View>
-            <View style={s.adimIcerik}>
-              <Text style={s.adimBaslik}>Varış{hedef ? ` · ${baslikYap(hedef)}` : ''}</Text>
-            </View>
-          </View>
-
-          {ucret.toplam > 0 && (
-            <View style={s.ucretKutusu}>
-              <View style={s.ucretUst}>
-                <Text style={s.ucretBaslik}>İstanbulkart ücreti</Text>
-                <Text style={s.ucretToplam}>{ucretKisa(ucret)}</Text>
-              </View>
+            }
+          >
+            <View style={{ paddingVertical: 10 }}>
               {bacaklar.map((b, i) => {
-                const u = ucret.bacaklar[i];
-                if (!u) return null;
+                const renkKodu = b.transitLeg ? hatRengi(b.route, tema) : tema.yurume;
+                const liste = duraklar[i];
+                const durakSayisi = Math.max(liste.length - 1, 1);
+                const sonYuruyus = !b.transitLeg && i === bacaklar.length - 1;
+                const acik = !!acikBacaklar[i];
+                const sefer = seferler[i];
+                const aktarma = aktarmaSuresi(bacaklar, i);
+                // Takip sırasında kullanıcının bulunduğu durağın listedeki sırası.
+                const simdikiDurak = aktifBacak === i && takip ? liste.length - 1 - takip.kalanDurak : -1;
+                // Canlı veriyle güncellenmiş kalkışın tarifeden sapması (yalnız araç bacakları).
+                const canli = b.transitLeg ? bacakCanli(b.start.scheduledTime, b.start.estimated?.time) : null;
+
                 return (
-                  <View key={`ucret-${i}`} style={s.ucretSatiri}>
-                    <HatRozeti hat={b.route} kucuk />
-                    <Text style={s.ucretAciklama} numberOfLines={1}>
-                      {u.aciklama}
-                    </Text>
-                    <Text style={s.ucretTutar}>{ucretYaz(u.tutar)}</Text>
+                  <View key={i} style={[s.adim, aktifBacak === i && s.adimAktif]}>
+                    <View style={s.adimSaatSutun}>
+                      <Text style={s.adimSaat}>{saatYaz(b.start.estimated?.time ?? b.start.scheduledTime)}</Text>
+                      {canli && (
+                        <Text style={[s.adimSapma, { color: canliRenk(canli.sinif, tema) }]} numberOfLines={1}>
+                          {canli.dakika === 0 ? 'canlı' : canli.dakika > 0 ? `+${canli.dakika} dk` : `${canli.dakika} dk`}
+                        </Text>
+                      )}
+                    </View>
+                    <View style={s.cizgiSutun}>
+                      <View style={[s.adimNokta, { borderColor: renkKodu }]} />
+                      <View style={[s.adimCizgi, b.transitLeg ? { backgroundColor: renkKodu } : s.adimCizgiYuru]} />
+                    </View>
+                    <View style={s.adimIcerik}>
+                      {b.transitLeg ? (
+                        <>
+                          <Text style={s.adimBaslik}>{baslikYap(b.from.name)}</Text>
+
+                          <Pressable
+                            onPress={() => bacagiAcKapa(i)}
+                            accessibilityRole="button"
+                            accessibilityState={{ expanded: acik }}
+                            accessibilityLabel={`${b.route?.shortName ?? ''} hattı, ${durakSayisi} durak. ${acik ? 'Durakları gizle' : 'Durakları göster'}`}
+                            style={[s.bacakDugme, acik && { borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottomWidth: 0 }]}
+                          >
+                            <HatRozeti hat={b.route} kucuk />
+                            <Text style={s.adimAlt} numberOfLines={1}>
+                              {[
+                                b.headsign ? `${baslikYap(b.headsign)} yönü` : aracAdi(b.route?.mode ?? b.mode),
+                                `${durakSayisi} durak`,
+                                sureYaz(b.duration),
+                              ]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </Text>
+                            <Ikon ad={acik ? 'chevron-up' : 'chevron-down'} boyut={15} renkKodu={acik ? renkKodu : tema.soluk} />
+                          </Pressable>
+
+                          {acik && (
+                            <View style={s.durakPaneli}>
+                              {sefer?.aralikDk != null && (
+                                <View style={s.siklik}>
+                                  <Ikon ad="time-outline" boyut={13} renkKodu={renkKodu} />
+                                  <Text style={[s.siklikYazi, { color: renkKodu }]}>{sikliktanYazi(sefer)}</Text>
+                                </View>
+                              )}
+                              {liste.map((d, j) => {
+                                const ilk = j === 0;
+                                const son = j === liste.length - 1;
+                                const burada = j === simdikiDurak;
+                                const saat = ilk
+                                  ? saatYaz(b.start.estimated?.time ?? b.start.scheduledTime)
+                                  : son
+                                    ? saatYaz(b.end.estimated?.time ?? b.end.scheduledTime)
+                                    : '';
+                                return (
+                                  <View key={d.gtfsId} style={s.durakSatiri}>
+                                    <View style={s.durakCizgi}>
+                                      <View
+                                        style={[
+                                          s.durakCizgiUst,
+                                          { backgroundColor: renkKodu },
+                                          ilk && { backgroundColor: 'transparent' },
+                                        ]}
+                                      />
+                                      <View
+                                        style={[
+                                          s.durakCizgiAlt,
+                                          { backgroundColor: renkKodu },
+                                          son && { backgroundColor: 'transparent' },
+                                        ]}
+                                      />
+                                      {burada ? (
+                                        <View style={[s.durakNoktaBurada, { backgroundColor: tema.vurgu, borderColor: tema.yuzey }]} />
+                                      ) : ilk || son ? (
+                                        <View style={[s.durakNoktaUc, { borderColor: renkKodu, backgroundColor: son ? renkKodu : tema.yuzey }]} />
+                                      ) : (
+                                        <View style={[s.durakNokta, { borderColor: renkKodu, backgroundColor: tema.yuzey }]} />
+                                      )}
+                                    </View>
+                                    <Text style={[s.durakAd, (ilk || son || burada) && s.durakAdKalin]} numberOfLines={1}>
+                                      {baslikYap(d.ad)}
+                                    </Text>
+                                    {burada ? (
+                                      <Text style={[s.durakBurada, { color: tema.vurgu }]}>şu an buradasın</Text>
+                                    ) : (
+                                      <Text style={s.durakSaat}>{saat}</Text>
+                                    )}
+                                  </View>
+                                );
+                              })}
+                              {sefer && (sefer.sonSefer || sefer.sonrakiSaniye != null) && (
+                                <View style={[s.sonSefer, sefer.sonSefer && { backgroundColor: tema.uyariAcik }]}>
+                                  <Ikon
+                                    ad={sefer.sonSefer ? 'warning-outline' : 'repeat-outline'}
+                                    boyut={13}
+                                    renkKodu={sefer.sonSefer ? tema.uyari : tema.soluk}
+                                  />
+                                  <Text style={[s.sonSeferYazi, sefer.sonSefer && { color: tema.uyari, fontWeight: '700' }]}>
+                                    {sefer.sonSefer
+                                      ? 'Bu, elimizdeki tarifedeki son sefer'
+                                      : `Sonraki sefer ${saniyedenSaat(sefer.sonrakiSaniye ?? 0)}`}
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+                          )}
+
+                          {!!hatEtiketi(b.route?.shortName, b.route?.mode ?? b.mode, b.route?.agency?.name).ayrinti && (
+                            <Text style={s.hatGuzergah} numberOfLines={2}>
+                              {hatEtiketi(b.route?.shortName, b.route?.mode ?? b.mode, b.route?.agency?.name).ayrinti}
+                            </Text>
+                          )}
+                          <Text style={s.adimAlt}>{baslikYap(b.to.name)} durağında in</Text>
+                          {aktifBacak === i && takip && (
+                            <Text style={s.adimCanli}>
+                              {takip.kalanDurak === 0 ? 'Bu durakta in' : `İneceğin durağa ${takip.kalanDurak} durak kaldı`}
+                            </Text>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <Text style={s.adimBaslik}>
+                            {sonYuruyus ? 'Varış noktasına yürü' : `${baslikYap(b.to.name)} durağına yürü`}
+                          </Text>
+                          {yolTarifleri[i].length > 0 ? (
+                            <Pressable
+                              onPress={() => bacagiAcKapa(i)}
+                              accessibilityRole="button"
+                              accessibilityState={{ expanded: acik }}
+                              accessibilityLabel={`${sureYaz(b.duration)} yürüyüş, ${yolTarifleri[i].length} adım. ${
+                                acik ? 'Yol tarifini gizle' : 'Yol tarifini göster'
+                              }`}
+                              style={s.yuruDugme}
+                            >
+                              <Text style={s.adimAlt}>{`${sureYaz(b.duration)} · ${mesafeYaz(b.distance)}`}</Text>
+                              <Ikon ad={acik ? 'chevron-up' : 'chevron-down'} boyut={14} renkKodu={tema.soluk} />
+                            </Pressable>
+                          ) : (
+                            <Text style={s.adimAlt}>{`${sureYaz(b.duration)} · ${mesafeYaz(b.distance)}`}</Text>
+                          )}
+                          {acik && (
+                            <View style={s.yolTarifi}>
+                              {yolTarifleri[i].map((adim, j) => (
+                                <View key={j} style={s.tarifSatiri}>
+                                  <Ikon ad={DONUS_SIMGELERI[adim.donus]} boyut={14} renkKodu={tema.soluk} />
+                                  <Text style={s.tarifMetin}>{adim.metin}</Text>
+                                  {!!adim.mesafe && <Text style={s.tarifMesafe}>{adim.mesafe}</Text>}
+                                </View>
+                              ))}
+                            </View>
+                          )}
+                          {aktarma != null && (
+                            <View style={[s.aktarma, aktarma.sikisik && { borderLeftColor: tema.uyari, backgroundColor: tema.uyariAcik }]}>
+                              <Text style={[s.aktarmaBaslik, aktarma.sikisik && { color: tema.uyari }]}>
+                                {aktarma.sikisik
+                                  ? `Aktarma sıkışık: ${aktarma.dakika} dakikan var`
+                                  : `Aktarma için ${aktarma.dakika} dakikan var`}
+                              </Text>
+                              <Text style={s.aktarmaAlt}>{`${sureYaz(b.duration)} yürüyüş bu sürenin içinde`}</Text>
+                            </View>
+                          )}
+                        </>
+                      )}
+                    </View>
                   </View>
                 );
               })}
-              <Text style={s.ucretNot}>{ucretNotu(ucret, ucretTuru)}</Text>
-            </View>
-          )}
-        </ScrollView>
+              <View style={s.adim}>
+                <Text style={s.adimSaat}>{saatYaz(guzergah.end)}</Text>
+                <View style={s.cizgiSutun}>
+                  <View style={[s.adimNokta, s.varisNokta]} />
+                </View>
+                <View style={s.adimIcerik}>
+                  <Text style={s.adimBaslik}>Varış{hedef ? ` · ${baslikYap(hedef)}` : ''}</Text>
+                </View>
+              </View>
 
-        <View style={[s.alt, { paddingBottom: kenar.bottom + 10 }]}>
-          <Pressable
-            style={[s.zil, kuruluHatirlatici > 0 && s.zilDolu]}
-            onPress={() => setHatirlatAcik(true)}
-            accessibilityRole="button"
-            accessibilityLabel={kuruluHatirlatici > 0 ? `${kuruluHatirlatici} hatırlatıcı kurulu` : 'Hatırlat'}
-          >
-            <Ikon
-              ad={kuruluHatirlatici > 0 ? 'notifications' : 'notifications-outline'}
-              boyut={20}
-              renkKodu={kuruluHatirlatici > 0 ? tema.vurguYazi : tema.vurgu}
-            />
-          </Pressable>
-          <Pressable
-            style={[s.baslat, takipAcik && s.bitir]}
-            onPress={takipAcik ? takibiDurdur : takibiBaslat}
-            onLongPress={simulasyonuBaslat}
-            accessibilityRole="button"
-          >
-            <Ikon ad={takipAcik ? 'stop-circle' : 'navigate'} boyut={18} renkKodu={takipAcik ? tema.yuzey : tema.vurguYazi} />
-            <Text style={[s.baslatYazi, { color: takipAcik ? tema.yuzey : tema.vurguYazi }]}>
-              {takipAcik ? 'Yolculuğu bitir' : 'Yolculuğu başlat'}
-            </Text>
-          </Pressable>
-        </View>
+              {ucret.toplam > 0 && (
+                <View style={s.ucretKutusu}>
+                  <View style={s.ucretUst}>
+                    <Text style={s.ucretBaslik}>İstanbulkart ücreti</Text>
+                    <Text style={s.ucretToplam}>{ucretKisa(ucret)}</Text>
+                  </View>
+                  {bacaklar.map((b, i) => {
+                    const u = ucret.bacaklar[i];
+                    if (!u) return null;
+                    return (
+                      <View key={`ucret-${i}`} style={s.ucretSatiri}>
+                        <HatRozeti hat={b.route} kucuk />
+                        <Text style={s.ucretAciklama} numberOfLines={1}>
+                          {u.aciklama}
+                        </Text>
+                        <Text style={s.ucretTutar}>{ucretYaz(u.tutar)}</Text>
+                      </View>
+                    );
+                  })}
+                  <Text style={s.ucretNot}>{ucretNotu(ucret, ucretTuru)}</Text>
+                </View>
+              )}
+            </View>
+          </AltYaprak>
+        )}
+      </View>
+
+      <View
+        style={[s.alt, { paddingBottom: kenar.bottom + 10 }]}
+        onLayout={(e) => setAltCubuk(e.nativeEvent.layout.height)}
+      >
+        <Pressable
+          style={[s.zil, kuruluHatirlatici > 0 && s.zilDolu]}
+          onPress={() => setHatirlatAcik(true)}
+          accessibilityRole="button"
+          accessibilityLabel={kuruluHatirlatici > 0 ? `${kuruluHatirlatici} hatırlatıcı kurulu` : 'Hatırlat'}
+        >
+          <Ikon
+            ad={kuruluHatirlatici > 0 ? 'notifications' : 'notifications-outline'}
+            boyut={20}
+            renkKodu={kuruluHatirlatici > 0 ? tema.vurguYazi : tema.vurgu}
+          />
+        </Pressable>
+        <Pressable
+          style={[s.baslat, takipAcik && s.bitir]}
+          onPress={takipAcik ? takibiDurdur : takibiBaslat}
+          onLongPress={simulasyonuBaslat}
+          accessibilityRole="button"
+        >
+          <Ikon ad={takipAcik ? 'stop-circle' : 'navigate'} boyut={18} renkKodu={takipAcik ? tema.yuzey : tema.vurguYazi} />
+          <Text style={[s.baslatYazi, { color: takipAcik ? tema.yuzey : tema.vurguYazi }]}>
+            {takipAcik ? 'Yolculuğu bitir' : 'Yolculuğu başlat'}
+          </Text>
+        </Pressable>
       </View>
 
       <HatirlatmaSayfasi
@@ -655,16 +691,6 @@ const stiller = (t: Tema) =>
   bildirimIkon: { width: 36, height: 36, borderRadius: 9, backgroundColor: t.vurgu, alignItems: 'center', justifyContent: 'center' },
   bildirimBaslik: { fontSize: 14, fontWeight: '700', color: t.yazi },
   bildirimMetin: { fontSize: 13, color: t.yazi, marginTop: 1 },
-  panel: {
-    flex: 1,
-    marginTop: -24,
-    backgroundColor: t.yuzey,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 8,
-    paddingHorizontal: 16,
-  },
-  tutamac: { width: 38, height: 5, borderRadius: 3, backgroundColor: t.cizgi, alignSelf: 'center', marginBottom: 8 },
   ozet: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -743,7 +769,15 @@ const stiller = (t: Tema) =>
   aktarmaBaslik: { fontSize: 12.5, fontWeight: '700', color: t.vurgu },
   aktarmaAlt: { fontSize: 11.5, color: t.soluk, marginTop: 1 },
 
-  alt: { flexDirection: 'row', gap: 10, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.cizgi },
+  alt: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingTop: 10,
+    paddingHorizontal: 16,
+    backgroundColor: t.yuzey,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: t.cizgi,
+  },
   baslat: {
     flex: 1,
     height: 50,
