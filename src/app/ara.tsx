@@ -112,7 +112,7 @@ export default function AraEkrani() {
         setDuraklar(duraklariHazirla(durakListesi, merkez));
         setHata(null);
       } catch (e) {
-        if ((e as Error).name !== 'AbortError') {
+        if ((e as Error).name !== 'AbortError' && !iptal.signal.aborted) {
           setHata(e instanceof OtpHatasi ? e.message : 'Arama yapılamadı.');
         }
       } finally {

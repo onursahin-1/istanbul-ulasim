@@ -1,7 +1,7 @@
 // 2 · Rota sonuçları: nereden–nereye, sıralama seçenekleri ve güzergâh kartları.
 
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -128,13 +128,25 @@ export default function RotaEkrani() {
   const [zamanAcik, setZamanAcik] = useState(false);
   const [taslak, setTaslak] = useState({ gun: 0, saat: 8, dakika: 0 });
 
-  const { ucretTuru, rotaSecenekleri } = useKayitlar();
+  const { ucretTuru, rotaSecenekleri: kayitliSecenekler, yuklendi } = useKayitlar();
+  // Kayıtlar her okunuşta yeni bir nesne geliyor (bir favori eklenince bile); aramayı
+  // yalnız tercihin kendisi değişince yenile. Eskiden ekran her açılışta iki kez arıyordu:
+  // önce varsayılanla, kayıt okununca bir daha.
+  const { tercih, erisilebilir } = kayitliSecenekler;
+  const rotaSecenekleri = useMemo(() => ({ tercih, erisilebilir }), [tercih, erisilebilir]);
   const [tercihAcik, setTercihAcik] = useState(false);
   const nereden: Konum = useMemo(() => ({ ad: p.kAd ?? 'Konumum', lat: Number(p.kLat), lon: Number(p.kLon) }), [p.kAd, p.kLat, p.kLon]);
   const nereye: Konum = useMemo(() => ({ ad: p.vAd ?? 'Hedef', lat: Number(p.vLat), lon: Number(p.vLon) }), [p.vAd, p.vLat, p.vLon]);
 
+  // Yalnız en son aramanın sonucu ekrana yazılır. Konum ilk açılışta bir kez daha
+  // inceldiğinde arama yeniden başlıyor; öncekinin geç gelen hatası yenisinin
+  // sonuçlarının üstüne kırmızı kutu olarak düşüyordu.
+  const sonArama = useRef(0);
+
   const ara = useCallback(
     async (sinyal?: AbortSignal) => {
+      const no = ++sonArama.current;
+      const eski = () => no !== sonArama.current || !!sinyal?.aborted;
       if ([nereden.lat, nereden.lon, nereye.lat, nereye.lon].some((d) => !Number.isFinite(d))) {
         setHata('Başlangıç ya da varış noktası eksik. Geri dönüp tekrar seç.');
         return;
@@ -147,6 +159,7 @@ export default function RotaEkrani() {
       try {
         const zamanMetni = zaman ? istanbulZamanYap(zaman.gun, zaman.saat, zaman.dakika) : istanbulSimdi();
         const sonuc = await rotaPlanlaYedekli(nereden, nereye, zamanMetni, rotaSecenekleri, sinyal);
+        if (eski()) return;
         setGuzergahlar(sonuc.guzergahlar);
         setCevrimdisi(sonuc.cevrimdisi);
         if (sonuc.guzergahlar.length === 0) {
@@ -161,7 +174,7 @@ export default function RotaEkrani() {
           setBilgi(temel + ipucu);
         }
       } catch (e) {
-        if ((e as Error).name === 'AbortError') return;
+        if ((e as Error).name === 'AbortError' || eski()) return;
         setHata(e instanceof OtpHatasi ? e.message : 'Rota aranırken beklenmeyen bir sorun oluştu.');
       }
     },
@@ -169,10 +182,11 @@ export default function RotaEkrani() {
   );
 
   useEffect(() => {
+    if (!yuklendi) return;
     const iptal = new AbortController();
     ara(iptal.signal);
     return () => iptal.abort();
-  }, [ara]);
+  }, [ara, yuklendi]);
 
   const gruplar = useMemo(() => {
     if (!guzergahlar) return [];

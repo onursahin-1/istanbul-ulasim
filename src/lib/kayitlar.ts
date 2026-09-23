@@ -93,6 +93,8 @@ export function useKayitlar() {
   const [aramalar, setAramalar] = useState<SonArama[]>([]);
   const [ucretTuru, setUcretTuru] = useState<UcretTuru>('tam');
   const [rotaSecenekleri, setRotaSecenekleri] = useState<RotaSecenekleri>(VARSAYILAN_SECENEKLER);
+  // İlk okuma bitene kadar değerler varsayılan; buna göre iş başlatan ekranlar (rota araması) bekler.
+  const [yuklendi, setYuklendi] = useState(false);
 
   const yukle = useCallback(async () => {
     setYerler(await oku<Yerler>(YER_ANAHTARI, {}));
@@ -100,6 +102,7 @@ export function useKayitlar() {
     setAramalar(await oku<SonArama[]>(ARAMA_ANAHTARI, []));
     setUcretTuru(await oku<UcretTuru>(UCRET_ANAHTARI, 'tam'));
     setRotaSecenekleri(await oku<RotaSecenekleri>(ROTA_ANAHTARI, VARSAYILAN_SECENEKLER));
+    setYuklendi(true);
   }, []);
 
   useEffect(() => {
@@ -110,5 +113,5 @@ export function useKayitlar() {
     };
   }, [yukle]);
 
-  return { yerler, favoriler, aramalar, ucretTuru, rotaSecenekleri };
+  return { yerler, favoriler, aramalar, ucretTuru, rotaSecenekleri, yuklendi };
 }

@@ -46,20 +46,47 @@ const {
   SUNUCU_BILGISI,
 } = S;
 
+/**
+ * Ağ hatasında kaç kez ve ne kadar bekleyerek yeniden denenir. Telefon kilitten
+ * açılınca ya da Wi-Fi bir anlığına koptuğunda ilk istek "ağ hatası" ile düşebiliyor;
+ * hemen ardından gelen istek geçiyor. Kullanıcıya kırmızı kutu göstermeden önce iki
+ * kez daha deneriz.
+ */
+const YENIDEN_DENEME_MS = [400, 1200];
+
+function iptalHatasi(): Error {
+  const e = new Error('İstek iptal edildi');
+  e.name = 'AbortError';
+  return e;
+}
+
+function bekle(ms: number): Promise<void> {
+  return new Promise((coz) => setTimeout(coz, ms));
+}
+
 async function sorgula<T>(sorgu: string, degiskenler: Record<string, unknown>, sinyal?: AbortSignal): Promise<T> {
-  let yanit: Response;
-  try {
-    yanit = await fetch(`${OTP_ADRESI}/otp/gtfs/v1`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ query: sorgu, variables: degiskenler }),
-      signal: sinyal,
-    });
-  } catch (hata) {
-    if ((hata as Error)?.name === 'AbortError') throw hata;
-    throw new OtpHatasi(
-      `Rota sunucusuna ulaşılamadı (${OTP_ADRESI}). Bilgisayarda OpenTripPlanner açık mı ve telefon aynı ağda mı?`,
-    );
+  let yanit: Response | null = null;
+  for (let deneme = 0; !yanit; deneme++) {
+    try {
+      yanit = await fetch(`${OTP_ADRESI}/otp/gtfs/v1`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ query: sorgu, variables: degiskenler }),
+        signal: sinyal,
+      });
+    } catch (hata) {
+      // İptal edilen istek React Native'de her zaman "AbortError" adıyla dönmüyor;
+      // "ağ hatası" gibi görünüp ekrana kırmızı kutu düşürüyordu. Sinyale bakmak kesin.
+      if (sinyal?.aborted || (hata as Error)?.name === 'AbortError') throw iptalHatasi();
+      if (deneme < YENIDEN_DENEME_MS.length) {
+        await bekle(YENIDEN_DENEME_MS[deneme]);
+        if (sinyal?.aborted) throw iptalHatasi();
+        continue;
+      }
+      throw new OtpHatasi(
+        `Rota sunucusuna ulaşılamadı (${OTP_ADRESI}). Bilgisayarda OpenTripPlanner açık mı ve telefon aynı ağda mı?`,
+      );
+    }
   }
   if (!yanit.ok) throw new OtpHatasi(`Rota sunucusu hata döndürdü (HTTP ${yanit.status}).`);
   const govde = (await yanit.json()) as { data?: T; errors?: { message: string }[] };
