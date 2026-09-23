@@ -3,6 +3,9 @@
 // Yaprağın üç durağı var: kapalı (yalnız başlık görünür, harita neredeyse tam
 // ekran), orta ve açık. Parmak bırakılınca hangisine oturacağını burası seçiyor.
 // React Native'e dokunmuyor, testlerden çağrılabiliyor.
+//
+// 'worklet' işaretli işlevler sürükleme sırasında arayüz iş parçacığında da çalışıyor
+// (alt-yaprak.tsx, Reanimated). Node'da bu satır yalnız etkisiz bir dizgi.
 
 export type YaprakDurumu = 'kapali' | 'orta' | 'acik';
 
@@ -32,6 +35,7 @@ export function yukseklikleriHesapla(
  * Yaprak her zaman "açık" boyunda çiziliyor, aşağı itilerek küçülüyor.
  */
 export function durakOfseti(y: YaprakYukseklikleri, durum: YaprakDurumu): number {
+  'worklet';
   return y.acik - y[durum];
 }
 
@@ -49,6 +53,7 @@ export const FISKE_HIZI = 0.6;
  * @param hiz dikey hız, piksel/ms; artı aşağı
  */
 export function hedefDurak(ofset: number, hiz: number, y: YaprakYukseklikleri): YaprakDurumu {
+  'worklet';
   const duraklar = (['acik', 'orta', 'kapali'] as const).map((d) => ({ d, o: durakOfseti(y, d) }));
   if (Math.abs(hiz) >= FISKE_HIZI) {
     if (hiz > 0) return duraklar.find((x) => x.o > ofset + 1)?.d ?? 'kapali';
@@ -71,6 +76,7 @@ export function dokununcaDurak(durum: YaprakDurumu): YaprakDurumu {
  * gibi direnir, tamamen kopmaz.
  */
 export function sinirla(ofset: number, y: YaprakYukseklikleri): number {
+  'worklet';
   const enAlt = durakOfseti(y, 'kapali');
   if (ofset < 0) return ofset / 3;
   if (ofset > enAlt) return enAlt + (ofset - enAlt) / 3;

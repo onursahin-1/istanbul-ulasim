@@ -1,7 +1,10 @@
 // Sürüklenebilir alt yaprak: kapalı / orta / açık.
 //
-// Ek paket kullanmıyor (React Native'in kendi Animated ve PanResponder'ı):
-// Expo Go'da doğrudan çalışsın, yerel modül gerektirmesin.
+// Sürükleme arayüz iş parçacığında çalışıyor (react-native-gesture-handler +
+// Reanimated; ikisi de Expo Go'nun içinde, ek yerel modül gerekmiyor). İlk sürüm
+// React Native'in PanResponder'ı ve JS tarafı Animated ile yazılmıştı: parmağın her
+// hareketi JS iş parçacığından geçtiği için, JS o sırada başka bir işle meşgulken
+// (harita, zamanlayıcılar, yenileme) yaprak takılıyordu.
 //
 // Kural:
 //  - Kapalı ya da ortadayken yaprağın her yerinden dikey sürükleme yaprağı taşır;
@@ -13,10 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  Animated,
-  PanResponder,
   Pressable,
-  ScrollView,
   StyleSheet,
   View,
   type NativeScrollEvent,
@@ -24,6 +24,9 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
+import { Gesture, GestureDetector, ScrollView } from 'react-native-gesture-handler';
+import Animated, { cancelAnimation, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 
 import { useTema } from '@/lib/tema';
 import {
@@ -37,6 +40,8 @@ import {
 
 /** Parmağın yatay mı dikey mi gittiğine karar vermeden önce beklenen yol. */
 const KARAR_ESIGI = 6;
+
+const YAY = { damping: 24, stiffness: 240, mass: 0.9 };
 
 type Ozellikler = {
   /** Yaprağın içinde durduğu alanın yüksekliği (onLayout ile ölçülür). */
@@ -74,118 +79,129 @@ export function AltYaprak({
     [kapsayiciYukseklik, ustPay, kapaliYukseklik, ortaOran],
   );
 
+  // React tarafı: kaydırmanın açılıp kapanması ve erişilebilirlik için.
   const [durum, setDurum] = useState<YaprakDurumu>(baslangic);
   const durumRef = useRef<YaprakDurumu>(baslangic);
-  const ofset = useRef(new Animated.Value(durakOfseti(y, baslangic))).current;
-  const anlik = useRef(durakOfseti(y, baslangic));
-  const tutulan = useRef(0);
-  const kaydirma = useRef(0);
   const liste = useRef<ScrollView>(null);
+  const onDurumRef = useRef(onDurum);
+  onDurumRef.current = onDurum;
   const yRef = useRef(y);
   yRef.current = y;
 
-  useEffect(() => {
-    const dinleyici = ofset.addListener(({ value }) => {
-      anlik.current = value;
-    });
-    return () => ofset.removeListener(dinleyici);
-  }, [ofset]);
+  // Arayüz iş parçacığı tarafı: sürükleme bunlarla, JS'e uğramadan yürüyor.
+  const ofset = useSharedValue(durakOfseti(y, baslangic));
+  const tutulan = useSharedValue(0);
+  const yS = useSharedValue(y);
+  const durumS = useSharedValue<YaprakDurumu>(baslangic);
+  const kaydirma = useSharedValue(0);
+  const dokunusX = useSharedValue(0);
+  const dokunusY = useSharedValue(0);
+
+  /** Durak değişti: React durumunu ve dinleyiciyi güncelle (JS iş parçacığında). */
+  const durakDegisti = useCallback((hedef: YaprakDurumu) => {
+    durumRef.current = hedef;
+    setDurum(hedef);
+    onDurumRef.current?.(hedef, yRef.current[hedef]);
+    if (hedef !== 'acik') liste.current?.scrollTo({ y: 0, animated: false });
+  }, []);
 
   // Ölçüler değişince (ilk ölçüm, ekran döndürme) yaprak bulunduğu durağa oturur.
   useEffect(() => {
-    ofset.setValue(durakOfseti(y, durumRef.current));
-    onDurum?.(durumRef.current, y[durumRef.current]);
-    // onDurum bilerek bağımlılıkta yok: her çizimde yeniden kurulmasın.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [y, ofset]);
+    yS.value = y;
+    ofset.value = durakOfseti(y, durumRef.current);
+    onDurumRef.current?.(durumRef.current, y[durumRef.current]);
+  }, [y, yS, ofset]);
 
+  /** JS'ten (başlığa dokunma) bir durağa git. */
   const git = useCallback(
     (hedef: YaprakDurumu) => {
-      durumRef.current = hedef;
-      setDurum(hedef);
-      onDurum?.(hedef, yRef.current[hedef]);
-      if (hedef !== 'acik') liste.current?.scrollTo({ y: 0, animated: false });
-      Animated.spring(ofset, {
-        toValue: durakOfseti(yRef.current, hedef),
-        useNativeDriver: false,
-        damping: 24,
-        stiffness: 240,
-        mass: 0.9,
-      }).start();
+      durumS.value = hedef;
+      ofset.value = withSpring(durakOfseti(yRef.current, hedef), YAY);
+      durakDegisti(hedef);
     },
-    [ofset, onDurum],
+    [durumS, ofset, durakDegisti],
   );
-
-  const yakalamali = (dx: number, dy: number) => {
-    if (Math.abs(dy) < KARAR_ESIGI || Math.abs(dy) < Math.abs(dx)) return false;
-    if (durumRef.current !== 'acik') return true;
-    // Açıkken: liste tepedeyken aşağı çekiş yaprağın, gerisi listenin.
-    return dy > 0 && kaydirma.current <= 0;
-  };
 
   const surukleme = useMemo(
     () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponderCapture: (_, g) => yakalamali(g.dx, g.dy),
-        onMoveShouldSetPanResponder: (_, g) => yakalamali(g.dx, g.dy),
-        onPanResponderGrant: () => {
-          ofset.stopAnimation();
-          tutulan.current = anlik.current;
-        },
-        onPanResponderMove: (_, g) => {
-          ofset.setValue(sinirla(tutulan.current + g.dy, yRef.current));
-        },
-        onPanResponderRelease: (_, g) => {
-          git(hedefDurak(tutulan.current + g.dy, g.vy, yRef.current));
-        },
-        onPanResponderTerminate: (_, g) => {
-          git(hedefDurak(tutulan.current + g.dy, g.vy, yRef.current));
-        },
-        // Sürükleme başladıysa liste ya da bir satır onu elinden alamasın.
-        onPanResponderTerminationRequest: () => false,
-      }),
-    // yakalamali ref'lerden okuyor; yeniden kurmaya gerek yok.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ofset, git],
+      Gesture.Pan()
+        // Kimin olduğuna parmak biraz yol aldıktan sonra karar veriyoruz: yatay
+        // hareket (harita, yatay listeler) ve açık yapraktaki liste kaydırması bizim değil.
+        .manualActivation(true)
+        .onTouchesDown((e) => {
+          dokunusX.value = e.changedTouches[0].absoluteX;
+          dokunusY.value = e.changedTouches[0].absoluteY;
+        })
+        .onTouchesMove((e, yonetici) => {
+          const dx = e.changedTouches[0].absoluteX - dokunusX.value;
+          const dy = e.changedTouches[0].absoluteY - dokunusY.value;
+          if (Math.abs(dx) < KARAR_ESIGI && Math.abs(dy) < KARAR_ESIGI) return;
+          if (Math.abs(dx) > Math.abs(dy)) {
+            yonetici.fail();
+            return;
+          }
+          if (durumS.value !== 'acik') {
+            yonetici.activate();
+            return;
+          }
+          // Açıkken: liste tepedeyken aşağı çekiş yaprağın, gerisi listenin.
+          if (dy > 0 && kaydirma.value <= 0) yonetici.activate();
+          else yonetici.fail();
+        })
+        .onStart(() => {
+          cancelAnimation(ofset);
+          tutulan.value = ofset.value;
+        })
+        .onUpdate((e) => {
+          ofset.value = sinirla(tutulan.value + e.translationY, yS.value);
+        })
+        .onEnd((e) => {
+          // Gesture handler hızı piksel/saniye veriyor; hedefDurak piksel/ms bekliyor.
+          const hedef = hedefDurak(tutulan.value + e.translationY, e.velocityY / 1000, yS.value);
+          durumS.value = hedef;
+          ofset.value = withSpring(durakOfseti(yS.value, hedef), YAY);
+          scheduleOnRN(durakDegisti, hedef);
+        }),
+    [dokunusX, dokunusY, durumS, kaydirma, ofset, tutulan, yS, durakDegisti],
   );
 
-  const kaydirildi = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    kaydirma.current = e.nativeEvent.contentOffset.y;
-  }, []);
+  const kaydirildi = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      kaydirma.value = e.nativeEvent.contentOffset.y;
+    },
+    [kaydirma],
+  );
+
+  const tasima = useAnimatedStyle(() => ({ transform: [{ translateY: ofset.value }] }));
 
   return (
-    <Animated.View
-      {...surukleme.panHandlers}
-      style={[
-        stiller.yaprak,
-        { height: y.acik, backgroundColor: tema.yuzey, transform: [{ translateY: ofset }] },
-        stil,
-      ]}
-    >
-      <Pressable
-        onPress={() => git(dokununcaDurak(durumRef.current))}
-        accessibilityRole="button"
-        accessibilityLabel={erisilebilirlikEtiketi}
-        accessibilityState={{ expanded: durum !== 'kapali' }}
-        hitSlop={{ top: 8 }}
-      >
-        <View style={[stiller.tutamac, { backgroundColor: tema.cizgi }]} />
-        {baslik}
-      </Pressable>
-      <ScrollView
-        ref={liste}
-        style={stiller.liste}
-        contentContainerStyle={stiller.icerik}
-        scrollEnabled={durum === 'acik'}
-        bounces={false}
-        overScrollMode="never"
-        onScroll={kaydirildi}
-        scrollEventThrottle={16}
-        showsVerticalScrollIndicator={durum === 'acik'}
-      >
-        {children}
-      </ScrollView>
-    </Animated.View>
+    <GestureDetector gesture={surukleme}>
+      <Animated.View style={[stiller.yaprak, { height: y.acik, backgroundColor: tema.yuzey }, tasima, stil]}>
+        <Pressable
+          onPress={() => git(dokununcaDurak(durumRef.current))}
+          accessibilityRole="button"
+          accessibilityLabel={erisilebilirlikEtiketi}
+          accessibilityState={{ expanded: durum !== 'kapali' }}
+          hitSlop={{ top: 8 }}
+        >
+          <View style={[stiller.tutamac, { backgroundColor: tema.cizgi }]} />
+          {baslik}
+        </Pressable>
+        <ScrollView
+          ref={liste}
+          style={stiller.liste}
+          contentContainerStyle={stiller.icerik}
+          scrollEnabled={durum === 'acik'}
+          bounces={false}
+          overScrollMode="never"
+          onScroll={kaydirildi}
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator={durum === 'acik'}
+        >
+          {children}
+        </ScrollView>
+      </Animated.View>
+    </GestureDetector>
   );
 }
 
