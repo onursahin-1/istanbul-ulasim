@@ -81,6 +81,28 @@ fragment durakAlanlari on Stop {
   }
 }`;
 
+// Durak ekranı için: aynı meydandaki, aynı adı taşıyan başka beslemenin durakları.
+// İBB'nin minibüs durağı İETT durağıyla aynı adı taşıyor ama ayrı bir istasyon;
+// minibüs hatlarını İETT durağının ekranında da gösterebilmek için soruluyor.
+const YAKIN_AYNI_AD = `
+query YakinAyniAd($lat: Float!, $lon: Float!, $yaricap: Int!) {
+  nearest(lat: $lat, lon: $lon, maxDistance: $yaricap, filterByPlaceTypes: [STOP], first: 30) {
+    edges {
+      node {
+        distance
+        place {
+          __typename
+          ... on Stop {
+            gtfsId name lat lon
+            parentStation { gtfsId name lat lon }
+            routes { ${HAT_ALANLARI} }
+          }
+        }
+      }
+    }
+  }
+}`;
+
 // Duraklar artık istasyon altında toplandı (veri/durak-birlestir.py). stops() hâlâ
 // çocukları döndürdüğü için ebeveyn de isteniyor; adı çocuklarıyla tutmayan
 // istasyonlar ise yalnız stations() ile geliyor.
@@ -192,6 +214,7 @@ export const SORGULAR = {
   YAKIN_DURAKLAR,
   DURAK_DETAYI,
   DURAK_SAATLERI,
+  YAKIN_AYNI_AD,
   DURAK_ARA,
   ROTA_PLANLA,
   HAT_KALKISLARI,

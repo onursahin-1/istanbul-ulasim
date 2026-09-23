@@ -14,6 +14,7 @@ import {
   HatRozeti,
   Ikon,
   NabizNoktasi,
+  ROZET_SUTUNU,
   TarifeEtiketi,
   useStiller,
   Yukleniyor,
@@ -21,7 +22,7 @@ import {
 import { kalkisCanli } from '@/lib/canli';
 import { favoriDegistir, useKayitlar } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
-import { durakSaatleriYedekli, OtpHatasi, type DurakSaatleri } from '@/lib/otp';
+import { durakSaatleriYedekli, OtpHatasi, saatsizHatlariGetir, saatsizHatMi, type DurakSaatleri, type Hat } from '@/lib/otp';
 import { baslikYap, hatEtiketi, hatRengi, useTema, yonYaz, type Tema } from '@/lib/tema';
 import { istanbulSaatiYaz, kacDakikaSonra, kalkisGosterimi, saniyedenSaat } from '@/lib/zaman';
 
@@ -38,6 +39,8 @@ export default function DurakEkrani() {
   const [hata, setHata] = useState<string | null>(null);
   const [cevrimdisi, setCevrimdisi] = useState<number | null>(null);
   const [yenileniyor, setYenileniyor] = useState(false);
+  // Minibüs ve dolmuş: saatleri yok; aynı meydandaki aynı adlı duraklardan da toplanıyor.
+  const [saatsiz, setSaatsiz] = useState<Hat[]>([]);
 
   const yukle = useCallback(async () => {
     if (!id) return;
@@ -60,11 +63,26 @@ export default function DurakEkrani() {
     return () => clearInterval(zamanlayici);
   }, [yukle]);
 
+  // Saatsiz hatlar değişmiyor; durak bir kez geldiğinde bir kez sorulur.
+  const durakKimligi = durak?.gtfsId;
+  useEffect(() => {
+    if (!durak || !durakKimligi) return;
+    let gecerli = true;
+    saatsizHatlariGetir(durak)
+      .then((hatlar) => gecerli && setSaatsiz(hatlar))
+      .catch(() => gecerli && setSaatsiz((durak.routes ?? []).filter(saatsizHatMi)));
+    return () => {
+      gecerli = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [durakKimligi]);
+
   const ad = baslikYap(durak?.name);
   const favoriMi = favoriler.some((f) => f.gtfsId === id);
 
   const hatlar = useMemo(() => {
-    const liste = [...(durak?.routes ?? [])].filter((r) => r.shortName);
+    // Minibüs ve dolmuş çipleri hep "Minibüs" yazıyordu; onlar aşağıda güzergâhlarıyla ayrı listeleniyor.
+    const liste = [...(durak?.routes ?? [])].filter((r) => r.shortName && !saatsizHatMi(r));
     const tekil = [...new Map(liste.map((r) => [r.shortName, r])).values()];
     return tekil.sort((a, b) => (a.shortName ?? '').localeCompare(b.shortName ?? '', 'tr', { numeric: true }));
   }, [durak]);
@@ -203,6 +221,7 @@ export default function DurakEkrani() {
               </View>
             )}
 
+            {(yonler.length > 0 || saatsiz.length === 0) && (
             <View style={{ gap: 4 }}>
               <Text style={s.altBaslik}>YÖNE GÖRE SONRAKİ KALKIŞLAR</Text>
               {yonler.length === 0 && <Text style={s.bos}>Önümüzdeki 3 saatte bu duraktan sefer görünmüyor.</Text>}
@@ -221,10 +240,10 @@ export default function DurakEkrani() {
                     .filter(Boolean)
                     .join(' · ')}
                 >
-                  <View style={{ width: 62 }}>
+                  <View style={{ minWidth: ROZET_SUTUNU }}>
                     <HatRozeti hat={y.hat} />
                   </View>
-                  <View style={{ flex: 1 }}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={s.seferYon} numberOfLines={1}>
                       {y.yon || 'Yön bilgisi yok'}
                     </Text>
@@ -255,6 +274,36 @@ export default function DurakEkrani() {
                 </Pressable>
               ))}
             </View>
+            )}
+
+            {saatsiz.length > 0 && (
+              <View style={{ gap: 4 }}>
+                <Text style={s.altBaslik}>MİNİBÜS VE DOLMUŞ</Text>
+                {saatsiz.map((h) => {
+                  const guzergah = hatEtiketi(h.shortName, h.mode, h.agency?.name).ayrinti;
+                  return (
+                    <Pressable
+                      key={h.gtfsId}
+                      style={s.sefer}
+                      onPress={() => router.push({ pathname: '/hat/[id]', params: { id: h.gtfsId } })}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${guzergah || h.shortName || ''}, saat bilgisi yok`}
+                    >
+                      <View style={{ minWidth: ROZET_SUTUNU }}>
+                        <HatRozeti hat={h} />
+                      </View>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={s.seferYon} numberOfLines={2}>
+                          {guzergah || baslikYap(h.shortName)}
+                        </Text>
+                        <Text style={s.seferSaat}>Saat bilgisi yok · sık aralıklarla çalışır</Text>
+                      </View>
+                      <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.soluk} />
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
 
             {canliVar ? (
               <View style={s.tarife}>

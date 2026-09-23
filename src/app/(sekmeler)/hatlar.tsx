@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { HataKutusu, HatRozeti, Ikon, useStiller, Yukleniyor } from '@/components/ulasim';
+import { HataKutusu, HatRozeti, Ikon, ROZET_SUTUNU, useStiller, Yukleniyor } from '@/components/ulasim';
 import { hatlariGetir, OtpHatasi, type HatOzeti } from '@/lib/otp';
 import { sadelestir } from '@/lib/poi';
 import { aracAdi, baslikYap, useTema, type Tema } from '@/lib/tema';
@@ -254,7 +254,7 @@ const stiller = (t: Tema) =>
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: t.cizgi,
     },
-    rozetKutusu: { minWidth: 62 },
+    rozetKutusu: { minWidth: ROZET_SUTUNU },
     satirMetin: { flex: 1, gap: 2 },
     satirBaslik: { fontSize: 14.5, fontWeight: '600', color: t.yazi },
     satirAlt: { fontSize: 12, color: t.soluk },

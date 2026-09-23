@@ -161,6 +161,35 @@ export function saatsizHatlariKatla<K, R extends { gtfsId: string }>(
 }
 
 /**
+ * Bir durağın ekranında gösterilecek saatsiz hatlar: durağın kendi minibüs ve
+ * dolmuş hatları, artı yakınındaki aynı adlı (başka beslemeden gelen) durakların
+ * saatsiz hatları. Yakın durak listesindeki katlamanın (saatsizHatlariKatla) durak
+ * ekranındaki karşılığı: listede Göztepe Meydanı'nın altında görünen minibüsler,
+ * durağa dokununca da görünmeli.
+ *
+ * @param merkez  ekrandaki durak ya da istasyon
+ * @param adaylar yakınındaki duraklar (`nearest` sonucu, merkezin kendi peronları dahil)
+ */
+export function ayniAdliSaatsizHatlar<R extends { gtfsId: string }>(
+  merkez: Konumlu & { routes?: R[] | null },
+  adaylar: { durak: Ebeveynli<Konumlu> & { routes?: R[] | null } }[],
+  saatsizMi: (hat: R) => boolean,
+): R[] {
+  const ad = trKucuk(merkez.name ?? '').trim();
+  const sonuc = new Map<string, R>();
+  const ekle = (hatlar?: R[] | null) => {
+    for (const h of hatlar ?? []) if (h?.gtfsId && saatsizMi(h) && !sonuc.has(h.gtfsId)) sonuc.set(h.gtfsId, h);
+  };
+  ekle(merkez.routes);
+  for (const a of adaylar) {
+    const t = temsilci(a.durak);
+    const ayniYer = t.gtfsId === merkez.gtfsId || a.durak.gtfsId === merkez.gtfsId;
+    if (ayniYer || trKucuk(t.name ?? '').trim() === ad) ekle(a.durak.routes);
+  }
+  return [...sonuc.values()];
+}
+
+/**
  * Aynı adın yakın tekrarlarını eler.
  *
  * parent_station tek bir beslemenin içinde çalışıyor; İETT'nin "MECİDİYEKÖY"

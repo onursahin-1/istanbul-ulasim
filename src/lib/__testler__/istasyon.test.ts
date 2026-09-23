@@ -3,7 +3,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { adTekrariniEle, aramayiIndir, saatsizHatlariKatla, temsilci, yakinlariIndir } from '../istasyon';
+import {
+  adTekrariniEle,
+  aramayiIndir,
+  ayniAdliSaatsizHatlar,
+  saatsizHatlariKatla,
+  temsilci,
+  yakinlariIndir,
+} from '../istasyon';
 
 const d = (gtfsId: string, name: string, ana?: { gtfsId: string; name: string }) => ({
   gtfsId, name, code: null, desc: null, lat: 41, lon: 29,
@@ -218,5 +225,45 @@ describe('saatsizHatlariKatla', () => {
       minibusMu,
     );
     assert.deepEqual(sonuc[0].durak.saatsiz.map((h) => h.gtfsId), ['mb1', 'mb2']);
+  });
+});
+
+describe('ayniAdliSaatsizHatlar', () => {
+  type H = { gtfsId: string; minibus?: boolean };
+  const minibusMu = (h: H) => !!h.minibus;
+  const MB1 = { gtfsId: 'mb1', minibus: true };
+  const MB2 = { gtfsId: 'mb2', minibus: true };
+  const IETT = { gtfsId: 'iett-89C' };
+  const IETT_ISTASYON = { gtfsId: 'iett:ana-579100', name: 'GÖZTEPE MEYDANI', lat: 41.05446, lon: 28.83894 };
+  const aday = (gtfsId: string, name: string, hatlar: H[], ana?: { gtfsId: string; name: string }) => ({
+    durak: {
+      gtfsId,
+      name,
+      lat: 41.0544,
+      lon: 28.8387,
+      routes: hatlar,
+      ...(ana ? { parentStation: { ...ana, lat: 41.0544, lon: 28.8387 } } : {}),
+    },
+  });
+
+  it('İETT istasyonunun ekranına aynı adlı minibüs istasyonunun hatlarını getirir', () => {
+    const hatlar = ayniAdliSaatsizHatlar({ ...IETT_ISTASYON, routes: [IETT] }, [
+      aday('iett:579099', 'GÖZTEPE MEYDANI', [IETT], IETT_ISTASYON),
+      aday('rv:93942', 'GÖZTEPE MEYDANI', [MB1], { gtfsId: 'rv:ana-90455', name: 'GÖZTEPE MEYDANI' }),
+      aday('rv:90455', 'GÖZTEPE MEYDANI', [MB1, MB2], { gtfsId: 'rv:ana-90455', name: 'GÖZTEPE MEYDANI' }),
+    ], minibusMu);
+    assert.deepEqual(hatlar.map((h) => h.gtfsId), ['mb1', 'mb2']);
+  });
+
+  it('başka adlı yakın durağın minibüslerini almaz', () => {
+    const hatlar = ayniAdliSaatsizHatlar({ ...IETT_ISTASYON, routes: [] }, [
+      aday('rv:90990', 'MALAZGİRT İLK Ö.O', [MB1]),
+    ], minibusMu);
+    assert.deepEqual(hatlar, []);
+  });
+
+  it('durağın kendi minibüs hatlarını da sayar', () => {
+    const hatlar = ayniAdliSaatsizHatlar({ gtfsId: 'rv:90990', name: 'MALAZGİRT İLK Ö.O', routes: [MB2, IETT] }, [], minibusMu);
+    assert.deepEqual(hatlar.map((h) => h.gtfsId), ['mb2']);
   });
 });

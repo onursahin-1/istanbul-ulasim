@@ -41,6 +41,14 @@ export function Ikon({ ad, boyut = 20, renkKodu }: { ad: IkonAdi; boyut?: number
  * "kısa adı" güzergâhın tamamı olduğu için onlarda araç tipi yazıyor.
  */
 /**
+ * Satır listelerinde rozet sütununun genişliği. "Minibüs" ve "Dolmuş" rozetleri
+ * (~87 nk) sığsın diye bu kadar; daha dar sütunda rozet yanındaki yazının üstüne
+ * taşıyordu. Sütunlar `minWidth` ile kullanılır: daha uzun bir rozet (Marmaray)
+ * yazıyı iter, üstüne binmez.
+ */
+export const ROZET_SUTUNU = 90;
+
+/**
  * Rozetin ihtiyacı olan en az bilgi. `Hat` bunu karşılıyor, ama ağ haritası gibi
  * veriyi doğrudan GTFS'ten alan yerlerde gtfsId olmuyor; rozet için de gerekmiyor.
  */

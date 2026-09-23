@@ -30,7 +30,7 @@ export { bacakDuraklari } from './bacak';
 export type { RotaSecenekleri, RotaTercihi } from './sorgular';
 import { SORGULAR as S, VARSAYILAN_SECENEKLER, tercihleriYap, type RotaSecenekleri } from './sorgular';
 import { isletmeciAdi } from './hat-adi';
-import { aramayiIndir, saatsizHatlariKatla, yakinlariIndir, type Ebeveynli } from './istasyon';
+import { aramayiIndir, ayniAdliSaatsizHatlar, saatsizHatlariKatla, yakinlariIndir, type Ebeveynli } from './istasyon';
 import { gunuKaydir } from './onbellek';
 import { onbellegeYaz, onbellektenOku } from './onbellek-depo';
 
@@ -191,7 +191,7 @@ export async function yakinDuraklariGetir(lat: number, lon: number, sinyal?: Abo
   // Aynı meydanın peronları tek satıra insin, kalkışları birleşsin.
   const indirilmis = yakinlariIndir(ham, (a: Kalkis, b: Kalkis) => kalkisAni(a) - kalkisAni(b));
   // Minibüs ve dolmuş: OTP kalkışlarını vermiyor; hatlarını aynı adlı durağa katla, boş durakları gizle.
-  return saatsizHatlariKatla(indirilmis, (h: Hat) => !!isletmeciAdi(h.agency?.name)) as YakinDurak[];
+  return saatsizHatlariKatla(indirilmis, saatsizHatMi) as YakinDurak[];
 }
 
 /** Bir kalkışın mutlak anı (saniye); gerçek zamanlı varsa o, yoksa tarifedeki. */
@@ -339,6 +339,42 @@ export async function durakSaatleriGetir(
   const sonuc = veri.stop ?? veri.istasyon;
   if (sonuc) void onbellegeYaz(`durak:${id}`, sonuc);
   return sonuc;
+}
+
+/** Minibüs ve dolmuş: sıklık tabanlı, OTP'den kalkış saati gelmiyor. */
+export function saatsizHatMi(h: Hat): boolean {
+  return !!isletmeciAdi(h.agency?.name);
+}
+
+/** Durak ekranındaki saatsiz hatlar yakın aynı adlı duraklardan bu yarıçapta toplanır. */
+const AYNI_AD_YARICAPI = 150;
+
+/**
+ * Bir durağın saatsiz (minibüs, dolmuş) hatları: kendisininkiler ve aynı meydandaki
+ * aynı adlı duraklarınkiler. Sunucuya ulaşılamazsa durağın kendi hatlarıyla yetinir.
+ */
+export async function saatsizHatlariGetir(durak: DurakSaatleri, sinyal?: AbortSignal): Promise<Hat[]> {
+  if (durak.lat == null || durak.lon == null) return (durak.routes ?? []).filter(saatsizHatMi);
+  type Cevap = {
+    nearest: {
+      edges: { node: { place: ({ __typename: string } & Ebeveynli<Durak> & { routes: Hat[] | null }) | null } }[];
+    } | null;
+  };
+  try {
+    const veri = await sorgula<Cevap>(
+      S.YAKIN_AYNI_AD,
+      { lat: durak.lat, lon: durak.lon, yaricap: AYNI_AD_YARICAPI },
+      sinyal,
+    );
+    const adaylar = (veri.nearest?.edges ?? [])
+      .map((e) => e.node.place)
+      .filter((p): p is NonNullable<typeof p> => p?.__typename === 'Stop')
+      .map((durak) => ({ durak }));
+    return ayniAdliSaatsizHatlar(durak, adaylar, saatsizHatMi);
+  } catch (hata) {
+    if (!(hata instanceof OtpHatasi)) throw hata;
+    return (durak.routes ?? []).filter(saatsizHatMi);
+  }
 }
 
 /**

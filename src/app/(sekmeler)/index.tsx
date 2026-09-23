@@ -7,7 +7,17 @@ import MapView, { Marker, type LongPressEvent } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AltYaprak } from '@/components/alt-yaprak';
-import { CanliAciklama, Dakika, HataKutusu, HatRozeti, Ikon, TarifeEtiketi, useStiller, Yukleniyor } from '@/components/ulasim';
+import {
+  CanliAciklama,
+  Dakika,
+  HataKutusu,
+  HatRozeti,
+  Ikon,
+  ROZET_SUTUNU,
+  TarifeEtiketi,
+  useStiller,
+  Yukleniyor,
+} from '@/components/ulasim';
 import { kalkisCanli } from '@/lib/canli';
 import { useKayitlar, type YerTuru } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
@@ -326,6 +336,6 @@ const stiller = (t: Tema) =>
   saatsizNot: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   saatsizYazi: { fontSize: 11.5, color: t.soluk },
   sefer: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 3 },
-  seferRozet: { width: 62 },
+  seferRozet: { minWidth: ROZET_SUTUNU },
   seferYon: { flex: 1, fontSize: 13, color: t.soluk },
 });
