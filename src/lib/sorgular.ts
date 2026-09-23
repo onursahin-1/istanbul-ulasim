@@ -29,6 +29,7 @@ query YakinDuraklar($lat: Float!, $lon: Float!) {
           ... on Stop {
             gtfsId name code desc lat lon
             parentStation { gtfsId name code desc lat lon }
+            routes { ${HAT_ALANLARI} }
             kalkislar: stoptimesWithoutPatterns(numberOfDepartures: 3, omitNonPickups: true) { ${KALKIS_ALANLARI} }
           }
         }

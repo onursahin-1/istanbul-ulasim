@@ -56,36 +56,108 @@ export function aramayiIndir<T extends Konumlu>(
   return sonuc;
 }
 
-export type Yakin<T extends Konumlu, K> = { mesafe: number; durak: Ebeveynli<T> & { kalkislar: K[] } };
+export type Yakin<T extends Konumlu, K, R extends { gtfsId: string } = { gtfsId: string }> = {
+  mesafe: number;
+  durak: Ebeveynli<T> & { kalkislar: K[]; routes?: R[] | null };
+};
+
+export type IndirilmisYakin<K, R> = { mesafe: number; durak: Konumlu & { kalkislar: K[]; routes: R[] } };
 
 /**
  * Yakın durak listesini istasyon düzeyine indirir: aynı istasyonun peronları
- * birleşir, mesafe en yakın perondan alınır, kalkışlar birleştirilip sıralanır.
+ * birleşir, mesafe en yakın perondan alınır, kalkışlar birleştirilip sıralanır,
+ * peronlardan geçen hatlar tekilleştirilerek toplanır.
  *
  * @param sirala iki kalkışı karşılaştıran işlev; birleşen listeyi sıralamak için
  */
-export function yakinlariIndir<T extends Konumlu, K>(
-  yakinlar: Yakin<T, K>[],
+export function yakinlariIndir<T extends Konumlu, K, R extends { gtfsId: string } = { gtfsId: string }>(
+  yakinlar: Yakin<T, K, R>[],
   sirala: (a: K, b: K) => number,
   enFazlaKalkis = 3,
-): { mesafe: number; durak: Konumlu & { kalkislar: K[] } }[] {
-  const kume = new Map<string, { mesafe: number; durak: Konumlu; kalkislar: K[] }>();
+): IndirilmisYakin<K, R>[] {
+  const kume = new Map<string, { mesafe: number; durak: Konumlu; kalkislar: K[]; hatlar: Map<string, R> }>();
   const sira: string[] = [];
   for (const y of yakinlar) {
     const t = temsilci(y.durak);
-    const varolan = kume.get(t.gtfsId);
-    if (!varolan) {
+    let k = kume.get(t.gtfsId);
+    if (!k) {
       sira.push(t.gtfsId);
-      kume.set(t.gtfsId, { mesafe: y.mesafe, durak: t, kalkislar: [...(y.durak.kalkislar ?? [])] });
-      continue;
+      k = { mesafe: y.mesafe, durak: t, kalkislar: [], hatlar: new Map() };
+      kume.set(t.gtfsId, k);
     }
-    varolan.mesafe = Math.min(varolan.mesafe, y.mesafe);
-    varolan.kalkislar.push(...(y.durak.kalkislar ?? []));
+    k.mesafe = Math.min(k.mesafe, y.mesafe);
+    k.kalkislar.push(...(y.durak.kalkislar ?? []));
+    for (const h of y.durak.routes ?? []) if (h?.gtfsId && !k.hatlar.has(h.gtfsId)) k.hatlar.set(h.gtfsId, h);
   }
   return sira
     .map((id) => kume.get(id)!)
     .sort((a, b) => a.mesafe - b.mesafe)
-    .map((k) => ({ mesafe: k.mesafe, durak: { ...k.durak, kalkislar: k.kalkislar.sort(sirala).slice(0, enFazlaKalkis) } }));
+    .map((k) => {
+      const { routes: _eski, ...durak } = k.durak as Konumlu & { routes?: unknown };
+      return {
+        mesafe: k.mesafe,
+        durak: { ...durak, kalkislar: k.kalkislar.sort(sirala).slice(0, enFazlaKalkis), routes: [...k.hatlar.values()] },
+      };
+    });
+}
+
+/**
+ * Saatsiz hatları (minibüs, dolmuş) yakın durak listesine katlar ve seferi
+ * görünmeyen durakları gizler.
+ *
+ * Minibüs ve dolmuş seferleri GTFS'te sıklık tabanlı (frequencies.txt). OTP bunlarla
+ * rota kuruyor ama durak kalkış sorgularında hiç döndürmüyor; bu yüzden minibüs
+ * durakları listede hep "yakın zamanda sefer yok" diye görünüyordu. Üstelik İBB'nin
+ * minibüs durağı çoğu zaman İETT durağıyla aynı adı taşıyor, aynı meydan iki kez
+ * listeleniyordu.
+ *
+ * Kural:
+ * - Her durağın saatsiz hatları `saatsiz` alanına alınır.
+ * - Kalkışı olmayan ama saatsiz hattı olan durak, yakınında (eşik içinde) aynı adlı
+ *   ve kalkışı olan bir durak varsa ona katlanır; yoksa kendi satırında kalır.
+ * - Ne kalkışı ne saatsiz hattı olan durak gizlenir.
+ * - Hepsi gizlenecekse (gece yarısı) hiçbiri gizlenmez: yakındaki durakları yine de
+ *   görmek isteriz, yanlarında "sefer yok" yazar.
+ */
+export function saatsizHatlariKatla<K, R extends { gtfsId: string }>(
+  liste: IndirilmisYakin<K, R>[],
+  saatsizMi: (hat: R) => boolean,
+  esikMetre = 150,
+): (IndirilmisYakin<K, R> & { durak: { saatsiz: R[] } })[] {
+  const ekli = liste.map((y) => ({
+    mesafe: y.mesafe,
+    durak: { ...y.durak, saatsiz: y.durak.routes.filter(saatsizMi) },
+  }));
+  const dolu = ekli.filter((y) => y.durak.kalkislar.length > 0);
+  if (dolu.length === 0) return ekli;
+
+  const sonuc: typeof ekli = [];
+  for (const y of ekli) {
+    if (y.durak.kalkislar.length > 0) {
+      sonuc.push(y);
+      continue;
+    }
+    if (y.durak.saatsiz.length === 0) continue;
+    const ad = trKucuk(y.durak.name ?? '').trim();
+    const hedef = dolu.find(
+      (d) =>
+        trKucuk(d.durak.name ?? '').trim() === ad &&
+        d.durak.lat != null &&
+        d.durak.lon != null &&
+        y.durak.lat != null &&
+        y.durak.lon != null &&
+        mesafeMetre({ latitude: d.durak.lat, longitude: d.durak.lon }, { latitude: y.durak.lat, longitude: y.durak.lon }) <=
+          esikMetre,
+    );
+    if (!hedef) {
+      sonuc.push(y);
+      continue;
+    }
+    for (const h of y.durak.saatsiz) {
+      if (!hedef.durak.saatsiz.some((v) => v.gtfsId === h.gtfsId)) hedef.durak.saatsiz.push(h);
+    }
+  }
+  return sonuc;
 }
 
 /**

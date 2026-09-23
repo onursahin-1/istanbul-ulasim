@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { adTekrariniEle, aramayiIndir, temsilci, yakinlariIndir } from '../istasyon';
+import { adTekrariniEle, aramayiIndir, saatsizHatlariKatla, temsilci, yakinlariIndir } from '../istasyon';
 
 const d = (gtfsId: string, name: string, ana?: { gtfsId: string; name: string }) => ({
   gtfsId, name, code: null, desc: null, lat: 41, lon: 29,
@@ -138,5 +138,85 @@ describe('adTekrariniEle', () => {
     const iki = [y('a', 'Levent', 41.0, 29.0), y('b', 'Levent', 41.004, 29.0)];   // ~445 m
     assert.equal(adTekrariniEle(iki, 500).length, 1);
     assert.equal(adTekrariniEle(iki, 300).length, 2);
+  });
+});
+
+describe('yakinlariIndir · hatlar', () => {
+  it('peronların hatlarını tekilleştirerek birleştirir', () => {
+    const sonuc = yakinlariIndir(
+      [
+        { mesafe: 10, durak: { ...d('ist:1', 'A', ANA), kalkislar: [], routes: [{ gtfsId: 'h1' }, { gtfsId: 'h2' }] } },
+        { mesafe: 20, durak: { ...d('ist:2', 'B', ANA), kalkislar: [], routes: [{ gtfsId: 'h2' }, { gtfsId: 'h3' }] } },
+      ],
+      () => 0,
+    );
+    assert.deepEqual(sonuc[0].durak.routes.map((h) => h.gtfsId), ['h1', 'h2', 'h3']);
+  });
+
+  it('hat bilgisi gelmeyen durakta boş liste verir', () => {
+    const sonuc = yakinlariIndir([{ mesafe: 10, durak: { ...d('ist:8', 'Çengelköy'), kalkislar: [] } }], () => 0);
+    assert.deepEqual(sonuc[0].durak.routes, []);
+  });
+});
+
+describe('saatsizHatlariKatla', () => {
+  type H = { gtfsId: string; minibus?: boolean };
+  const minibusMu = (h: H) => !!h.minibus;
+  const MB1 = { gtfsId: 'mb1', minibus: true };
+  const MB2 = { gtfsId: 'mb2', minibus: true };
+  const IETT = { gtfsId: 'iett-89C' };
+  // Göztepe Meydanı: İETT istasyonu ve ~30 m ötede aynı adlı minibüs istasyonu.
+  const y = (id: string, ad: string, lat: number, kalkis: number, hatlar: H[], mesafe = 90) => ({
+    mesafe,
+    durak: { gtfsId: id, name: ad, code: null, desc: null, lat, lon: 28.8389, kalkislar: Array(kalkis).fill(0), routes: hatlar },
+  });
+
+  it('kalkışsız minibüs durağını aynı adlı yakın durağa katlar', () => {
+    const sonuc = saatsizHatlariKatla(
+      [y('mb', 'GÖZTEPE MEYDANI', 41.05443, 0, [MB1, MB2]), y('iett', 'GÖZTEPE MEYDANI', 41.05446, 2, [IETT])],
+      minibusMu,
+    );
+    assert.deepEqual(sonuc.map((x) => x.durak.gtfsId), ['iett']);
+    assert.deepEqual(sonuc[0].durak.saatsiz.map((h) => h.gtfsId), ['mb1', 'mb2']);
+  });
+
+  it('adı tutmayan minibüs durağını kendi satırında bırakır', () => {
+    const sonuc = saatsizHatlariKatla(
+      [y('mb', 'MALAZGİRT İLK Ö.O', 41.05354, 0, [MB1]), y('iett', 'MALAZGİRT ORTAOKULU', 41.05337, 2, [IETT])],
+      minibusMu,
+    );
+    assert.deepEqual(sonuc.map((x) => x.durak.gtfsId), ['mb', 'iett']);
+    assert.deepEqual(sonuc[0].durak.saatsiz.map((h) => h.gtfsId), ['mb1']);
+  });
+
+  it('aynı adlı ama uzaktaki durağa katlamaz', () => {
+    const sonuc = saatsizHatlariKatla(
+      [y('mb', 'KADIKÖY', 41.0, 0, [MB1]), y('iett', 'KADIKÖY', 41.01, 2, [IETT])],   // ~1,1 km
+      minibusMu,
+    );
+    assert.equal(sonuc.length, 2);
+  });
+
+  it('ne kalkışı ne saatsiz hattı olan durağı gizler', () => {
+    const sonuc = saatsizHatlariKatla([y('bos', 'X', 41.0, 0, [IETT]), y('dolu', 'Y', 41.001, 1, [IETT])], minibusMu);
+    assert.deepEqual(sonuc.map((x) => x.durak.gtfsId), ['dolu']);
+  });
+
+  it('hiçbir durakta kalkış yoksa (gece) hiçbirini gizlemez', () => {
+    const sonuc = saatsizHatlariKatla([y('a', 'X', 41.0, 0, [IETT]), y('b', 'Y', 41.001, 0, [])], minibusMu);
+    assert.deepEqual(sonuc.map((x) => x.durak.gtfsId), ['a', 'b']);
+  });
+
+  it('kalkışlı durağın kendi minibüs hatlarını da saatsiz olarak işaretler', () => {
+    const sonuc = saatsizHatlariKatla([y('karma', 'Z', 41.0, 2, [IETT, MB1])], minibusMu);
+    assert.deepEqual(sonuc[0].durak.saatsiz.map((h) => h.gtfsId), ['mb1']);
+  });
+
+  it('aynı hattı iki kez eklemez', () => {
+    const sonuc = saatsizHatlariKatla(
+      [y('iett', 'A', 41.0, 1, [MB1]), y('mb', 'A', 41.0002, 0, [MB1, MB2])],
+      minibusMu,
+    );
+    assert.deepEqual(sonuc[0].durak.saatsiz.map((h) => h.gtfsId), ['mb1', 'mb2']);
   });
 });

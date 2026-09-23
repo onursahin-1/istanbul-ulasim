@@ -29,7 +29,8 @@ export { SORGULAR, VARSAYILAN_SECENEKLER, tercihleriYap } from './sorgular';
 export { bacakDuraklari } from './bacak';
 export type { RotaSecenekleri, RotaTercihi } from './sorgular';
 import { SORGULAR as S, VARSAYILAN_SECENEKLER, tercihleriYap, type RotaSecenekleri } from './sorgular';
-import { aramayiIndir, yakinlariIndir, type Ebeveynli } from './istasyon';
+import { isletmeciAdi } from './hat-adi';
+import { aramayiIndir, saatsizHatlariKatla, yakinlariIndir, type Ebeveynli } from './istasyon';
 import { gunuKaydir } from './onbellek';
 import { onbellegeYaz, onbellektenOku } from './onbellek-depo';
 
@@ -106,7 +107,15 @@ export type Durak = {
   lon: number | null;
 };
 
-export type YakinDurak = { mesafe: number; durak: Durak & { kalkislar: Kalkis[] } };
+export type YakinDurak = {
+  mesafe: number;
+  durak: Durak & {
+    kalkislar: Kalkis[];
+    routes: Hat[];
+    /** Saat bilgisi olmayan (sıklık tabanlı) minibüs ve dolmuş hatları. */
+    saatsiz: Hat[];
+  };
+};
 
 export type DurakDetayi = Durak & {
   routes: Hat[] | null;
@@ -173,10 +182,16 @@ export async function yakinDuraklariGetir(lat: number, lon: number, sinyal?: Abo
     .filter((e) => e.node.place?.__typename === 'Stop')
     .map((e) => ({
       mesafe: e.node.distance,
-      durak: { ...(e.node.place as YakinDurak['durak']), kalkislar: e.node.place?.kalkislar ?? [] },
+      durak: {
+        ...(e.node.place as YakinDurak['durak']),
+        kalkislar: e.node.place?.kalkislar ?? [],
+        routes: e.node.place?.routes ?? [],
+      },
     }));
   // Aynı meydanın peronları tek satıra insin, kalkışları birleşsin.
-  return yakinlariIndir(ham, (a, b) => kalkisAni(a) - kalkisAni(b)) as YakinDurak[];
+  const indirilmis = yakinlariIndir(ham, (a: Kalkis, b: Kalkis) => kalkisAni(a) - kalkisAni(b));
+  // Minibüs ve dolmuş: OTP kalkışlarını vermiyor; hatlarını aynı adlı durağa katla, boş durakları gizle.
+  return saatsizHatlariKatla(indirilmis, (h: Hat) => !!isletmeciAdi(h.agency?.name)) as YakinDurak[];
 }
 
 /** Bir kalkışın mutlak anı (saniye); gerçek zamanlı varsa o, yoksa tarifedeki. */

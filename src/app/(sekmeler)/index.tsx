@@ -11,11 +11,31 @@ import { CanliAciklama, Dakika, HataKutusu, HatRozeti, Ikon, TarifeEtiketi, useS
 import { kalkisCanli } from '@/lib/canli';
 import { useKayitlar, type YerTuru } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
-import { OtpHatasi, yakinDuraklariGetir, type YakinDurak } from '@/lib/otp';
-import { baslikYap, useTema, yonYaz, type Tema } from '@/lib/tema';
+import { OtpHatasi, yakinDuraklariGetir, type Hat, type YakinDurak } from '@/lib/otp';
+import { baslikYap, hatEtiketi, useTema, yonYaz, type Tema } from '@/lib/tema';
 import { mesafeYaz } from '@/lib/zaman';
 
 const YENILEME_ARALIGI = 30_000;
+
+/**
+ * Minibüs ve dolmuş hatlarını araç tipine göre gruplar: her tip tek satır, yanında
+ * güzergâh adları. Saatleri olmadığı için (bkz. saatsizHatlariKatla) yalnız hangi
+ * hatların uğradığını söylüyoruz.
+ */
+function saatsizGruplari(hatlar: Hat[]): { tur: string; hatlar: Hat[]; adlar: string[] }[] {
+  const gruplar = new Map<string, { tur: string; hatlar: Hat[]; adlar: string[] }>();
+  for (const h of hatlar) {
+    const e = hatEtiketi(h.shortName, h.mode, h.agency?.name);
+    const g = gruplar.get(e.rozet) ?? { tur: e.rozet, hatlar: [], adlar: [] };
+    const ad = e.ayrinti || e.rozet;
+    if (!g.adlar.includes(ad)) {
+      g.hatlar.push(h);
+      g.adlar.push(ad);
+    }
+    gruplar.set(e.rozet, g);
+  }
+  return [...gruplar.values()];
+}
 
 export default function AnaEkran() {
   const kenar = useSafeAreaInsets();
@@ -181,7 +201,9 @@ export default function AnaEkran() {
                 </View>
                 <Text style={s.durakMesafe}>{mesafeYaz(mesafe)}</Text>
               </View>
-              {durak.kalkislar.length === 0 && <Text style={s.seferYok}>Yakın zamanda sefer yok</Text>}
+              {durak.kalkislar.length === 0 && durak.saatsiz.length === 0 && (
+                <Text style={s.seferYok}>Yakın zamanda sefer yok</Text>
+              )}
               {(() => {
                 const ilkIki = durak.kalkislar.slice(0, 2).map((k) => ({ k, canli: kalkisCanli(k) }));
                 // Aynı durakta canlı kalkış varsa canlı olmayanlar "tarifeye göre" diye ayrılıyor.
@@ -201,6 +223,24 @@ export default function AnaEkran() {
                   </View>
                 ));
               })()}
+              {saatsizGruplari(durak.saatsiz).map((g) => (
+                <View key={g.tur} style={s.sefer}>
+                  <View style={s.seferRozet}>
+                    <HatRozeti hat={g.hatlar[0]} />
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={s.seferYon} numberOfLines={1}>
+                      {g.adlar.join(', ')}
+                    </Text>
+                    <View style={s.saatsizNot}>
+                      <Ikon ad="time-outline" boyut={11} renkKodu={tema.soluk} />
+                      <Text style={s.saatsizYazi} numberOfLines={1}>
+                        {`${g.adlar.length} hat · saat bilgisi yok`}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              ))}
             </Pressable>
           ))}
         </AltYaprak>
@@ -283,6 +323,8 @@ const stiller = (t: Tema) =>
   durakYon: { fontSize: 12, color: t.soluk, marginTop: 1 },
   durakMesafe: { fontSize: 12, color: t.soluk },
   seferYok: { fontSize: 12.5, color: t.soluk },
+  saatsizNot: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  saatsizYazi: { fontSize: 11.5, color: t.soluk },
   sefer: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 3 },
   seferRozet: { width: 62 },
   seferYon: { flex: 1, fontSize: 13, color: t.soluk },

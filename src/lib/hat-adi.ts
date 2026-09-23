@@ -59,8 +59,8 @@ export function aracModu(routeType?: string | number | null): string {
   return TUR_MODLARI[String(routeType ?? '').trim()] ?? '';
 }
 
-/** İşletmeci adından yolcunun tanıdığı sözcüğü çıkarır. */
-function isletmeciAdi(isletmeci?: string | null): string {
+/** İşletmeci adından yolcunun tanıdığı sözcüğü çıkarır: "Minibüs", "Dolmuş" ya da boş. */
+export function isletmeciAdi(isletmeci?: string | null): string {
   const d = (isletmeci ?? '').toLocaleLowerCase('tr-TR');
   if (!d) return '';
   if (d.includes('minibus') || d.includes('minibüs')) return 'Minibüs';
