@@ -29,6 +29,7 @@ export { SORGULAR, VARSAYILAN_SECENEKLER, tercihleriYap } from './sorgular';
 export { bacakDuraklari } from './bacak';
 export type { RotaSecenekleri, RotaTercihi } from './sorgular';
 import { SORGULAR as S, VARSAYILAN_SECENEKLER, tercihleriYap, type RotaSecenekleri } from './sorgular';
+import type { HamArac } from './arac-konum';
 import { isletmeciAdi } from './hat-adi';
 import { aramayiIndir, ayniAdliSaatsizHatlar, saatsizHatlariKatla, yakinlariIndir, type Ebeveynli } from './istasyon';
 import { gunuKaydir } from './onbellek';
@@ -340,6 +341,24 @@ export async function hatlariGetir(sinyal?: AbortSignal): Promise<HatOzeti[]> {
 export async function hatDetayiGetir(id: string, sinyal?: AbortSignal): Promise<HatDetayi | null> {
   const veri = await sorgula<{ route: HatDetayi | null }>(HAT_DETAYI, { id }, sinyal);
   return veri.route;
+}
+
+/** İstanbul'un bugünkü tarihi, OTP'nin istediği biçimde: "20260923". */
+function istanbulGunu(simdiMs: number = Date.now()): string {
+  // İstanbul yaz saati uygulamıyor: her zaman UTC+3.
+  return new Date(simdiMs + 3 * 3600_000).toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+/**
+ * Bir hattın yönlerindeki otobüslerin canlı konumu, desen koduna göre. Canlı veri
+ * yoksa (metro, köprü kapalı, hat henüz öğrenilmemiş) boş gelir.
+ */
+export async function hatAraclariGetir(id: string, sinyal?: AbortSignal): Promise<Record<string, HamArac[]>> {
+  type Cevap = { route: { patterns: { code: string; vehiclePositions: HamArac[] | null }[] | null } | null };
+  const veri = await sorgula<Cevap>(S.HAT_ARACLARI, { id, gun: istanbulGunu() }, sinyal);
+  const sonuc: Record<string, HamArac[]> = {};
+  for (const d of veri.route?.patterns ?? []) sonuc[d.code] = d.vehiclePositions ?? [];
+  return sonuc;
 }
 
 /** Durak ekranındaki bir satır: hat + yön + sıradaki kalkışlar. */

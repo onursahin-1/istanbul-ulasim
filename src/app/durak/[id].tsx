@@ -229,7 +229,14 @@ export default function DurakEkrani() {
                 <Pressable
                   key={y.anahtar}
                   style={s.sefer}
-                  onPress={() => y.hat && router.push({ pathname: '/hat/[id]', params: { id: y.hat.gtfsId } })}
+                  onPress={() =>
+                    y.hat &&
+                    router.push({
+                      pathname: '/hat/[id]',
+                      // Hat ekranı bu yönü açsın, bu durağı işaretlesin: yaklaşan otobüsler görünsün.
+                      params: { id: y.hat.gtfsId, desen: y.anahtar, durak: durak?.gtfsId ?? '', durakAd: durak?.name ?? '' },
+                    })
+                  }
                   accessibilityRole="button"
                   accessibilityLabel={[
                     y.hat?.shortName ?? '',

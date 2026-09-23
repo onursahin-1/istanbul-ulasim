@@ -172,6 +172,25 @@ query HatDetayi($id: String!) {
   }
 }`;
 
+// Hat ekranı: hattın her yönündeki otobüslerin canlı konumu. Durak listesinden ayrı
+// soruluyor, çünkü yalnız bu kısım yarım dakikada bir tazeleniyor. Gecikme seferin
+// bugünkü canlı saatlerinden okunuyor (arac-konum.ts, seferGecikmesi).
+const HAT_ARACLARI = `
+query HatAraclari($id: String!, $gun: String!) {
+  route(id: $id) {
+    patterns {
+      code
+      vehiclePositions {
+        vehicleId label lat lon heading lastUpdate
+        trip {
+          gtfsId
+          stoptimesForDate(serviceDate: $gun) { stop { gtfsId } departureDelay realtime }
+        }
+      }
+    }
+  }
+}`;
+
 // Ayarlar ekranı: sunucunun hangi veriyi yüklediği ve tarifenin hangi tarihleri kapsadığı.
 const SUNUCU_BILGISI = `
 query SunucuBilgisi {
@@ -220,5 +239,6 @@ export const SORGULAR = {
   HAT_KALKISLARI,
   HATLAR,
   HAT_DETAYI,
+  HAT_ARACLARI,
   SUNUCU_BILGISI,
 };
