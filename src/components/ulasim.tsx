@@ -260,7 +260,9 @@ export function NabizNoktasi({ renk, boyut = 7 }: { renk: string; boyut?: number
 export function Dakika({ an, canli, style }: { an: number; canli?: CanliBilgi | null; style?: StyleProp<ViewStyle> }) {
   const tema = useTema();
   const g = kalkisGosterimi(an);
-  const renk = canli ? canliRenk(canli.sinif, tema) : g.dakika <= 3 ? tema.vurgu : tema.yazi;
+  // Renk yalnız canlı veriye ait: tarifeli saat, ne kadar yakın olursa olsun, düz yazı rengi.
+  // Yoksa yakın bir tarifeli kalkış canlı "zamanında" ile aynı renge boyanıp karışıyordu.
+  const renk = canli ? canliRenk(canli.sinif, tema) : tema.yazi;
   const etiket = canli ? `${g.seslendirme}, canlı, ${canli.metin}` : g.seslendirme;
   return (
     <View style={[stil.dakika, style]} accessible accessibilityLabel={etiket}>

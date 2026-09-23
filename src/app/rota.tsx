@@ -554,7 +554,7 @@ const stiller = (t: Tema) =>
   altYazi: { fontSize: 12.5, color: t.soluk, fontVariant: ['tabular-nums'] },
   kalin: { color: t.yazi, fontWeight: '700' },
   ucret: { color: t.vurgu, fontWeight: '700' },
-  ilkArac: { fontSize: 12.5, color: t.vurgu, fontWeight: '600' },
+  ilkArac: { fontSize: 12.5, color: t.yazi, fontWeight: '600' },
   canliBlok: { gap: 3 },
   canliSatir: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: -3 },
   esnek: { flex: 1, minWidth: 0 },
