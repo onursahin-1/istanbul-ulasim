@@ -17,9 +17,12 @@ import {
   ROZET_SUTUNU,
   TarifeEtiketi,
   useStiller,
+  YaklasmaSeridi,
   Yukleniyor,
 } from '@/components/ulasim';
+import { araclariYerlestir, kalanYaz, yaklasanOtobus, yasYaz } from '@/lib/arac-konum';
 import { kalkisCanli } from '@/lib/canli';
+import { trKucuk } from '@/lib/metin';
 import { favoriDegistir, useKayitlar } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
 import { durakSaatleriYedekli, OtpHatasi, saatsizHatlariGetir, saatsizHatMi, type DurakSaatleri, type Hat } from '@/lib/otp';
@@ -90,8 +93,20 @@ export default function DurakEkrani() {
   // Her hattın her yönü kendi satırında: kalabalık duraklarda tek bir karışık listede
   // bazı hatlar hiç görünmüyordu. Satırlar en yakın kalkışa göre sıralanır.
   const yonler = useMemo(() => {
+    const simdi = Date.now();
+    const ad = trKucuk(durak?.name ?? '').trim();
     const liste = (durak?.desenler ?? [])
       .map((d) => {
+        // Bu yöne gelen en yakın otobüs: desenin durak sırasında bu durak kaçıncı,
+        // otobüs nerede. İstasyondan (birden çok peron) gelindiyse ad tutan durak.
+        const desenDuraklari = d.pattern?.stops ?? [];
+        let sira = desenDuraklari.findIndex((x) => x.gtfsId === durak?.gtfsId);
+        if (sira < 0 && ad) sira = desenDuraklari.findIndex((x) => trKucuk(x.name ?? '').trim() === ad);
+        const ilkSefer = (d.stoptimes ?? []).find((k) => k)?.trip?.gtfsId;
+        const yaklasan =
+          sira >= 0 && d.pattern?.vehiclePositions?.length
+            ? yaklasanOtobus(araclariYerlestir(desenDuraklari, d.pattern.vehiclePositions, simdi), sira, ilkSefer)
+            : null;
         const kalkislar = (d.stoptimes ?? [])
           .map((k) => ({
             saniye: k.realtimeDeparture ?? k.scheduledDeparture ?? 0,
@@ -109,6 +124,7 @@ export default function DurakEkrani() {
           guzergah: hatEtiketi(d.pattern?.route?.shortName, d.pattern?.route?.mode, d.pattern?.route?.agency?.name)
             .ayrinti,
           kalkislar,
+          yaklasan,
         };
       })
       .filter((x) => x.hat && x.kalkislar.length > 0);
@@ -243,6 +259,7 @@ export default function DurakEkrani() {
                     y.yon,
                     kalkisGosterimi(y.kalkislar[0].an).seslendirme,
                     y.kalkislar[0].canli ? `canlı, ${y.kalkislar[0].canli.metin}` : canliVar ? 'tarifeye göre' : '',
+                    y.yaklasan ? `otobüs ${kalanYaz(y.yaklasan.kalan)}` : '',
                   ]
                     .filter(Boolean)
                     .join(' · ')}
@@ -264,6 +281,19 @@ export default function DurakEkrani() {
                     ) : canliVar ? (
                       <TarifeEtiketi saat={istanbulSaatiYaz(y.kalkislar[0].an)} />
                     ) : null}
+                    {y.yaklasan && (
+                      <View style={s.yaklasma}>
+                        <YaklasmaSeridi
+                          kalan={y.yaklasan.kalan}
+                          renk={y.hat ? hatRengi(y.hat, tema) : tema.vurgu}
+                          soluk={y.yaklasan.otobus.sinif === 'eski'}
+                        />
+                        <Text style={s.yaklasmaYazi} numberOfLines={1}>
+                          <Text style={s.yaklasmaKalin}>{`Otobüs ${kalanYaz(y.yaklasan.kalan)}`}</Text>
+                          {` · ${yasYaz(y.yaklasan.otobus.yasSn)}`}
+                        </Text>
+                      </View>
+                    )}
                     {y.kalkislar[0].canli || canliVar ? (
                       // İlk kalkışın saati üstteki satırda; burada yalnız sonrakiler.
                       y.kalkislar.length > 1 && (
@@ -371,4 +401,7 @@ const stiller = (t: Tema) =>
   tarife: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   tarifeNokta: { width: 8, height: 8, borderRadius: 4, backgroundColor: t.yurume },
   tarifeYazi: { flex: 1, fontSize: 11.5, color: t.soluk },
+  yaklasma: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 },
+  yaklasmaYazi: { flex: 1, fontSize: 12, color: t.soluk },
+  yaklasmaKalin: { color: t.yazi, fontWeight: '600' },
 });

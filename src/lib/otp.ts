@@ -191,6 +191,8 @@ export type HatDeseni = {
   headsign: string | null;
   directionId: string | null;
   stops: { gtfsId: string; name: string; lat: number | null; lon: number | null }[] | null;
+  /** Güzergâhın yol üzerindeki çizgisi (kodlanmış polyline); haritada çizmek için. */
+  patternGeometry?: { points: string | null } | null;
 };
 
 export type HatDetayi = HatOzeti & { patterns: HatDeseni[] | null };
@@ -361,9 +363,23 @@ export async function hatAraclariGetir(id: string, sinyal?: AbortSignal): Promis
   return sonuc;
 }
 
+/** Bir seferin deseni üzerindeki otobüslerin canlı konumu. */
+export async function seferAraclariGetir(seferId: string, sinyal?: AbortSignal): Promise<HamArac[]> {
+  type Cevap = { trip: { pattern: { vehiclePositions: HamArac[] | null } | null } | null };
+  const veri = await sorgula<Cevap>(S.SEFER_ARACLARI, { id: seferId }, sinyal);
+  return veri.trip?.pattern?.vehiclePositions ?? [];
+}
+
 /** Durak ekranındaki bir satır: hat + yön + sıradaki kalkışlar. */
 export type DurakDeseni = {
-  pattern: { code: string; headsign: string | null; directionId: string | null; route: Hat } | null;
+  pattern: {
+    code: string;
+    headsign: string | null;
+    directionId: string | null;
+    route: Hat;
+    stops?: DurakNoktasi[] | null;
+    vehiclePositions?: HamArac[] | null;
+  } | null;
   stoptimes: Kalkis[] | null;
 };
 

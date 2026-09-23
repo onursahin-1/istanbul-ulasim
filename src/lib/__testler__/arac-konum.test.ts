@@ -7,6 +7,8 @@ import {
   araclariYerlestir,
   durakSirasindaYer,
   gecikmeKisa,
+  kalanYaz,
+  yaklasanOtobus,
   seferGecikmesi,
   yasSinifi,
   yasYaz,
@@ -132,5 +134,49 @@ describe('araclariYerlestir', () => {
       trip: { stoptimesForDate: [{ stop: { gtfsId: 'd1' }, departureDelay: 190, realtime: true }] },
     };
     assert.equal(araclariYerlestir(D, [a], SIMDI)[0].gecikme, 190);
+  });
+});
+
+describe('yaklasanOtobus', () => {
+  const o = (etiket: string, konum: number, sefer: string | null = null) => ({
+    kimlik: etiket,
+    etiket,
+    konum,
+    durum: 'yaklasiyor' as const,
+    durak: Math.ceil(konum),
+    yasSn: 30,
+    sinif: 'taze' as const,
+    gecikme: null,
+    sefer,
+    lat: 41,
+    lon: 29,
+    heading: null,
+  });
+
+  it('durağın gerisindeki en yakın otobüsü seçer', () => {
+    const r = yaklasanOtobus([o('A', 1.5), o('B', 3.5), o('C', 6)], 5);
+    assert.equal(r?.otobus.etiket, 'B');
+    assert.equal(r?.kalan, 2);
+  });
+
+  it('kalkışın seferini yapan otobüsü öne alır', () => {
+    const r = yaklasanOtobus([o('A', 1.5, 's1'), o('B', 3.5, 's2')], 5, 's1');
+    assert.equal(r?.otobus.etiket, 'A');
+    assert.equal(r?.kalan, 4);
+  });
+
+  it('durakta olanın kalanı 0', () => {
+    assert.equal(yaklasanOtobus([o('A', 5)], 5)?.kalan, 0);
+  });
+
+  it('durağı geçmiş ya da çok uzaktaki otobüs yaklaşan sayılmaz', () => {
+    assert.equal(yaklasanOtobus([o('A', 6)], 5), null);
+    assert.equal(yaklasanOtobus([o('A', 6), o('B', 0)], 30), null);
+    assert.equal(yaklasanOtobus([o('A', 1)], -1), null);
+  });
+
+  it('yazımı', () => {
+    assert.equal(kalanYaz(0), 'durakta');
+    assert.equal(kalanYaz(2), '2 durak uzakta');
   });
 });

@@ -11,13 +11,15 @@ import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AltYaprak } from '@/components/alt-yaprak';
+import { OtobusIsareti } from '@/components/harita-isaretleri';
 import { HatirlatmaSayfasi, type InisBilgisi } from '@/components/hatirlatma';
 import { canliRenk, GeriCubugu, HatRozeti, Ikon, useStiller, type IkonAdi } from '@/components/ulasim';
 import { bacakCanli } from '@/lib/canli';
 import { useHatirlaticilar } from '@/lib/bildirim';
 import { useKayitlar } from '@/lib/kayitlar';
 import { mesafeMetre, polylineCoz, type Nokta } from '@/lib/cografya';
-import { bacakDuraklari, hatKalkislariGetir, type Bacak } from '@/lib/otp';
+import { araclariYerlestir, kalanYaz, yaklasanOtobus, yasYaz, type YerlesikArac } from '@/lib/arac-konum';
+import { bacakDuraklari, hatKalkislariGetir, seferAraclariGetir, type Bacak } from '@/lib/otp';
 import { guzergahGetir } from '@/lib/secim';
 import { seferBilgisi, sikliktanYazi, type SeferBilgisi } from '@/lib/sefer';
 import { aracAdi, baslikYap, haritaRengi, hatEtiketi, hatRengi, useTema, type Tema } from '@/lib/tema';
@@ -110,6 +112,42 @@ export default function RotaDetayEkrani() {
   const [yaprakAlani, setYaprakAlani] = useState(0);
   const [altCubuk, setAltCubuk] = useState(0);
   const [yaprakBoyu, setYaprakBoyu] = useState(Math.round(height * 0.5));
+
+  // Bineceğin otobüsler: henüz binilmemiş her araç bacağı için, o seferi yapan otobüs
+  // ve biniş durağına kaç durak kaldığı. Yarım dakikada bir tazeleniyor; alınamazsa
+  // sessizce boş kalıyor (canlı konum süs, yolculuk onsuz da planlanmış).
+  const [binisOtobusleri, setBinisOtobusleri] = useState<Record<number, { otobus: YerlesikArac; kalan: number }>>({});
+  useEffect(() => {
+    let acik = true;
+    const yukle = async () => {
+      const simdi = Date.now();
+      const sonuc: Record<number, { otobus: YerlesikArac; kalan: number }> = {};
+      await Promise.all(
+        bacaklar.map(async (b, i) => {
+          const sefer = b.trip?.gtfsId;
+          const duraklar = b.trip?.pattern?.stops ?? [];
+          const binis = Date.parse(b.start.estimated?.time ?? b.start.scheduledTime ?? '');
+          if (!b.transitLeg || !sefer || !duraklar.length || !(binis > simdi - 60_000)) return;
+          try {
+            const araclar = araclariYerlestir(duraklar, await seferAraclariGetir(sefer), simdi);
+            const sira = duraklar.findIndex((d) => d.gtfsId === b.from.stop?.gtfsId);
+            const y = yaklasanOtobus(araclar, sira, sefer);
+            // Yalnız bu seferin otobüsü: başka bir otobüsü "bineceğin" diye göstermek yanıltır.
+            if (y && y.otobus.sefer === sefer) sonuc[i] = y;
+          } catch {
+            // canlı konum alınamadı; bu bacakta gösterilmez
+          }
+        }),
+      );
+      if (acik) setBinisOtobusleri(sonuc);
+    };
+    yukle();
+    const zamanlayici = setInterval(yukle, 30_000);
+    return () => {
+      acik = false;
+      clearInterval(zamanlayici);
+    };
+  }, [bacaklar]);
 
   /** Bacak açıldığında biniş durağının o hatta ait kalkışlarını bir kez çeker. */
   const seferleriYukle = useCallback(
@@ -295,6 +333,22 @@ export default function RotaDetayEkrani() {
             />
           ))}
         <Marker coordinate={{ latitude: bacaklar[0].from.lat, longitude: bacaklar[0].from.lon }} title="Başlangıç" pinColor={tema.vurgu} />
+        {Object.entries(binisOtobusleri).map(([i, { otobus, kalan }]) => (
+          <Marker
+            key={`otobus-${i}`}
+            coordinate={{ latitude: otobus.lat, longitude: otobus.lon }}
+            anchor={{ x: 0.5, y: 0.5 }}
+            title={`${bacaklar[Number(i)]?.route?.shortName ?? 'Otobüs'} · ${kalanYaz(kalan)}`}
+            description={`Konum ${yasYaz(otobus.yasSn)}`}
+            zIndex={10}
+          >
+            <OtobusIsareti
+              renk={haritaRengi(bacaklar[Number(i)]?.route, tema)}
+              yon={otobus.heading}
+              soluk={otobus.sinif === 'eski'}
+            />
+          </Marker>
+        ))}
         <Marker
           coordinate={{ latitude: bacaklar[bacaklar.length - 1].to.lat, longitude: bacaklar[bacaklar.length - 1].to.lon }}
           title={hedef ? baslikYap(hedef) : 'Varış'}
@@ -397,6 +451,15 @@ export default function RotaDetayEkrani() {
                             </Text>
                             <Ikon ad={acik ? 'chevron-up' : 'chevron-down'} boyut={15} renkKodu={acik ? renkKodu : tema.soluk} />
                           </Pressable>
+
+                          {binisOtobusleri[i] && (
+                            <OtobusKutusu
+                              kalan={binisOtobusleri[i].kalan}
+                              otobus={binisOtobusleri[i].otobus}
+                              binis={b.start.estimated?.time ?? b.start.scheduledTime}
+                              renk={renkKodu}
+                            />
+                          )}
 
                           {acik && (
                             <View style={s.durakPaneli}>
@@ -607,6 +670,42 @@ export default function RotaDetayEkrani() {
   );
 }
 
+/**
+ * Bineceğin otobüs: "Otobüs 2 durak uzakta · ~4 dk". Dakika biniş durağından
+ * kalkışa kalan süre (canlı gecikmeyle düzeltilmiş); yürümeye ne zaman başlaman
+ * gerektiğini söylüyor.
+ */
+function OtobusKutusu({
+  kalan,
+  otobus,
+  binis,
+  renk,
+}: {
+  kalan: number;
+  otobus: YerlesikArac;
+  binis: string | null | undefined;
+  renk: string;
+}) {
+  const tema = useTema();
+  const s = useStiller(stiller);
+  const dk = binis ? Math.round((Date.parse(binis) - Date.now()) / 60_000) : null;
+  const soluk = otobus.sinif === 'eski';
+  return (
+    <View style={[s.otobusKutu, { borderColor: soluk ? tema.cizgi : renk }]}>
+      <View style={[s.otobusSimge, { backgroundColor: soluk ? tema.soluk : renk }]}>
+        <Ikon ad="bus" boyut={13} renkKodu="#fff" />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={s.otobusBaslik}>
+          {`Otobüs ${kalanYaz(kalan)}`}
+          {dk != null && dk > 0 ? ` · ~${dk} dk` : ''}
+        </Text>
+        <Text style={s.otobusAlt}>{`Konum ${yasYaz(otobus.yasSn)} güncellendi`}</Text>
+      </View>
+    </View>
+  );
+}
+
 /** Ücret kutusunun altındaki açıklama: tarife, tahmin payı ve gece tarifesi uyarısı. */
 function ucretNotu(ucret: ReturnType<typeof yolculukUcreti>, tur: keyof typeof UCRET_ADLARI): string {
   const parcalar = [`${UCRET_ADLARI[tur]} · ${TARIFE_TARIHI} tarifesi`];
@@ -716,6 +815,19 @@ const stiller = (t: Tema) =>
   adimBaslik: { fontSize: 14, fontWeight: '700', color: t.yazi },
   adimAlt: { fontSize: 12.5, color: t.soluk, flexShrink: 1, flexGrow: 1 },
   adimCanli: { fontSize: 12.5, fontWeight: '700', color: t.vurgu },
+  otobusKutu: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 6,
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    backgroundColor: t.yuzeyIkincil,
+  },
+  otobusSimge: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  otobusBaslik: { fontSize: 14, fontWeight: '700', color: t.yazi },
+  otobusAlt: { fontSize: 12, color: t.soluk, marginTop: 1 },
 
   bacakDugme: {
     flexDirection: 'row',

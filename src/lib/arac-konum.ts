@@ -71,6 +71,8 @@ export type YerlesikArac = {
   sinif: Exclude<YasSinifi, 'gizli'>;
   /** Saniye; canlı gecikme bilinmiyorsa null. */
   gecikme: number | null;
+  /** Otobüsün yaptığı seferin kimliği (OTP gtfsId); bilinmiyorsa null. */
+  sefer: string | null;
   lat: number;
   lon: number;
   heading: number | null;
@@ -163,10 +165,43 @@ export function araclariYerlestir(
       yasSn,
       sinif,
       gecikme: seferGecikmesi(a.trip?.stoptimesForDate, duraklar[yer.durak]?.gtfsId),
+      sefer: a.trip?.gtfsId ?? null,
       lat: a.lat,
       lon: a.lon,
       heading: a.heading ?? null,
     });
   }
   return sonuc.sort((x, y) => x.konum - y.konum);
+}
+
+/** Yaklaşan otobüsün aranacağı en uzak mesafe (durak). Daha gerideki otobüs "yaklaşan" sayılmaz. */
+export const EN_UZAK_DURAK = 15;
+
+/**
+ * Bir durağa gelmekte olan otobüs ve kaç durak uzakta olduğu.
+ *
+ * Önce o kalkışın seferini yapan otobüs aranır (sefer kimliği tutan); yoksa durağın
+ * gerisindeki en yakın otobüs. Durağı geçmiş otobüs yaklaşan değildir.
+ *
+ * @param durakSirasi durağın desen içindeki sırası
+ * @param sefer beklenen kalkışın sefer kimliği, biliniyorsa
+ * @returns kalan: 0 = durakta, 1 = bir önceki duraktan geliyor…
+ */
+export function yaklasanOtobus(
+  araclar: YerlesikArac[],
+  durakSirasi: number,
+  sefer?: string | null,
+): { otobus: YerlesikArac; kalan: number } | null {
+  if (durakSirasi < 0) return null;
+  const gerideki = araclar.filter((a) => a.konum <= durakSirasi && durakSirasi - a.konum <= EN_UZAK_DURAK);
+  const seferle = sefer ? gerideki.find((a) => a.sefer === sefer) : undefined;
+  const secilen =
+    seferle ?? gerideki.reduce<YerlesikArac | null>((en, a) => (!en || a.konum > en.konum ? a : en), null);
+  if (!secilen) return null;
+  return { otobus: secilen, kalan: Math.ceil(durakSirasi - secilen.konum) };
+}
+
+/** "durakta", "1 durak uzakta", "3 durak uzakta". */
+export function kalanYaz(kalan: number): string {
+  return kalan <= 0 ? 'durakta' : `${kalan} durak uzakta`;
 }

@@ -76,7 +76,12 @@ fragment durakAlanlari on Stop {
   gtfsId name code desc lat lon
   routes { ${HAT_ALANLARI} }
   desenler: stoptimesForPatterns(numberOfDepartures: $kalkis, timeRange: $aralik, omitNonPickups: true) {
-    pattern { code headsign directionId route { ${HAT_ALANLARI} } }
+    pattern {
+      code headsign directionId route { ${HAT_ALANLARI} }
+      # Yaklaşan otobüs kaç durak uzakta: desenin durak sırası ve üstündeki otobüsler.
+      stops { gtfsId name lat lon }
+      vehiclePositions { vehicleId label lat lon heading lastUpdate trip { gtfsId } }
+    }
     stoptimes { ${KALKIS_ALANLARI} }
   }
 }`;
@@ -168,6 +173,7 @@ query HatDetayi($id: String!) {
       headsign
       directionId
       stops { gtfsId name lat lon }
+      patternGeometry { points }
     }
   }
 }`;
@@ -187,6 +193,17 @@ query HatAraclari($id: String!, $gun: String!) {
           stoptimesForDate(serviceDate: $gun) { stop { gtfsId } departureDelay realtime }
         }
       }
+    }
+  }
+}`;
+
+// Yolculuk detayı: bineceğin seferin deseni üzerindeki otobüsler. Ekranda yalnız
+// seferi tutan otobüs gösteriliyor ("bineceğin otobüs"), başka sefer değil.
+const SEFER_ARACLARI = `
+query SeferAraclari($id: String!) {
+  trip(id: $id) {
+    pattern {
+      vehiclePositions { vehicleId label lat lon heading lastUpdate trip { gtfsId } }
     }
   }
 }`;
@@ -240,5 +257,6 @@ export const SORGULAR = {
   HATLAR,
   HAT_DETAYI,
   HAT_ARACLARI,
+  SEFER_ARACLARI,
   SUNUCU_BILGISI,
 };

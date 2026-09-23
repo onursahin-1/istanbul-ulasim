@@ -313,6 +313,35 @@ export function TarifeEtiketi({ saat }: { saat?: string }) {
   );
 }
 
+/** Yaklaşma şeridinde gösterilen durak sayısı (yolcunun durağı hariç). */
+const SERIT_DURAK = 4;
+
+/**
+ * Durak satırındaki yaklaşma şeridi: soldan gelen otobüs, sağdaki halka yolcunun
+ * durağı. Son dört durak gösteriliyor; otobüs daha uzaktaysa şeridin başında
+ * bekliyor, kaç durak kaldığını yanındaki yazı söylüyor.
+ */
+export function YaklasmaSeridi({ kalan, renk, soluk = false }: { kalan: number; renk: string; soluk?: boolean }) {
+  const tema = useTema();
+  const aralik = 12;
+  const yer = SERIT_DURAK - Math.min(Math.max(kalan, 0), SERIT_DURAK);
+  const otobusRengi = soluk ? tema.soluk : renk;
+  return (
+    <View style={{ width: aralik * SERIT_DURAK + 14, height: 16, justifyContent: 'center' }} accessible={false}>
+      <View style={[stil.seritCizgi, { backgroundColor: tema.cizgi, left: 7, width: aralik * SERIT_DURAK }]} />
+      {Array.from({ length: SERIT_DURAK }, (_, i) => (
+        <View key={i} style={[stil.seritNokta, { left: 7 + i * aralik - 2, backgroundColor: tema.cizgi }]} />
+      ))}
+      <View
+        style={[stil.seritHalka, { left: 7 + SERIT_DURAK * aralik - 5, borderColor: renk, backgroundColor: tema.yuzey }]}
+      />
+      <View style={[stil.seritOtobus, { left: yer * aralik, backgroundColor: otobusRengi, borderColor: tema.yuzey }]}>
+        <Ionicons name="bus" size={8} color="#fff" />
+      </View>
+    </View>
+  );
+}
+
 /**
  * Temaya bağlı stilleri belleğe alır. Ekranlar stil tablolarını modül düzeyinde
  * `const stiller = (t: Tema) => StyleSheet.create({...})` olarak yazar ve bununla çağırır;
@@ -324,6 +353,18 @@ export function useStiller<T>(uret: (tema: Tema) => T): T {
 }
 
 const stil = StyleSheet.create({
+  seritCizgi: { position: 'absolute', height: 2, borderRadius: 1 },
+  seritNokta: { position: 'absolute', width: 4, height: 4, borderRadius: 2 },
+  seritHalka: { position: 'absolute', width: 10, height: 10, borderRadius: 5, borderWidth: 2.5 },
+  seritOtobus: {
+    position: 'absolute',
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   cevrimdisi: {
     flexDirection: 'row',
     alignItems: 'center',

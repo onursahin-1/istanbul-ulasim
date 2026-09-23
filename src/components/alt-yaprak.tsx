@@ -14,7 +14,7 @@
 //
 // Durak seçimi src/lib/yaprak.ts'te, testli.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -62,6 +62,8 @@ type Ozellikler = {
   onDurum?: (durum: YaprakDurumu, gorunenYukseklik: number) => void;
   stil?: StyleProp<ViewStyle>;
   erisilebilirlikEtiketi?: string;
+  /** Listeyi dışarıdan kaydırmak için (ör. hat ekranında gelinen durağa). */
+  listeRef?: Ref<{ kaydir: (y: number) => void }>;
 };
 
 export function AltYaprak({
@@ -75,6 +77,7 @@ export function AltYaprak({
   onDurum,
   stil,
   erisilebilirlikEtiketi = 'Listeyi aç ya da kapat',
+  listeRef,
 }: Ozellikler) {
   const tema = useTema();
   const y = useMemo(
@@ -92,6 +95,9 @@ export function AltYaprak({
   const listeKayar = durum === 'acik' && kaydirilabilir;
   const durumRef = useRef<YaprakDurumu>(baslangic);
   const liste = useRef<ScrollView>(null);
+  useImperativeHandle(listeRef, () => ({
+    kaydir: (y: number) => liste.current?.scrollTo({ y: Math.max(0, y), animated: false }),
+  }));
   const onDurumRef = useRef(onDurum);
   onDurumRef.current = onDurum;
   const yRef = useRef(y);

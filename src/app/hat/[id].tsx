@@ -4,17 +4,33 @@
 // Bazı hatlarda ring seferi ya da kısa güzergâh gibi ek desenler de bulunur;
 // bunlar da yön seçeneği olarak listelenir.
 //
-// Canlı konum: seçili yöndeki otobüsler durak listesinin arasına giriyor (hangi iki
-// durağın arasında oldukları arac-konum.ts'te hesaplanıyor). Durak ekranından
-// gelindiyse o durak işaretleniyor: "bana en yakın otobüs hangisi" bir bakışta okunur.
+// Ekran harita + sürüklenebilir yaprak: haritada güzergâh çizgisi, duraklar ve
+// otobüsler; yaprakta durak listesi.
+//
+// Canlı konum: seçili yöndeki otobüsler haritada ve durak listesinin arasında
+// (hangi iki durağın arasında oldukları arac-konum.ts'te hesaplanıyor). Durak
+// ekranından gelindiyse o durak işaretleniyor ve harita durağı ile ona yaklaşan
+// otobüsü birlikte gösteriyor: "bana en yakın otobüs nerede" bir bakışta okunur.
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AltYaprak } from '@/components/alt-yaprak';
+import { DurakIsareti, OtobusIsareti } from '@/components/harita-isaretleri';
 import { canliRenk, HataKutusu, HatRozeti, Ikon, NabizNoktasi, useStiller, Yukleniyor } from '@/components/ulasim';
-import { araclariYerlestir, gecikmeKisa, yasYaz, type HamArac, type YerlesikArac } from '@/lib/arac-konum';
+import {
+  araclariYerlestir,
+  gecikmeKisa,
+  kalanYaz,
+  yaklasanOtobus,
+  yasYaz,
+  type HamArac,
+  type YerlesikArac,
+} from '@/lib/arac-konum';
+import { polylineCoz, type Nokta } from '@/lib/cografya';
 import { canliBilgi } from '@/lib/canli';
 import { trKucuk } from '@/lib/metin';
 import { hatAraclariGetir, hatDetayiGetir, OtpHatasi, type HatDetayi } from '@/lib/otp';
@@ -37,8 +53,13 @@ export default function HatEkrani() {
   const [yon, setYon] = useState<number | null>(null);
   const [araclar, setAraclar] = useState<Record<string, HamArac[]>>({});
   const [simdi, setSimdi] = useState(() => Date.now());
-  const liste = useRef<ScrollView>(null);
+  const liste = useRef<{ kaydir: (y: number) => void }>(null);
   const kaydirildi = useRef(false);
+  const harita = useRef<MapView>(null);
+  const [alan, setAlan] = useState(0);
+  const [yaprakBoyu, setYaprakBoyu] = useState(300);
+  const haritaHazir = useRef(false);
+  const sigdirilan = useRef('');
 
   const yukle = useCallback(async () => {
     if (!id) return;
@@ -114,6 +135,68 @@ export default function HatEkrani() {
     return m;
   }, [otobusler]);
   const enTaze = otobusler.length ? Math.min(...otobusler.map((o) => o.yasSn)) : null;
+  const yaklasan = useMemo(() => yaklasanOtobus(otobusler, isaretli), [otobusler, isaretli]);
+
+  // Güzergâh çizgisi: OTP'nin yol geometrisi; yoksa duraklardan geçen düz çizgi.
+  const cizgi = useMemo<Nokta[]>(() => {
+    const yol = polylineCoz(secili?.patternGeometry?.points);
+    if (yol.length > 1) return yol;
+    return duraklar
+      .filter((d) => d.lat != null && d.lon != null)
+      .map((d) => ({ latitude: d.lat!, longitude: d.lon! }));
+  }, [secili, duraklar]);
+
+  /**
+   * Noktaları haritanın yaprak dışında kalan kısmına sığdırır. Tek nokta ise çevresindeki
+   * birkaç sokakla birlikte. (Haritanın ortasına koymak yetmez: alt yarısı yaprağın altında.)
+   */
+  const odakla = useCallback(
+    (noktalar: Nokta[], animasyonlu: boolean) => {
+      const P = 0.0025;
+      const kapsam =
+        noktalar.length === 1
+          ? [
+              { latitude: noktalar[0].latitude - P, longitude: noktalar[0].longitude - P },
+              { latitude: noktalar[0].latitude + P, longitude: noktalar[0].longitude + P },
+            ]
+          : noktalar;
+      harita.current?.fitToCoordinates(kapsam, {
+        edgePadding: { top: 50, right: 50, bottom: yaprakBoyu + 40, left: 50 },
+        animated: animasyonlu,
+      });
+    },
+    [yaprakBoyu],
+  );
+
+  /**
+   * Haritayı sığdırır. Gelinen durak varsa durak ile ona yaklaşan otobüs; yoksa
+   * bütün güzergâh. Her yön ve "otobüs var/yok" durumu için bir kez: sonra harita
+   * kullanıcının, her tazelemede zıplamasın.
+   */
+  const sigdir = useCallback(
+    (zorla = false) => {
+      if (!haritaHazir.current || !secili || cizgi.length < 2) return;
+      const anahtar = `${secili.code}|${yaklasan ? 'otobus' : ''}`;
+      if (!zorla && sigdirilan.current === anahtar) return;
+      sigdirilan.current = anahtar;
+      const durak = isaretli >= 0 ? duraklar[isaretli] : null;
+      const noktalar =
+        durak?.lat != null && durak.lon != null
+          ? [
+              { latitude: durak.lat, longitude: durak.lon },
+              ...(yaklasan ? [{ latitude: yaklasan.otobus.lat, longitude: yaklasan.otobus.lon }] : []),
+            ]
+          : cizgi;
+      odakla(noktalar, zorla);
+    },
+    [secili, cizgi, isaretli, duraklar, yaklasan, odakla],
+  );
+
+  useEffect(() => {
+    sigdir();
+  }, [sigdir]);
+
+  const otobuseGit = (o: YerlesikArac) => odakla([{ latitude: o.lat, longitude: o.lon }], true);
   // Durak çizgisi rozetle aynı renkte (koyu temada açılmış ton), başlık şeridi ise
   // hattın resmî rengini kullanır; geniş bir alanı açılmış tonla boyamak göz alıyor.
   const renkKodu = hat ? hatRengi(hat, tema) : tema.vurgu;
@@ -127,124 +210,208 @@ export default function HatEkrani() {
     return ad ? `${ad} yönü` : '';
   };
 
+  const yonSecici =
+    hat && desenler.length > 1 ? (
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.yonlar}>
+        {desenler.map((d, i) => {
+          const aktif = i === yonNo;
+          return (
+            <Pressable
+              key={d.code}
+              onPress={() => setYon(i)}
+              style={[s.yon, aktif && { backgroundColor: tema.vurguAcik, borderColor: tema.vurgu }]}
+              accessibilityState={{ selected: aktif }}
+            >
+              <Text style={[s.yonYazi, aktif && { color: tema.vurgu }]} numberOfLines={1}>
+                {yonAdi(d)}
+              </Text>
+              <Text style={s.yonSayi}>{d.stops?.length ?? 0} durak</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    ) : null;
+
   return (
     <View style={s.kok}>
-      <View style={[s.tepe, { backgroundColor: seritRengi, paddingTop: kenar.top + 8 }]}>
+      <View style={[s.tepe, { backgroundColor: seritRengi, paddingTop: kenar.top + 6 }]}>
         <View style={s.tepeSatir}>
           <Pressable onPress={() => router.back()} accessibilityLabel="Geri" hitSlop={12}>
             <Ikon ad="chevron-back" boyut={24} renkKodu={yaziKodu} />
           </Pressable>
           {hat && <HatRozeti hat={hat} />}
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={[s.tepeBaslik, { color: yaziKodu }]} numberOfLines={1}>
+              {baslikYap(hat?.longName) || hat?.shortName || 'Hat'}
+            </Text>
+            <Text style={[s.tepeAlt, { color: yaziKodu }]} numberOfLines={1}>
+              {[hat?.agency?.name, aracAdi(hat?.mode)].filter(Boolean).join(' · ')}
+            </Text>
+          </View>
         </View>
-        <Text style={[s.tepeBaslik, { color: yaziKodu }]} numberOfLines={2}>
-          {baslikYap(hat?.longName) || hat?.shortName || 'Hat'}
-        </Text>
-        <Text style={[s.tepeAlt, { color: yaziKodu }]}>
-          {[hat?.agency?.name, aracAdi(hat?.mode)].filter(Boolean).join(' · ')}
-        </Text>
       </View>
 
       {hata && <HataKutusu mesaj={hata} tekrarDene={yukle} />}
       {!hat && !hata && <Yukleniyor metin="Hat bilgisi yükleniyor…" />}
 
-      {hat && desenler.length > 1 && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.yonSeridi} contentContainerStyle={s.yonlar}>
-          {desenler.map((d, i) => {
-            const aktif = i === yonNo;
-            return (
-              <Pressable
-                key={d.code}
-                onPress={() => setYon(i)}
-                style={[s.yon, aktif && { backgroundColor: tema.vurguAcik, borderColor: tema.vurgu }]}
-                accessibilityState={{ selected: aktif }}
-              >
-                <Text style={[s.yonYazi, aktif && { color: tema.vurgu }]} numberOfLines={1}>
-                  {yonAdi(d)}
-                </Text>
-                <Text style={s.yonSayi}>{d.stops?.length ?? 0} durak</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      )}
-
       {hat && (
-        <ScrollView ref={liste} contentContainerStyle={{ paddingBottom: kenar.bottom + 24 }}>
-          {desenler.length === 1 && (
-            <Text style={s.tekYon}>{yonAdi(secili)} · {duraklar.length} durak</Text>
-          )}
-          {otobusler.length > 0 && enTaze != null && (
-            <View style={s.canliOzet}>
-              <NabizNoktasi renk={tema.vurgu} boyut={6} />
-              <Text style={s.canliOzetYazi}>
-                <Text style={s.kalin}>{`Bu yönde şu an ${otobusler.length} otobüs`}</Text>
-                {` · ${yasYaz(enTaze)} güncellendi`}
-              </Text>
-            </View>
-          )}
-          {duraklar.length === 0 && <Text style={s.bos}>Bu hattın durak bilgisi veride yok.</Text>}
-          <View style={s.liste}>
-            {duraklar.map((d, i) => {
-              const ilk = i === 0;
-              const son = i === duraklar.length - 1;
-              const buDurak = i === isaretli;
-              return (
-                <View key={`${d.gtfsId}-${i}`}>
-                  <Pressable
-                    style={s.durak}
-                    onPress={() => router.push({ pathname: '/durak/[id]', params: { id: d.gtfsId } })}
-                    accessibilityRole="button"
-                    onLayout={
-                      buDurak
-                        ? (e) => {
-                            // Gelinen durağı ekranın üst kısmına getir; bir kez.
-                            if (kaydirildi.current) return;
-                            kaydirildi.current = true;
-                            liste.current?.scrollTo({ y: Math.max(0, e.nativeEvent.layout.y - 160), animated: false });
-                          }
-                        : undefined
-                    }
-                  >
-                    <View style={s.cizgiSutun}>
-                      {!ilk && <View style={[s.cizgiUst, { backgroundColor: renkKodu }]} />}
-                      {!son && <View style={[s.cizgiAlt, { backgroundColor: renkKodu }]} />}
-                      <View
-                        style={
-                          ilk || son
-                            ? [s.noktaUc, { backgroundColor: renkKodu }]
-                            : [s.nokta, { borderColor: renkKodu, backgroundColor: tema.yuzey }]
-                        }
-                      />
-                    </View>
-                    <Text style={[s.durakAd, (ilk || son || buDurak) && s.durakAdKalin]} numberOfLines={1}>
-                      {baslikYap(d.name)}
+        <View style={{ flex: 1 }} onLayout={(e) => setAlan(e.nativeEvent.layout.height)}>
+          <MapView
+            ref={harita}
+            style={StyleSheet.absoluteFill}
+            userInterfaceStyle={tema.haritaStili}
+            showsUserLocation
+            showsPointsOfInterests={false}
+            toolbarEnabled={false}
+            onMapReady={() => {
+              haritaHazir.current = true;
+              sigdir();
+            }}
+          >
+            {cizgi.length > 1 && <Polyline coordinates={cizgi} strokeColor={seritRengi} strokeWidth={5} />}
+            {duraklar.map((d, i) =>
+              d.lat != null && d.lon != null ? (
+                <Marker
+                  key={`${d.gtfsId}-${i}`}
+                  coordinate={{ latitude: d.lat, longitude: d.lon }}
+                  anchor={{ x: 0.5, y: 0.5 }}
+                  title={baslikYap(d.name)}
+                  description="Durağın kalkışları için dokun"
+                  onCalloutPress={() => router.push({ pathname: '/durak/[id]', params: { id: d.gtfsId } })}
+                  tracksViewChanges={false}
+                  zIndex={i === isaretli ? 5 : 1}
+                >
+                  <DurakIsareti renk={seritRengi} isaretli={i === isaretli} />
+                </Marker>
+              ) : null,
+            )}
+            {otobusler.map((o) => (
+              <Marker
+                key={o.kimlik}
+                coordinate={{ latitude: o.lat, longitude: o.lon }}
+                anchor={{ x: 0.5, y: 0.5 }}
+                title={`Otobüs ${o.etiket}`}
+                description={otobusAciklamasi(o, baslikYap(duraklar[o.durak]?.name))}
+                zIndex={10}
+              >
+                <OtobusIsareti renk={seritRengi} yon={o.heading} soluk={o.sinif === 'eski'} />
+              </Marker>
+            ))}
+          </MapView>
+
+          {alan > 0 && (
+            <AltYaprak
+              kapsayiciYukseklik={alan}
+              ustPay={48}
+              kapaliYukseklik={80}
+              ortaOran={0.5}
+              onDurum={(_, boy) => setYaprakBoyu(boy)}
+              erisilebilirlikEtiketi="Durak listesini aç ya da kapat"
+              listeRef={liste}
+              baslik={
+                <View style={s.yaprakBas}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={s.yaprakBaslik} numberOfLines={1}>
+                      {yonAdi(secili) || 'Duraklar'}
                     </Text>
-                    {buDurak && <Text style={[s.durakEtiket, { color: renkKodu, borderColor: renkKodu }]}>durağın</Text>}
-                    <Ikon ad="chevron-forward" boyut={15} renkKodu={tema.yurume} />
-                  </Pressable>
-                  {(durakSonrasi.get(i) ?? []).map((o) => (
-                    <OtobusSatiri
-                      key={o.kimlik}
-                      otobus={o}
-                      renkKodu={renkKodu}
-                      sonDurak={son}
-                      durakAdi={baslikYap(duraklar[o.durak]?.name)}
-                    />
-                  ))}
+                    <Text style={s.yaprakAlt} numberOfLines={1}>
+                      {yaklasan && isaretli >= 0
+                        ? `Durağına en yakın otobüs ${kalanYaz(yaklasan.kalan)}`
+                        : `${duraklar.length} durak`}
+                    </Text>
+                  </View>
+                  {otobusler.length > 0 && enTaze != null && (
+                    <View style={s.canliOzet}>
+                      <NabizNoktasi renk={tema.vurgu} boyut={6} />
+                      <Text style={s.canliOzetYazi}>{`${otobusler.length} otobüs · ${yasYaz(enTaze)}`}</Text>
+                    </View>
+                  )}
                 </View>
-              );
-            })}
-          </View>
-          <Text style={s.dipnot}>
-            Durak sırası rota motorundaki güzergâh desenine göredir. Bir durağa dokunarak yaklaşan seferlerini
-            görebilirsin.
-            {otobusler.length > 0 &&
-              ' Otobüs konumları İETT\'den iki dakikada bir geliyor; 5 dakikadan eski konumlar soluk, 10 dakikadan eskileri gösterilmiyor.'}
-          </Text>
-        </ScrollView>
+              }
+            >
+              {yonSecici}
+              {duraklar.length === 0 && <Text style={s.bos}>Bu hattın durak bilgisi veride yok.</Text>}
+              <View style={s.liste}>
+                {duraklar.map((d, i) => {
+                  const ilk = i === 0;
+                  const son = i === duraklar.length - 1;
+                  const buDurak = i === isaretli;
+                  return (
+                    <View
+                      key={`${d.gtfsId}-${i}`}
+                      onLayout={
+                        buDurak
+                          ? (e) => {
+                              // Gelinen durak listede görünsün: üstünde birkaç durak kalacak kadar kaydır.
+                              if (kaydirildi.current) return;
+                              kaydirildi.current = true;
+                              liste.current?.kaydir(e.nativeEvent.layout.y - 100);
+                            }
+                          : undefined
+                      }
+                    >
+                      <Pressable
+                        style={s.durak}
+                        onPress={() => router.push({ pathname: '/durak/[id]', params: { id: d.gtfsId } })}
+                        accessibilityRole="button"
+                      >
+                        <View style={s.cizgiSutun}>
+                          {!ilk && <View style={[s.cizgiUst, { backgroundColor: renkKodu }]} />}
+                          {!son && <View style={[s.cizgiAlt, { backgroundColor: renkKodu }]} />}
+                          <View
+                            style={
+                              ilk || son || buDurak
+                                ? [s.noktaUc, { backgroundColor: renkKodu }]
+                                : [s.nokta, { borderColor: renkKodu, backgroundColor: tema.yuzey }]
+                            }
+                          />
+                        </View>
+                        <Text style={[s.durakAd, (ilk || son || buDurak) && s.durakAdKalin]} numberOfLines={1}>
+                          {baslikYap(d.name)}
+                        </Text>
+                        {buDurak && (
+                          <Text style={[s.durakEtiket, { color: renkKodu, borderColor: renkKodu }]}>durağın</Text>
+                        )}
+                        <Ikon ad="chevron-forward" boyut={15} renkKodu={tema.yurume} />
+                      </Pressable>
+                      {(durakSonrasi.get(i) ?? []).map((o) => (
+                        <OtobusSatiri
+                          key={o.kimlik}
+                          otobus={o}
+                          renkKodu={renkKodu}
+                          sonDurak={son}
+                          durakAdi={baslikYap(duraklar[o.durak]?.name)}
+                          onPress={() => otobuseGit(o)}
+                        />
+                      ))}
+                    </View>
+                  );
+                })}
+              </View>
+              <Text style={[s.dipnot, { paddingBottom: kenar.bottom }]}>
+                Durak sırası rota motorundaki güzergâh desenine göredir. Bir durağa dokunarak yaklaşan seferlerini
+                görebilirsin.
+                {otobusler.length > 0 &&
+                  " Otobüs konumları İETT'den iki dakikada bir geliyor; 5 dakikadan eski konumlar soluk, 10 dakikadan eskileri gösterilmiyor. Otobüse dokununca harita ona gider."}
+              </Text>
+            </AltYaprak>
+          )}
+        </View>
       )}
     </View>
   );
+}
+
+/** Haritadaki otobüsün baloncuğunda ve listede okunan kısa durum. */
+function otobusAciklamasi(o: YerlesikArac, durakAdi: string): string {
+  if (o.sinif === 'eski') return `${durakAdi} civarı · ${yasYaz(o.yasSn)} görüldü`;
+  return [
+    o.durum === 'durakta' ? `${durakAdi} durağında` : `Sıradaki durak: ${durakAdi}`,
+    o.gecikme != null ? gecikmeKisa(o.gecikme) : null,
+    yasYaz(o.yasSn),
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 /**
@@ -257,11 +424,13 @@ function OtobusSatiri({
   renkKodu,
   sonDurak,
   durakAdi,
+  onPress,
 }: {
   otobus: YerlesikArac;
   renkKodu: string;
   sonDurak: boolean;
   durakAdi: string;
+  onPress: () => void;
 }) {
   const tema = useTema();
   const s = useStiller(stiller);
@@ -278,7 +447,12 @@ function OtobusSatiri({
         .filter(Boolean)
         .join(', ');
   return (
-    <View style={s.otobus} accessible accessibilityLabel={`Otobüs ${otobus.etiket}: ${etiket}`}>
+    <Pressable
+      style={s.otobus}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Otobüs ${otobus.etiket}: ${etiket}. Haritada göster.`}
+    >
       <View style={s.cizgiSutun}>
         <View style={[s.cizgiTam, { backgroundColor: renkKodu }, sonDurak && { opacity: 0 }]} />
         <View style={[s.otobusSimge, { backgroundColor: simgeRengi, borderColor: tema.yuzey }]}>
@@ -300,24 +474,27 @@ function OtobusSatiri({
           <Text style={s.otobusYas}>{`  ${yasYaz(otobus.yasSn)}`}</Text>
         </Text>
       )}
-    </View>
+    </Pressable>
   );
 }
 
 const stiller = (t: Tema) =>
   StyleSheet.create({
     kok: { flex: 1, backgroundColor: t.yuzey },
-    tepe: { paddingHorizontal: 16, paddingBottom: 16, gap: 10 },
+    tepe: { paddingHorizontal: 14, paddingBottom: 12 },
     tepeSatir: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    tepeBaslik: { fontSize: 22, fontWeight: '800', letterSpacing: -0.3 },
-    tepeAlt: { fontSize: 13, opacity: 0.85 },
+    tepeBaslik: { fontSize: 17, fontWeight: '800', letterSpacing: -0.2 },
+    tepeAlt: { fontSize: 12, opacity: 0.85, marginTop: 1 },
+    yaprakBas: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 10 },
+    yaprakBaslik: { fontSize: 16, fontWeight: '700', color: t.yazi },
+    yaprakAlt: { fontSize: 12.5, color: t.soluk, marginTop: 1 },
     yonSeridi: {
       flexGrow: 0,
       height: 76,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: t.cizgi,
     },
-    yonlar: { gap: 8, paddingHorizontal: 12, paddingVertical: 12, alignItems: 'center' },
+    yonlar: { gap: 8, paddingVertical: 6, paddingBottom: 12, alignItems: 'center' },
     yon: {
       maxWidth: 240,
       height: 52,
@@ -331,7 +508,7 @@ const stiller = (t: Tema) =>
     yonYazi: { fontSize: 13.5, lineHeight: 18, fontWeight: '700', color: t.yazi },
     yonSayi: { fontSize: 11.5, lineHeight: 15, color: t.soluk, marginTop: 2 },
     tekYon: { fontSize: 13, fontWeight: '600', color: t.soluk, padding: 14 },
-    liste: { paddingHorizontal: 16 },
+    liste: {},
     durak: { flexDirection: 'row', alignItems: 'center', gap: 11, height: 44 },
     cizgiSutun: { width: 16, height: '100%', alignItems: 'center', justifyContent: 'center' },
     cizgiUst: { position: 'absolute', top: 0, height: '50%', width: 3 },
@@ -341,10 +518,10 @@ const stiller = (t: Tema) =>
     durakAd: { flex: 1, fontSize: 14, color: t.yazi },
     durakAdKalin: { fontWeight: '700' },
     bos: { color: t.soluk, textAlign: 'center', padding: 20 },
-    dipnot: { color: t.soluk, fontSize: 12, lineHeight: 18, paddingHorizontal: 16, paddingTop: 18 },
+    dipnot: { color: t.soluk, fontSize: 12, lineHeight: 18, paddingTop: 18 },
     kalin: { fontWeight: '700', color: t.yazi },
-    canliOzet: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 4 },
-    canliOzetYazi: { flex: 1, fontSize: 12.5, color: t.soluk },
+    canliOzet: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    canliOzetYazi: { fontSize: 12, color: t.soluk, fontWeight: '600' },
     durakEtiket: {
       fontSize: 10.5,
       fontWeight: '700',
