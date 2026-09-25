@@ -34,7 +34,7 @@ import {
 import { polylineCoz, type Nokta } from '@/lib/cografya';
 import { canliBilgi } from '@/lib/canli';
 import { trKucuk } from '@/lib/metin';
-import { duyurulariGetir, hatAraclariGetir, hatDetayiGetir, OtpHatasi, type HatDetayi } from '@/lib/otp';
+import { duyurulariGetir, hatAraclariGetir, hatDetayiKardesleriyle, OtpHatasi, type HatDetayi } from '@/lib/otp';
 import { aracAdi, baslikYap, haritaRengi, hatRengi, useTema, yaziRengi, type Tema } from '@/lib/tema';
 
 export default function HatEkrani() {
@@ -49,7 +49,7 @@ export default function HatEkrani() {
     durakAd?: string;
   }>();
 
-  const [hat, setHat] = useState<HatDetayi | null>(null);
+  const [hat, setHat] = useState<(HatDetayi & { kardesler?: string[] }) | null>(null);
   const [hata, setHata] = useState<string | null>(null);
   const [yon, setYon] = useState<number | null>(null);
   const [araclar, setAraclar] = useState<Record<string, HamArac[]>>({});
@@ -74,7 +74,8 @@ export default function HatEkrani() {
     if (!id) return;
     setHata(null);
     try {
-      const sonuc = await hatDetayiGetir(id);
+      // İETT her yönü ayrı güzergâh olarak yayımlıyor; ekran hattın bütün yönlerini göstersin.
+      const sonuc = await hatDetayiKardesleriyle(id);
       if (!sonuc) setHata('Bu hat bulunamadı.');
       else setHat(sonuc);
     } catch (e) {
@@ -88,11 +89,13 @@ export default function HatEkrani() {
 
   // Otobüs konumları yarım dakikada bir; yaşları 15 saniyede bir yeniden yazılır.
   // Konum alınamazsa sessizce geçilir: canlı konum süs, hat ekranı onsuz da çalışır.
+  const kimlikler = useMemo(() => (hat?.kardesler?.length ? hat.kardesler : id ? [id] : []), [hat, id]);
+  const kimlikAnahtari = kimlikler.join(',');
   useEffect(() => {
-    if (!id) return;
+    if (!kimlikAnahtari) return;
     let acik = true;
     const araclariYukle = () =>
-      hatAraclariGetir(id)
+      hatAraclariGetir(kimlikAnahtari.split(','))
         .then((sonuc) => {
           if (!acik) return;
           setAraclar(sonuc);
@@ -107,7 +110,7 @@ export default function HatEkrani() {
       clearInterval(konum);
       clearInterval(saat);
     };
-  }, [id]);
+  }, [kimlikAnahtari]);
 
   // Duraksız desenler listeye girmez; en çok durağı olan desen varsayılan yön olur.
   const desenler = useMemo(() => {

@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HataKutusu, HatRozeti, Ikon, ROZET_SUTUNU, useStiller, Yukleniyor } from '@/components/ulasim';
 import { hatlariGetir, OtpHatasi, type HatOzeti } from '@/lib/otp';
+import { hatlariTekille } from '@/lib/hat-tekil';
 import { sadelestir } from '@/lib/poi';
 import { aracAdi, baslikYap, useTema, type Tema } from '@/lib/tema';
 
@@ -53,12 +54,15 @@ export default function HatlarEkrani() {
     yukle();
   }, [yukle]);
 
+  // İETT her yönü ayrı güzergâh olarak yayımlıyor (T2 iki kez görünüyordu); hat başına bir satır.
+  const tekil = useMemo(() => (hatlar ? hatlariTekille(hatlar) : null), [hatlar]);
+
   const satirlar = useMemo<Satir[]>(() => {
-    if (!hatlar) return [];
+    if (!tekil) return [];
     const secili = SUZGECLER.find((x) => x.anahtar === suzgec) ?? SUZGECLER[0];
     const aranan = sadelestir(metin);
 
-    const suzulmus = hatlar.filter((h) => {
+    const suzulmus = tekil.filter((h) => {
       const mod = (h.mode ?? '').toUpperCase();
       if (secili.modlar && !secili.modlar.includes(mod)) return false;
       if (!aranan) return true;
@@ -91,9 +95,9 @@ export default function HatlarEkrani() {
       }
     }
     return liste;
-  }, [hatlar, metin, suzgec]);
+  }, [tekil, metin, suzgec]);
 
-  const toplam = hatlar?.length ?? 0;
+  const toplam = tekil?.length ?? 0;
 
   return (
     <View style={[s.kok, { paddingTop: kenar.top + 6 }]}>

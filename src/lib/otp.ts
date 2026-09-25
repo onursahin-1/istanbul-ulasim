@@ -40,6 +40,7 @@ import { SORGULAR as S, VARSAYILAN_SECENEKLER, tercihleriYap, type RotaSecenekle
 import type { HamArac } from './arac-konum';
 import type { Duyuru } from './duyuru';
 import { isletmeciAdi } from './hat-adi';
+import { kardesKimlikleri } from './hat-tekil';
 import { aramayiIndir, ayniAdliSaatsizHatlar, saatsizHatlariKatla, yakinlariIndir, type Ebeveynli } from './istasyon';
 import { gunuKaydir } from './onbellek';
 import { onbellegeYaz, onbellektenOku } from './onbellek-depo';
@@ -365,6 +366,33 @@ export async function hatDetayiGetir(id: string, sinyal?: AbortSignal): Promise<
   return veri.route;
 }
 
+/**
+ * Hat ve aynı hattın beslemede ayrı duran öbür güzergâhları (İETT her yönü ayrı
+ * yayımlıyor, bkz. hat-tekil.ts): desenleri tek hatta toplanır, `kardesler` bütün
+ * kimlikler. Kardeşler alınamazsa hat tek başına döner.
+ */
+export async function hatDetayiKardesleriyle(
+  id: string,
+  sinyal?: AbortSignal,
+): Promise<(HatDetayi & { kardesler: string[] }) | null> {
+  const hat = await hatDetayiGetir(id, sinyal);
+  if (!hat) return null;
+  try {
+    const kimlikler = kardesKimlikleri(hat, await hatlariGetir(sinyal));
+    const kardesler = (await Promise.all(kimlikler.map((k) => hatDetayiGetir(k, sinyal)))).filter(
+      (h): h is HatDetayi => !!h,
+    );
+    return {
+      ...hat,
+      patterns: [...(hat.patterns ?? []), ...kardesler.flatMap((k) => k.patterns ?? [])],
+      kardesler: [hat.gtfsId, ...kardesler.map((k) => k.gtfsId)],
+    };
+  } catch (hata) {
+    if (!(hata instanceof OtpHatasi)) throw hata;
+    return { ...hat, kardesler: [hat.gtfsId] };
+  }
+}
+
 /** İstanbul'un bugünkü tarihi, OTP'nin istediği biçimde: "20260923". */
 function istanbulGunu(simdiMs: number = Date.now()): string {
   // İstanbul yaz saati uygulamıyor: her zaman UTC+3.
@@ -375,11 +403,16 @@ function istanbulGunu(simdiMs: number = Date.now()): string {
  * Bir hattın yönlerindeki otobüslerin canlı konumu, desen koduna göre. Canlı veri
  * yoksa (metro, köprü kapalı, hat henüz öğrenilmemiş) boş gelir.
  */
-export async function hatAraclariGetir(id: string, sinyal?: AbortSignal): Promise<Record<string, HamArac[]>> {
+export async function hatAraclariGetir(
+  id: string | string[],
+  sinyal?: AbortSignal,
+): Promise<Record<string, HamArac[]>> {
   type Cevap = { route: { patterns: { code: string; vehiclePositions: HamArac[] | null }[] | null } | null };
-  const veri = await sorgula<Cevap>(S.HAT_ARACLARI, { id, gun: istanbulGunu() }, sinyal);
+  const gun = istanbulGunu();
+  const kimlikler = Array.isArray(id) ? id : [id];
+  const cevaplar = await Promise.all(kimlikler.map((k) => sorgula<Cevap>(S.HAT_ARACLARI, { id: k, gun }, sinyal)));
   const sonuc: Record<string, HamArac[]> = {};
-  for (const d of veri.route?.patterns ?? []) sonuc[d.code] = d.vehiclePositions ?? [];
+  for (const veri of cevaplar) for (const d of veri.route?.patterns ?? []) sonuc[d.code] = d.vehiclePositions ?? [];
   return sonuc;
 }
 
