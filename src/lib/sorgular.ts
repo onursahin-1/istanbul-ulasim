@@ -124,13 +124,14 @@ const ROTA_PLANLA = `
 query RotaPlanla(
   $nereden: PlanLabeledLocationInput!
   $nereye: PlanLabeledLocationInput!
-  $zaman: OffsetDateTime!
+  $zaman: PlanDateTimeInput!
   $tercihler: PlanPreferencesInput
 ) {
   planConnection(
     origin: $nereden
     destination: $nereye
-    dateTime: { earliestDeparture: $zaman }
+    # { earliestDeparture } ya da { latestArrival }: "9:00'da orada olmalıyım" aramaları için.
+    dateTime: $zaman
     preferences: $tercihler
     first: 12
   ) {

@@ -273,12 +273,15 @@ export async function hatKalkislariGetir(
     .sort((a, b) => a.serviceDay + a.saniye - (b.serviceDay + b.saniye));
 }
 
+/** Aramanın zaman şartı: bu saatten sonra çık, ya da en geç bu saatte var. */
+export type RotaZamani = { tur: 'kalkis' | 'varis'; an: string };
+
 export type RotaSonucu = { guzergahlar: Guzergah[]; hatalar: { code: string; description: string }[] };
 
 export async function rotaPlanla(
   nereden: Konum,
   nereye: Konum,
-  zaman: string,
+  zaman: RotaZamani,
   secenekler: RotaSecenekleri = VARSAYILAN_SECENEKLER,
   sinyal?: AbortSignal,
 ): Promise<RotaSonucu> {
@@ -291,21 +294,29 @@ export async function rotaPlanla(
   const yer = (k: Konum) => ({ label: k.ad, location: { coordinate: { latitude: k.lat, longitude: k.lon } } });
   const veri = await sorgula<Cevap>(
     ROTA_PLANLA,
-    { nereden: yer(nereden), nereye: yer(nereye), zaman, tercihler: tercihleriYap(secenekler) },
+    {
+      nereden: yer(nereden),
+      nereye: yer(nereye),
+      zaman: zaman.tur === 'varis' ? { latestArrival: zaman.an } : { earliestDeparture: zaman.an },
+      tercihler: tercihleriYap(secenekler),
+    },
     sinyal,
   );
+  const guzergahlar = (veri.planConnection?.edges ?? []).flatMap((e) => (e ? [e.node] : []));
+  // Varışa göre aramada OTP en geç çıkanı başa koyuyor; liste her zaman kalkışa göre okunsun.
+  if (zaman.tur === 'varis') guzergahlar.sort((a, b) => (a.start ?? '').localeCompare(b.start ?? ''));
   const sonuc: RotaSonucu = {
-    guzergahlar: (veri.planConnection?.edges ?? []).flatMap((e) => (e ? [e.node] : [])),
+    guzergahlar,
     hatalar: veri.planConnection?.routingErrors ?? [],
   };
-  if (sonuc.guzergahlar.length) void onbellegeYaz(rotaAnahtari(nereden, nereye, secenekler), sonuc);
+  if (sonuc.guzergahlar.length) void onbellegeYaz(rotaAnahtari(nereden, nereye, secenekler, zaman.tur), sonuc);
   return sonuc;
 }
 
 /** Aynı yolculuğun onbellekteki karşılığı. Koordinatlar ~11 m'ye yuvarlanıyor. */
-function rotaAnahtari(nereden: Konum, nereye: Konum, secenekler: RotaSecenekleri): string {
+function rotaAnahtari(nereden: Konum, nereye: Konum, secenekler: RotaSecenekleri, tur: RotaZamani['tur']): string {
   const nk = (k: Konum) => `${k.lat.toFixed(4)},${k.lon.toFixed(4)}`;
-  return `rota:${nk(nereden)}>${nk(nereye)}|${secenekler.tercih}|${secenekler.erisilebilir ? 'e' : ''}`;
+  return `rota:${nk(nereden)}>${nk(nereye)}|${secenekler.tercih}|${secenekler.erisilebilir ? 'e' : ''}${tur === 'varis' ? '|v' : ''}`;
 }
 
 /**
@@ -318,7 +329,7 @@ function rotaAnahtari(nereden: Konum, nereye: Konum, secenekler: RotaSecenekleri
 export async function rotaPlanlaYedekli(
   nereden: Konum,
   nereye: Konum,
-  zaman: string,
+  zaman: RotaZamani,
   secenekler: RotaSecenekleri = VARSAYILAN_SECENEKLER,
   sinyal?: AbortSignal,
 ): Promise<RotaSonucu & { cevrimdisi: number | null }> {
@@ -326,7 +337,7 @@ export async function rotaPlanlaYedekli(
     return { ...(await rotaPlanla(nereden, nereye, zaman, secenekler, sinyal)), cevrimdisi: null };
   } catch (hata) {
     if (!(hata instanceof OtpHatasi)) throw hata;
-    const kayit = await onbellektenOku<RotaSonucu>(rotaAnahtari(nereden, nereye, secenekler), 1);
+    const kayit = await onbellektenOku<RotaSonucu>(rotaAnahtari(nereden, nereye, secenekler, zaman.tur), 1);
     if (!kayit) throw hata;
     return { ...kayit.veri, cevrimdisi: kayit.zaman };
   }

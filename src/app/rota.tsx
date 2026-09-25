@@ -71,8 +71,12 @@ const TERCIHLER: { anahtar: RotaTercihi; ad: string; kisa: string; aciklama: str
   },
 ];
 
-/** Kullanıcının seçtiği kalkış zamanı. null ise "şimdi". */
-type ZamanSecimi = { gun: number; saat: number; dakika: number } | null;
+/**
+ * Kullanıcının seçtiği zaman. null ise "şimdi yola çıkıyorum".
+ * tur 'varis' ise saat, hedefte en geç olunması gereken an ("9:00'da orada olmalıyım").
+ */
+type ZamanTuru = 'kalkis' | 'varis';
+type ZamanSecimi = { tur: ZamanTuru; gun: number; saat: number; dakika: number } | null;
 
 /**
  * Aynı hatları aynı sırayla ve aynı duraklardan binerek kullanan güzergâhlar "aynı rota" sayılır.
@@ -126,7 +130,12 @@ export default function RotaEkrani() {
   const [aramaSaati, setAramaSaati] = useState(istanbulSaat());
   const [zaman, setZaman] = useState<ZamanSecimi>(null);
   const [zamanAcik, setZamanAcik] = useState(false);
-  const [taslak, setTaslak] = useState({ gun: 0, saat: 8, dakika: 0 });
+  const [taslak, setTaslak] = useState<{ tur: ZamanTuru; gun: number; saat: number; dakika: number }>({
+    tur: 'kalkis',
+    gun: 0,
+    saat: 8,
+    dakika: 0,
+  });
 
   const { ucretTuru, rotaSecenekleri: kayitliSecenekler, yuklendi } = useKayitlar();
   // Kayıtlar her okunuşta yeni bir nesne geliyor (bir favori eklenince bile); aramayı
@@ -157,8 +166,10 @@ export default function RotaEkrani() {
       setCevrimdisi(null);
       setAramaSaati(istanbulSaat());
       try {
-        const zamanMetni = zaman ? istanbulZamanYap(zaman.gun, zaman.saat, zaman.dakika) : istanbulSimdi();
-        const sonuc = await rotaPlanlaYedekli(nereden, nereye, zamanMetni, rotaSecenekleri, sinyal);
+        const aramaZamani = zaman
+          ? { tur: zaman.tur, an: istanbulZamanYap(zaman.gun, zaman.saat, zaman.dakika) }
+          : { tur: 'kalkis' as const, an: istanbulSimdi() };
+        const sonuc = await rotaPlanlaYedekli(nereden, nereye, aramaZamani, rotaSecenekleri, sinyal);
         if (eski()) return;
         setGuzergahlar(sonuc.guzergahlar);
         setCevrimdisi(sonuc.cevrimdisi);
@@ -269,15 +280,15 @@ export default function RotaEkrani() {
           <Pressable
             style={[s.filtre, s.filtreKoyu]}
             onPress={() => {
-              setTaslak(zaman ?? { gun: 0, saat: Number(istanbulSaat().slice(0, 2)), dakika: 0 });
+              setTaslak(zaman ?? { tur: 'kalkis', gun: 0, saat: Number(istanbulSaat().slice(0, 2)), dakika: 0 });
               setZamanAcik(true);
             }}
             accessibilityRole="button"
-            accessibilityLabel="Kalkış zamanını seç"
+            accessibilityLabel="Kalkış ya da varış zamanını seç"
           >
             <Text style={[s.filtreYazi, { color: tema.zemin }]}>
               {zaman
-                ? `${gunEtiketi(zaman.gun, true)} · ${saatDakikaYaz(zaman.saat, zaman.dakika)}`
+                ? `${gunEtiketi(zaman.gun, true)} · ${zaman.tur === 'varis' ? 'varış ' : ''}${saatDakikaYaz(zaman.saat, zaman.dakika)}`
                 : `Şimdi · ${aramaSaati}`}
             </Text>
           </Pressable>
@@ -377,12 +388,33 @@ export default function RotaEkrani() {
         )}
       </ScrollView>
 
-      {/* Kalkış zamanı seçimi: gece metrosu gibi ileri saatlere bakabilmek için. */}
+      {/* Zaman seçimi: gece metrosu gibi ileri saatler ya da "şu saatte orada olmalıyım". */}
       <Modal visible={zamanAcik} transparent animationType="slide" onRequestClose={() => setZamanAcik(false)}>
         <Pressable style={s.perde} onPress={() => setZamanAcik(false)} accessibilityLabel="Kapat" />
         <View style={[s.zamanSayfa, { paddingBottom: kenar.bottom + 16 }]}>
           <View style={s.zamanTutamac} />
-          <Text style={s.zamanBaslik}>Ne zaman yola çıkıyorsun?</Text>
+          <Text style={s.zamanBaslik}>
+            {taslak.tur === 'varis' ? 'Ne zaman orada olmalısın?' : 'Ne zaman yola çıkıyorsun?'}
+          </Text>
+
+          <View style={s.turSecici} accessibilityRole="tablist">
+            {(
+              [
+                ['kalkis', 'Çıkış saati'],
+                ['varis', 'Varış saati'],
+              ] as const
+            ).map(([tur, etiket]) => (
+              <Pressable
+                key={tur}
+                style={[s.turDugme, taslak.tur === tur && s.turSecili]}
+                onPress={() => setTaslak((t) => ({ ...t, tur }))}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: taslak.tur === tur }}
+              >
+                <Text style={[s.turYazi, taslak.tur === tur && { color: tema.yazi }]}>{etiket}</Text>
+              </Pressable>
+            ))}
+          </View>
 
           <Pressable
             style={[s.simdiDugme, !zaman && s.simdiSecili]}
@@ -445,11 +477,12 @@ export default function RotaEkrani() {
 
           <Text style={s.zamanOzet}>
             {`${gunTarihi(taslak.gun)}, ${saatDakikaYaz(taslak.saat, taslak.dakika)}`}
+            {taslak.tur === 'varis' ? ' · en geç bu saatte varan rotalar' : ''}
             {taslak.saat < 5 ? '  ·  gece metrosu Cuma ve Cumartesi gecelerinde çalışır' : ''}
           </Text>
 
           <Pressable style={s.zamanOnayla} onPress={() => { setZaman(taslak); setZamanAcik(false); }} accessibilityRole="button">
-            <Text style={s.zamanOnaylaYazi}>Bu saate göre ara</Text>
+            <Text style={s.zamanOnaylaYazi}>{taslak.tur === 'varis' ? 'Bu saatte varacak şekilde ara' : 'Bu saate göre ara'}</Text>
           </Pressable>
         </View>
       </Modal>
@@ -591,6 +624,16 @@ const stiller = (t: Tema) =>
     },
     zamanTutamac: { width: 38, height: 5, borderRadius: 3, backgroundColor: t.cizgi, alignSelf: 'center', marginBottom: 10 },
     zamanBaslik: { fontSize: 18, fontWeight: '800', color: t.yazi, marginBottom: 10 },
+    turSecici: {
+      flexDirection: 'row',
+      padding: 3,
+      borderRadius: 12,
+      backgroundColor: t.cizgi,
+      marginBottom: 10,
+    },
+    turDugme: { flex: 1, height: 34, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+    turSecili: { backgroundColor: t.yuzey },
+    turYazi: { fontSize: 14, fontWeight: '700', color: t.soluk },
     simdiDugme: {
       flexDirection: 'row',
       alignItems: 'center',
