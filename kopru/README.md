@@ -134,6 +134,13 @@ Aracı seferine bağlamanın üç yolu var, bu sırayla:
 Her iki yolda da konum, o güzergâhın en yakın durağına çevriliyor (filo servisi durak
 kodu vermiyor) ve o duraktan şu ana en yakın saatte geçen aktif sefer seçiliyor.
 
+**İBB yanıt vermezse geri çekiliyor.** `HTTP 503`, bağlantı hatası ya da zaman aşımında
+kapı 2 → 4 → 8 → 16 → 30 dakika hiç istek göndermiyor, ilk başarılı istekte sıfırlanıyor.
+Bu bir hız sınırı değil (onun yanıtında "Rate limit" yazıyor ve ayrı işleniyor): sunucu
+tarafı arıza, çoğunlukla gece. Eskiden nabız ve tarama arıza boyunca saatte ~75 isteği boşa
+yolluyordu. Tarama bu sürede hat atlamıyor, arıza bitince kaldığı yerden sürüyor.
+`/durum`'da `kapi.kalanArizaSn` ve `kapi.arizaNedeni`.
+
 **Bayat veri yayımlanmıyor.** Son başarılı nabız 5 dakikadan eskiyse köprü boş akış
 sunuyor. İkinci tasarım kapı kapandıktan sonra da son veriyi sunmaya devam ediyordu ve
 OTP eski gecikmeleri uygulamayı sürdürdü.

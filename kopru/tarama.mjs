@@ -17,7 +17,7 @@
 // ediliyor; ilk tur boş mahalle hatlarıyla değil, 34G ve 500T gibi yoğun hatlarla
 // başlıyor.
 
-import { hattakiAraclar, SinirHatasi } from './iett.mjs';
+import { ArizaHatasi, hattakiAraclar, SinirHatasi } from './iett.mjs';
 
 /** Bu kadar süre taramada görülmeyen aracın hat bilgisi unutulur. */
 export const HAT_OMRU_MS = 7 * 24 * 3_600_000;
@@ -114,6 +114,12 @@ export class Tarayici {
         this.sayac.hatSoruldu++;
         this.isle(hat, araclar);
       } catch (e) {
+        if (e instanceof ArizaHatasi) {
+          // İBB yanıt vermiyor: hat sorulmuş sayılmasın, arıza beklemesi bitince aynı hatla devam.
+          this.sayac.ariza = (this.sayac.ariza ?? 0) + 1;
+          await bekle(Math.max(5000, Math.min(this.kapi.kalanAriza?.() ?? 0, 60_000)));
+          continue;
+        }
         // Hata da olsa bu hattı bir süre sorma: aynı hatta takılı kalmayalım.
         const d = this.hatDurumu.get(hat);
         if (d) d.sonBakilan = Date.now();

@@ -5,6 +5,10 @@
 // Sınıra yine de takılınırsa (İBB bizim görmediğimiz istekleri de sayıyor olabilir)
 // kapı kapanıyor ve bekleme katlanarak artıyor: 15 → 30 → 60 dakika. Kota saatlik
 // olduğu için dakikalar içinde yeniden denemek yalnızca cezayı uzatır.
+//
+// Sunucu hiç yanıt vermezse (HTTP 503, bağlantı yok) ayrı ve daha kısa bir geri
+// çekilme: 2 → 4 → 8 → 16 → 30 dakika istek gönderilmiyor. Eskiden nabız ve tarama
+// arıza sürdükçe saatte ~75 isteği boşa yolluyor, bütçeyi hep 80/80'de tutuyordu.
 
 import { SaatlikButce } from './butce.mjs';
 
@@ -23,6 +27,19 @@ export class SinirHatasi extends Error {
   }
 }
 
+/**
+ * İBB sunucusu yanıt vermiyor (HTTP 5xx, bağlantı kurulamadı, zaman aşımı). Hız sınırından
+ * farklı: kusur bizde değil. Ama yeniden denemek yine bütçeden yiyor ve boşa gidiyor;
+ * kapı bir süre istek göndermeden bu hatayı veriyor (bkz. Kapi.#arizaliydi).
+ */
+export class ArizaHatasi extends Error {
+  constructor(neden, kalanMs) {
+    super(`İBB yanıt vermiyor (${neden}); ${Math.max(1, Math.round(kalanMs / 60_000))} dk sonra yeniden denenecek`);
+    this.name = 'ArizaHatasi';
+    this.neden = neden;
+  }
+}
+
 const bekle = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Saatlik bütçeye saygılı istek kapısı. Bütün çağrılar sırayla gider. */
@@ -34,19 +51,37 @@ export class Kapi {
    * @param {number} p.enFazlaCeza cezanın tavanı (ms)
    * @param {number} p.kapaliyaKadar önceki çalışmadan kalan ceza bitişi (ms)
    */
-  constructor({ butce = new SaatlikButce(), ilkCeza = 15 * 60_000, enFazlaCeza = 60 * 60_000, kapaliyaKadar = 0 } = {}) {
+  constructor({
+    butce = new SaatlikButce(),
+    ilkCeza = 15 * 60_000,
+    enFazlaCeza = 60 * 60_000,
+    kapaliyaKadar = 0,
+    ilkAriza = 2 * 60_000,
+    enFazlaAriza = 30 * 60_000,
+  } = {}) {
     this.butce = butce;
+    // Sunucu arızası: 2 → 4 → 8 → 16 → 30 dk istek gönderilmez, ilk başarıda sıfırlanır.
+    this.ilkAriza = ilkAriza;
+    this.enFazlaAriza = enFazlaAriza;
+    this.arizaAdimi = ilkAriza;
+    this.arizaBitis = 0;
+    this.arizaNedeni = '';
     this.ilkCeza = ilkCeza;
     this.enFazlaCeza = enFazlaCeza;
     this.ceza = ilkCeza;
     this.kapaliyaKadar = kapaliyaKadar;
     this.kuyruk = Promise.resolve();
-    this.sayac = { istek: 0, sinir: 0, hata: 0 };
+    this.sayac = { istek: 0, sinir: 0, hata: 0, ariza: 0, arizadaAtlanan: 0 };
   }
 
   /** Kapı şu an kapalıysa kalan süre (ms). */
   kalanCeza() {
     return Math.max(0, this.kapaliyaKadar - Date.now());
+  }
+
+  /** Sunucu arızası yüzünden istek gönderilmeyecek kalan süre (ms). */
+  kalanAriza() {
+    return Math.max(0, this.arizaBitis - Date.now());
   }
 
   /** İstekleri tek sıraya dizer: aynı anda birden fazla istek gitmez. */
@@ -61,6 +96,11 @@ export class Kapi {
   }
 
   async #gonder(url, metot, parametreler, zamanAsimi) {
+    // Sunucu yakın zamanda yanıt vermediyse istek hiç gitmesin: bütçe boşa harcanmasın.
+    if (this.kalanAriza() > 0) {
+      this.sayac.arizadaAtlanan++;
+      throw new ArizaHatasi(this.arizaNedeni, this.kalanAriza());
+    }
     // Ceza ve bütçe beklemesi birbirini etkileyebilir; ikisi de sıfırlanana kadar bekle.
     for (;;) {
       const ms = Math.max(this.kalanCeza(), this.butce.bekleme(Date.now()));
@@ -91,10 +131,15 @@ export class Kapi {
         this.#sinirdaTakildi();
         throw new SinirHatasi();
       }
+      if (yanit.status >= 500) throw this.#arizaliydi(`${metot}: HTTP ${yanit.status}`);
       if (yanit.status !== 200) throw new Error(`${metot}: HTTP ${yanit.status}`);
     } catch (e) {
-      if (e instanceof SinirHatasi) throw e;
+      if (e instanceof SinirHatasi || e instanceof ArizaHatasi) throw e;
       this.sayac.hata++;
+      // Bağlantı kurulamadı ya da zaman aşımı: sunucu tarafı, aynı geri çekilme.
+      if (e?.name === 'TimeoutError' || e?.name === 'AbortError' || e instanceof TypeError) {
+        throw this.#arizaliydi(`${metot}: ${e.name === 'TypeError' ? 'bağlantı kurulamadı' : 'zaman aşımı'}`);
+      }
       throw e;
     }
 
@@ -104,9 +149,20 @@ export class Kapi {
       const ariza = metin.match(/<faultstring>([\s\S]*?)<\/faultstring>/);
       throw new Error(`${metot}: ${ariza ? ariza[1].slice(0, 120) : 'sonuç alanı yok'}`);
     }
-    // Başarılı istek cezayı başa sarar.
+    // Başarılı istek cezayı ve arıza beklemesini başa sarar.
     this.ceza = this.ilkCeza;
+    this.arizaAdimi = this.ilkAriza;
+    this.arizaNedeni = '';
     return JSON.parse(sonuc[1].replace(/&(lt|gt|amp|quot|apos);/g, (e) => COZ[e]));
+  }
+
+  #arizaliydi(neden) {
+    this.sayac.ariza++;
+    this.arizaNedeni = neden;
+    this.arizaBitis = Date.now() + this.arizaAdimi;
+    const hata = new ArizaHatasi(neden, this.arizaAdimi);
+    this.arizaAdimi = Math.min(this.arizaAdimi * 2, this.enFazlaAriza);
+    return hata;
   }
 
   #sinirdaTakildi() {

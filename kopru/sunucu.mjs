@@ -34,7 +34,7 @@ import { butceyiBol, SaatlikButce } from './butce.mjs';
 import { KaliteOlcer } from './kalite.mjs';
 import { duyurulariDuzenle, duyurulariEslestir } from './duyuru.mjs';
 import { sozlukKur } from './yazim.mjs';
-import { duyurular as duyurulariIste, filoKonumlari, hatlar as hatlariIste, Kapi, SinirHatasi } from './iett.mjs';
+import { ArizaHatasi, duyurular as duyurulariIste, filoKonumlari, hatlar as hatlariIste, Kapi, SinirHatasi } from './iett.mjs';
 import { araclariEslestir, gecikmeAkisi, konumAkisi, SeferHafizasi } from './kopru.mjs';
 import { oku, yaz } from './ogrenilen.mjs';
 import { Tarayici, yogunlukTahmini } from './tarama.mjs';
@@ -159,10 +159,15 @@ function durumuTazele() {
     son60dk: butce.kullanilan(),
     butce: BUTCE,
     kalanCezaSn: Math.round(kapi.kalanCeza() / 1000),
+    kalanArizaSn: Math.round(kapi.kalanAriza() / 1000),
+    arizaNedeni: kapi.arizaNedeni || null,
   };
   durum.bayat = !sonBasari || Date.now() - sonBasari > BAYAT_MS;
   durum.kalite = kalite.rapor();
 }
+
+let arizaYazildi = false;
+let sonArizaSayisi = 0;
 
 async function nabiz() {
   try {
@@ -188,10 +193,25 @@ async function nabiz() {
         `${eslesenler.length} eşleşti (${durum.eslesenSefer} sefer) · ` +
         `taranan hat ${t.sorulanHat}/${t.toplamHat} · son 60 dk ${butce.kullanilan()}/${BUTCE} istek`,
     );
+    if (arizaYazildi) {
+      console.log(`${simdi.toLocaleTimeString('tr-TR')} · İBB yeniden yanıt veriyor`);
+      arizaYazildi = false;
+    }
   } catch (e) {
     durum.hata = e instanceof SinirHatasi ? 'hız sınırı — geri çekiliyoruz' : e.message;
-    const kalan = Math.round(kapi.kalanCeza() / 60_000);
-    console.error(`nabız: ${durum.hata}${kalan ? ` (${kalan} dk bekleniyor)` : ''}`);
+    const saat = new Date().toLocaleTimeString('tr-TR');
+    if (e instanceof ArizaHatasi) {
+      // Arıza beklemesinde nabız istek göndermeden düşüyor; her iki dakikada bir aynı
+      // satırı yazmamak için yalnız gerçekten gönderilip düşen istekten sonra yazılır.
+      if (kapi.sayac.ariza !== sonArizaSayisi) {
+        sonArizaSayisi = kapi.sayac.ariza;
+        arizaYazildi = true;
+        console.error(`${saat} · nabız alınamadı: ${e.message}`);
+      }
+    } else {
+      const kalan = Math.round(kapi.kalanCeza() / 60_000);
+      console.error(`${saat} · nabız alınamadı: ${durum.hata}${kalan ? ` (${kalan} dk bekleniyor)` : ''}`);
+    }
   } finally {
     durumuTazele();
   }
