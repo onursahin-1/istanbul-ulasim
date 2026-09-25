@@ -105,3 +105,47 @@ describe('adimlariYaz', () => {
     assert.equal(a.mesafe, '');
   });
 });
+
+describe('OTP\'nin uydurduğu yol adları', () => {
+  it('yürüyen merdiveni Türkçe cümleye çevirir, "escalator boyunca" demez', () => {
+    const [a] = adimlariYaz([adim({ streetName: 'escalator', relativeDirection: 'CONTINUE' })]);
+    assert.equal(a.metin, 'Yürüyen merdivenle devam et');
+    assert.doesNotMatch(a.metin, /escalator|boyunca/i);
+  });
+
+  it('dönüşle birlikte: "Sağa dön, merdivenleri kullan"', () => {
+    const [a] = adimlariYaz([adim({ streetName: 'steps', relativeDirection: 'RIGHT' })]);
+    assert.equal(a.metin, 'Sağa dön, merdivenleri kullan');
+    assert.equal(a.eylem, 'Sağa dön');
+    assert.equal(a.sokak, 'Merdiven');
+  });
+
+  it('üst geçit, alt geçit, yaya geçidi', () => {
+    assert.equal(adimlariYaz([adim({ streetName: 'footbridge' })])[0].metin, 'Üst geçitten karşıya geç');
+    assert.equal(adimlariYaz([adim({ streetName: 'underpass' })])[0].metin, 'Alt geçitten karşıya geç');
+    const [g] = adimlariYaz([adim({ streetName: 'crosswalk over Maslak Caddesi', relativeDirection: 'LEFT' })]);
+    assert.equal(g.metin, 'Sola dön, yaya geçidinden karşıya geç');
+    assert.equal(g.sokak, 'Yaya geçidi · Maslak Caddesi');
+  });
+
+  it('genel yol türlerini adsız sayar', () => {
+    for (const ad of ['sidewalk', 'path', 'service road', 'open area', 'road', 'unnamed', 'corridor', 'bike path']) {
+      const [a] = adimlariYaz([adim({ streetName: ad, relativeDirection: 'CONTINUE' })]);
+      assert.equal(a.metin, 'Düz devam et', ad);
+      assert.equal(a.sokak, '', ad);
+    }
+  });
+
+  it('"part of" ve "corner of" kalıplarını düzeltir', () => {
+    assert.equal(adimlariYaz([adim({ streetName: 'Bağdat Caddesi (part of D100)' })])[0].sokak, 'Bağdat Caddesi');
+    assert.equal(
+      adimlariYaz([adim({ streetName: 'corner of Bağdat Caddesi and Sahil Yolu', relativeDirection: 'RIGHT' })])[0].metin,
+      'Sağa dön · Bağdat Caddesi ile Sahil Yolu köşesi',
+    );
+  });
+
+  it('adsız sayılan yapı bogusName olsa da cümlesini korur', () => {
+    const [a] = adimlariYaz([adim({ streetName: 'escalator', bogusName: true })]);
+    assert.equal(a.metin, 'Yürüyen merdivenle devam et');
+  });
+});
