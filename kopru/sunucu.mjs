@@ -21,15 +21,19 @@
 //   /arac-konumlari        GTFS-RT VehiclePosition  → OTP VEHICLE_POSITIONS
 //   /sefer-guncellemeleri  GTFS-RT TripUpdate       → OTP STOP_TIME_UPDATER
 //   /duyurular             İETT hat duyuruları, JSON → uygulama
-//   /durum                 insan için JSON özet
+//   /durum                 insan için JSON özet (varış doğruluğu ölçümü `kalite`de)
+//
+// Doğruluk ölçümü: kayit/kalite-YYYY-MM-DD.json, özet için `node kalite-rapor.mjs`.
 
 import { createServer } from 'node:http';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { butceyiBol, SaatlikButce } from './butce.mjs';
+import { KaliteOlcer } from './kalite.mjs';
 import { duyurulariDuzenle, duyurulariEslestir } from './duyuru.mjs';
+import { sozlukKur } from './yazim.mjs';
 import { duyurular as duyurulariIste, filoKonumlari, hatlar as hatlariIste, Kapi, SinirHatasi } from './iett.mjs';
 import { araclariEslestir, gecikmeAkisi, konumAkisi, SeferHafizasi } from './kopru.mjs';
 import { oku, yaz } from './ogrenilen.mjs';
@@ -61,6 +65,8 @@ if (!existsSync(ZIP)) {
 
 console.log(`tarife okunuyor: ${ZIP}`);
 const tarife = tarifeyiKur(ZIP);
+// Duyuru metinlerindeki özel adların doğru yazımı GTFS'teki durak ve hat adlarından.
+const yazimSozlugu = sozlukKur([...tarife.durakAdlari, ...tarife.uzunAdlar.map((u) => u.uzun)]);
 console.log(`  ${tarife.kurulumMs} ms · ${JSON.stringify(tarife.sayilar)}`);
 
 const onceki = oku(OGRENILEN);
@@ -71,6 +77,19 @@ const kapi = new Kapi({ butce, kapaliyaKadar: onceki.kapaliyaKadar ?? 0 });
 const tarayici = new Tarayici(kapi, { aralikMs: pay.taramaAralikMs, tahminiYogunluk: yogunlukTahmini(tarife) });
 tarayici.yukle(onceki);
 const hafiza = new SeferHafizasi();
+// Varış tahminlerinin gerçekle karşılaştırması. Günlük dosyası kayit/ klasöründe.
+const KAYIT_KLASORU = join(KLASOR, 'kayit');
+const kalite = new KaliteOlcer(tarife);
+const kaliteyiYaz = (veri = kalite.disaAktar()) => {
+  if (!veri.gun) return;
+  try {
+    mkdirSync(KAYIT_KLASORU, { recursive: true });
+    yaz(join(KAYIT_KLASORU, `kalite-${veri.gun}.json`), veri);
+  } catch (e) {
+    console.error(`kalite ölçümü yazılamadı: ${e.message}`);
+  }
+};
+kalite.onGunBitti = () => kaliteyiYaz();
 const iz = new KonumIzi();
 let hatListesi = onceki.hatListesi ?? null;
 
@@ -93,6 +112,7 @@ const durum = {
   tarama: null,
   kapi: null,
   duyuru: null,
+  kalite: null,
   hata: null,
 };
 
@@ -119,6 +139,7 @@ async function hatlariTazele() {
 }
 
 function kaydet() {
+  kaliteyiYaz();
   try {
     yaz(OGRENILEN, {
       ...tarayici.disaAktar(),
@@ -140,6 +161,7 @@ function durumuTazele() {
     kalanCezaSn: Math.round(kapi.kalanCeza() / 1000),
   };
   durum.bayat = !sonBasari || Date.now() - sonBasari > BAYAT_MS;
+  durum.kalite = kalite.rapor();
 }
 
 async function nabiz() {
@@ -152,6 +174,7 @@ async function nabiz() {
     konumlar = konumAkisi(eslesenler, simdi);
     gecikmeler = gecikmeAkisi(eslesenler, simdi);
     sonBasari = simdi.getTime();
+    kalite.gozlem(eslesenler, simdi);
 
     durum.sonNabiz = simdi.toISOString();
     durum.filoAraci = araclar.length;
@@ -177,7 +200,7 @@ async function nabiz() {
 async function duyurulariTazele() {
   try {
     const liste = duyurulariEslestir(
-      duyurulariDuzenle(await duyurulariIste(kapi)),
+      duyurulariDuzenle(await duyurulariIste(kapi), yazimSozlugu),
       hatListesi?.adlar ?? [],
       tarife.uzunAdlar,
     );

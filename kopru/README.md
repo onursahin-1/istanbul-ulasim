@@ -16,7 +16,7 @@ Sunucu `http://localhost:8082` adresinde üç uç nokta açar:
 |---|---|---|
 | `/arac-konumlari` | GTFS-RT VehiclePosition | `VEHICLE_POSITIONS` |
 | `/sefer-guncellemeleri` | GTFS-RT TripUpdate | `STOP_TIME_UPDATER` |
-| `/duyurular` | İETT hat duyuruları, JSON (15 dakikada bir tazelenir) | uygulama doğrudan okur |
+| `/duyurular` | İETT hat duyuruları, JSON (15 dakikada bir tazelenir). BÜYÜK HARFLİ metinler cümle düzenine çevrilir, düşen Türkçe harfler geri konur (`yazim.mjs`); özgün metin `ham` alanında | uygulama doğrudan okur |
 | `/durum` | insan için JSON özet | — |
 
 Ortam değişkenleri: `GTFS_ZIP` (varsayılan `C:\otp\istanbul\istanbul-iett-gtfs.zip`),
@@ -161,6 +161,32 @@ sefer eşleşmesi %7'de kalıyordu; ara değerlemeyle %98'e çıktı.
 (`SeferHafizasi`). Yoksa 10 dakika geciken bir otobüs her taramada "bir sonraki
 seferin aracı" sanılır ve gecikme hiç görünmez. Araç durak sırasında geriye giderse
 yeni tur başlamış sayılır ve eşleştirme yenilenir.
+
+**Gecikme aracın bulunduğu noktada ölçülüyor.** Eskiden en yakın durağın saatiyle
+karşılaştırılıyordu: o durağa 400 m kala görülen otobüs, oraya daha varmadığı için
+planın gerisinde görünüp "erken" sayılıyor, durağı geçmiş olan ise olduğundan geç.
+Varış tahminleri durak arası sürenin yarısı kadar oynuyordu. Şimdi araç iki durak
+arasına yerleştiriliyor (`konumdakiPlan`), plan o noktada ara değerleniyor ve güncelleme
+**sıradaki durak** için yayımlanıyor.
+
+### Doğruluk ölçümü
+
+Köprü kendi tahminlerini denetliyor (`kalite.mjs`). Her nabızda araç için 1, 4 ve 10
+durak sonrasına bir varış tahmini not ediliyor (OTP gibi "gecikme sabit kalır"
+varsayımıyla); araç o durağı geçince geçiş anı iki gözlem arasında ara değerlenip
+tahminle karşılaştırılıyor. Aynı tahmin eski yöntemle de hesaplanıyor.
+
+```
+node kalite-rapor.mjs              # bugünün özeti
+node kalite-rapor.mjs 2026-09-26   # belirli bir gün
+```
+
+`hata = gerçek varış − tahmin`: artı ise otobüs tahminden geç geldi, eksi ise erken.
+Ortalama sıfırdan belirgin uzaksa tahminler bir yöne kayık demektir. Ölçüm
+`kayit/kalite-YYYY-MM-DD.json`'a 5 dakikada bir yazılıyor ve `/durum`'da `kalite`
+alanında. Köprü yeniden başlarsa o günün sayımı sıfırdan başlar. Nabız 2 dakikada bir
+olduğu için geçiş anı ±1 dakika içinde bilinir; ortalama bundan etkilenmez, tek tek
+örnekler etkilenir.
 
 ## Sınırlar
 

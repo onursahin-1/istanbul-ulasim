@@ -46,3 +46,4 @@ veri/iett-ornek.json
 # Canlı veri köprüsünün öğrendikleri (makineye özel, sürekli değişir)
 kopru/ogrenilen.json
 kopru/ogrenilen.json.yaziliyor
+kopru/kayit/

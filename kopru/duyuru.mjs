@@ -15,6 +15,8 @@
 // için), ama İBB ağ geçidi istekleri ortak sayıyor olabilir: duyuru istekleri de
 // aynı kapıdan ve aynı saatlik bütçeden geçiyor.
 
+import { metniDuzelt, sozlukKur } from './yazim.mjs';
+
 /** Alan adının büyük/küçük harfine bakmadan oku: servis belgesi büyük harf diyor, emin değiliz. */
 function alan(kayit, ad) {
   if (!kayit || typeof kayit !== 'object') return '';
@@ -26,9 +28,10 @@ function alan(kayit, ad) {
  * Servisin ham listesini düzenler: boşları atar, aynı hattın aynı mesajını teke
  * indirir, hat koduna göre sıralar.
  *
- * @returns {{hat:string, tip:string, saat:string, mesaj:string}[]}
+ * @param sozluk yazim.mjs sozlukKur çıktısı (GTFS durak ve hat adlarıyla)
+ * @returns {{hat:string, tip:string, saat:string, mesaj:string, ham?:string}[]}
  */
-export function duyurulariDuzenle(ham) {
+export function duyurulariDuzenle(ham, sozluk = sozlukKur()) {
   const liste = Array.isArray(ham) ? ham : ham ? [ham] : [];
   const gorulen = new Set();
   const sonuc = [];
@@ -41,7 +44,10 @@ export function duyurulariDuzenle(ham) {
     gorulen.add(anahtar);
     // "Kayit Saati: 06:35" → "06:35"
     const saat = alan(k, 'GUNCELLEME_SAATI').replace(/^[^0-9]*(?=\d{1,2}:\d{2})/, '');
-    sonuc.push({ hat, tip: alan(k, 'TIP'), saat, mesaj });
+    // BÜYÜK HARFLİ, İ/Ş/Ğ'si düşmüş metin cümle düzenine; özgünü de saklanıyor ki
+    // düzeltme yanılırsa /duyurular'da karşılaştırılabilsin.
+    const duzgun = metniDuzelt(mesaj, sozluk);
+    sonuc.push({ hat, tip: metniDuzelt(alan(k, 'TIP'), sozluk), saat, mesaj: duzgun, ...(duzgun !== mesaj ? { ham: mesaj } : {}) });
   }
   return sonuc.sort((a, b) => a.hat.localeCompare(b.hat, 'tr', { numeric: true }));
 }

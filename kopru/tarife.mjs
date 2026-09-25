@@ -79,6 +79,7 @@ export function tarifeyiKur(zipYolu) {
   const duraklar = csvAyristir(dosyalar['stops.txt'].toString('utf8'));
   const durakNo = new Map(); // stop_id → sıra
   const durakAd = [];
+  const durakAdlari = new Set(); // "GÖZTEPE MAHALLESİ" — duyuru metinlerinin yazımını düzeltmek için
   const kodtanDurak = new Map(); // "100022" → sıra
   const durakEnlem = new Float64Array(duraklar.length);
   const durakBoylam = new Float64Array(duraklar.length);
@@ -90,6 +91,8 @@ export function tarifeyiKur(zipYolu) {
     durakBoylam[no] = Number(s.stop_lon);
     const kod = (s.stop_code ?? '').trim();
     if (kod) kodtanDurak.set(kod, no);
+    const ad = (s.stop_name ?? '').trim();
+    if (ad) durakAdlari.add(ad);
   }
 
   // ---- servisler ----
@@ -210,11 +213,36 @@ export function tarifeyiKur(zipYolu) {
   const sSefer = new Int32Array(n);
   const sSaniye = new Int32Array(n);
   const sSira = new Int32Array(n);
+  const sDurak = new Int32Array(n);
   for (let i = 0; i < n; i++) {
     const yer = yaz[gDurak[i]]++;
     sSefer[yer] = gSefer[i];
     sSaniye[yer] = gSaniye[i];
     sSira[yer] = gSira[i];
+    sDurak[yer] = gDurak[i];
+  }
+
+  // Sefer dizini: bir seferin bütün satırları, durak sırasıyla. Aracı iki durak arasına
+  // yerleştirmek ve ileriki duraklara varış tahmini için seferin kendi durak dizisi gerekiyor.
+  const seferBas = new Int32Array(seferAd.length + 1);
+  for (let i = 0; i < n; i++) seferBas[sSefer[i] + 1]++;
+  for (let i = 0; i < seferAd.length; i++) seferBas[i + 1] += seferBas[i];
+  const seferSatir = new Int32Array(n);
+  {
+    const yazS = Int32Array.from(seferBas.subarray(0, seferAd.length));
+    for (let i = 0; i < n; i++) seferSatir[yazS[sSefer[i]]++] = i;
+    for (let t = 0; t < seferAd.length; t++) {
+      // Kısa diziler: araya sokma sıralaması yeter.
+      for (let i = seferBas[t] + 1; i < seferBas[t + 1]; i++) {
+        const v = seferSatir[i];
+        let j = i - 1;
+        while (j >= seferBas[t] && sSira[seferSatir[j]] > sSira[v]) {
+          seferSatir[j + 1] = seferSatir[j];
+          j--;
+        }
+        seferSatir[j + 1] = v;
+      }
+    }
   }
 
   // Her rotanın uğradığı duraklar.
@@ -274,6 +302,7 @@ export function tarifeyiKur(zipYolu) {
     guzergahtanRota,
     kisaAdtanRotalar,
     uzunAdlar,
+    durakAdlari: [...durakAdlari],
     kodtanDurak,
     rotaAd,
     durakAd,
@@ -286,6 +315,9 @@ export function tarifeyiKur(zipYolu) {
     sSefer,
     sSaniye,
     sSira,
+    sDurak,
+    seferBas,
+    seferSatir,
     sayilar: {
       rota: rotaAd.length,
       durak: durakAd.length,
@@ -296,6 +328,18 @@ export function tarifeyiKur(zipYolu) {
     },
     kurulumMs: Date.now() - t0,
   };
+}
+
+/**
+ * Bir seferin durakları, sırasıyla: [{durak, sira, saniye}].
+ */
+export function seferDuraklari(tarife, seferIdx) {
+  const sonuc = [];
+  for (let k = tarife.seferBas[seferIdx]; k < tarife.seferBas[seferIdx + 1]; k++) {
+    const i = tarife.seferSatir[k];
+    sonuc.push({ durak: tarife.sDurak[i], sira: tarife.sSira[i], saniye: tarife.sSaniye[i] });
+  }
+  return sonuc;
 }
 
 /**

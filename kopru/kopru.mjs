@@ -11,7 +11,7 @@
 
 import GtfsRealtimeBindings from 'gtfs-realtime-bindings';
 
-import { enYakinDurak, gununServisleri, seferBul } from './tarife.mjs';
+import { enYakinDurak, gununServisleri, seferBul, seferDuraklari } from './tarife.mjs';
 import { koridoraGoreSuz, yonluAdaylar } from './yon.mjs';
 
 /**
@@ -30,6 +30,56 @@ function planlananSaat(tarife, seferIdx, durakIdx) {
     if (tarife.sSefer[i] === seferIdx) return { saniye: tarife.sSaniye[i], sira: tarife.sSira[i] };
   }
   return null;
+}
+
+/**
+ * Aracın konumuna göre seferin **o noktadaki** planlanan saati.
+ *
+ * Eskiden gecikme en yakın durağın saatine göre ölçülüyordu. Araç o durağa henüz
+ * varmamışsa (400 m geride) gözlem anı planın gerisinde kalıyor, gecikme olduğundan
+ * küçük, hatta "erken" çıkıyordu; durağı geçmişse tersine büyük. Tahmin edilen
+ * varışlar bu yüzden durak arası sürenin yarısı kadar oynuyordu.
+ *
+ * Şimdi araç iki durak arasına yerleştiriliyor: önceki ve sonraki durağı birleştiren
+ * doğruya izdüşümü `t` (0 = önceki durak, 1 = sonraki). Plan bu iki durağın saati
+ * arasında doğrusal. Yayımlanan güncelleme de sıradaki durak için: "oraya planlanan
+ * saat + gecikme ile varır".
+ *
+ * @returns {{planlanan:number, durak:number, sira:number, konum:number, t:number}|null}
+ *   konum: durak sırası cinsinden sürekli yer (12.4 = 12. ile 13. durak arasının %40'ı)
+ */
+export function konumdakiPlan(tarife, seferIdx, durakIdx, enlem, boylam) {
+  const liste = seferDuraklari(tarife, seferIdx);
+  const i = liste.findIndex((d) => d.durak === durakIdx);
+  if (i < 0) return null;
+  const yakin = liste[i];
+  const onceki = liste[i - 1] ?? null;
+  const sonraki = liste[i + 1] ?? null;
+
+  const olcek = Math.cos((enlem * Math.PI) / 180);
+  const xy = (d) => [(tarife.durakBoylam[d] - boylam) * olcek, tarife.durakEnlem[d] - enlem];
+  /** Aracın a→b doğrusundaki izdüşümü ve doğruya uzaklığının karesi. */
+  const izdusum = (a, b) => {
+    const [ax, ay] = xy(a.durak);
+    const [bx, by] = xy(b.durak);
+    const dx = bx - ax;
+    const dy = by - ay;
+    const uz = dx * dx + dy * dy;
+    const t = uz > 0 ? Math.min(1, Math.max(0, -(ax * dx + ay * dy) / uz)) : 0;
+    const px = ax + t * dx;
+    const py = ay + t * dy;
+    return { a, b, t, uzaklik: px * px + py * py };
+  };
+  const adaylar = [onceki && izdusum(onceki, yakin), sonraki && izdusum(yakin, sonraki)].filter(Boolean);
+  if (!adaylar.length) {
+    return { planlanan: yakin.saniye, durak: yakin.durak, sira: yakin.sira, konum: yakin.sira, t: 1 };
+  }
+  // Aracın asıl bulunduğu aralık doğruya en yakın olanı. Eşitlikte (tam durakta) ileridekini
+  // seç ki güncelleme geçilmiş bir durağa yazılmasın.
+  adaylar.sort((x, y) => x.uzaklik - y.uzaklik || y.a.sira - x.a.sira);
+  const { a, b, t } = adaylar[0];
+  const planlanan = Math.round(a.saniye + t * fark(b.saniye, a.saniye));
+  return { planlanan, durak: b.durak, sira: b.sira, konum: a.sira + t * (b.sira - a.sira), t };
 }
 
 /**
@@ -234,8 +284,9 @@ export function araclariEslestir(tarife, araclar, hafiza, tarayici, simdi = new 
       sayac[yoldan]++;
     }
 
-    // Gecikme: gözlem anı − planlanan an. Pozitif = geç kalmış.
-    const gecikme = fark(zaman.saniye, secilen.planlanan);
+    // Gecikme: gözlem anı − aracın bulunduğu noktadaki planlanan an. Pozitif = geç kalmış.
+    const yerPlan = konumdakiPlan(tarife, secilen.sefer, durakIdx, a.enlem, a.boylam);
+    const gecikme = fark(zaman.saniye, yerPlan?.planlanan ?? secilen.planlanan);
     if (gecikme < -EN_ERKEN_SN || gecikme > EN_GEC_SN) {
       sayac.makulDisi++;
       // Hafızadaki sefer artık tutmuyorsa unut; bir sonraki turda baştan eşlensin.
@@ -243,6 +294,7 @@ export function araclariEslestir(tarife, araclar, hafiza, tarayici, simdi = new 
       continue;
     }
 
+    // Hafızada en yakın durağın sırası: bir sonraki turda geri gidiş denetimi onunla.
     if (kapiNo) hafiza.koy(kapiNo, rotaIdx, secilen.sefer, secilen.sira, simdi);
 
     eslesenler.push({
@@ -250,9 +302,18 @@ export function araclariEslestir(tarife, araclar, hafiza, tarayici, simdi = new 
       seferId: tarife.seferAd[secilen.sefer],
       rotaId: tarife.rotaAd[rotaIdx],
       yon: tarife.seferYon[secilen.sefer],
-      durakId: tarife.durakAd[durakIdx],
-      sira: secilen.sira,
+      // Güncelleme sıradaki durak için (araç ona doğru gidiyor).
+      durakId: tarife.durakAd[yerPlan?.durak ?? durakIdx],
+      sira: yerPlan?.sira ?? secilen.sira,
       gecikme,
+      // Ölçüm için (kalite.mjs): eski yöntemin gecikmesi ve araç yerinin ayrıntısı.
+      eskiGecikme: fark(zaman.saniye, secilen.planlanan),
+      seferIdx: secilen.sefer,
+      rotaIdx,
+      konum: yerPlan?.konum ?? secilen.sira,
+      planlanan: yerPlan?.planlanan ?? secilen.planlanan,
+      yakinPlan: secilen.planlanan,
+      yoldan: kayit && secilen.sefer === kayit.sefer ? 'surdurulen' : 'yeni',
       enlem: a.enlem,
       boylam: a.boylam,
       damga: Math.floor(zaman.tarih.getTime() / 1000),
