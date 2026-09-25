@@ -11,6 +11,7 @@
 import { router } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import MapView, { Marker, Polyline, type MapPressEvent, type Region } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -62,9 +63,8 @@ export default function AgEkrani() {
   const gorunenBolge = useRef<Region>(bolge);
 
   const haritayaDokun = useCallback(
-    (e: MapPressEvent) => {
+    (nokta: { latitude: number; longitude: number }) => {
       const payMetre = metrePiksel(gorunenBolge.current, ekranGenisligi) * ISABET_PX;
-      const nokta = e.nativeEvent.coordinate;
       // iOS'ta istasyon işaretçisine basmak da buraya düşüyor. Seçili hat paydaysa
       // onu tut: aktarma istasyonunda başka bir hat birkaç metre daha yakın olabilir
       // ve seçim, açılmakta olan istasyon balonunun altından kayıp gider.
@@ -80,6 +80,39 @@ export default function AgEkrani() {
       setSecili(hatId ? (gorunen.find((h) => h.id === hatId) ?? null) : null);
     },
     [gorunen, ekranGenisligi, secili],
+  );
+
+  // Dokunmayı haritanın kendi onPress'i yerine gesture handler ile alıyoruz: Apple
+  // Haritalar tek dokunuşu, çift dokunuşla yakınlaştırma olmadığı anlaşılana kadar
+  // (~300 ms) bekletiyor; hatta basınca seçim geç geliyordu. Burada parmak kalkar
+  // kalkmaz ekran noktası haritada koordinata çevriliyor. Kaydırma ve yakınlaştırma
+  // haritada aynen çalışıyor (dokunma, parmak 10 pikselden çok kayarsa düşüyor).
+  // Yedek: gesture handler dokunmayı herhangi bir sebeple alamazsa haritanın kendi
+  // (gecikmeli) onPress'i çalışsın; ikisi birden gelirse ikincisi yok sayılır.
+  const hizliDokunma = useRef(0);
+  const yavasDokunma = useCallback(
+    (e: MapPressEvent) => {
+      if (Date.now() - hizliDokunma.current < 800) return;
+      haritayaDokun(e.nativeEvent.coordinate);
+    },
+    [haritayaDokun],
+  );
+
+  const dokunma = useMemo(
+    () =>
+      Gesture.Tap()
+        .maxDistance(10)
+        .maxDuration(350)
+        .runOnJS(true)
+        .onEnd((e, basarili) => {
+          if (!basarili) return;
+          hizliDokunma.current = Date.now();
+          harita.current
+            ?.coordinateForPoint({ x: e.x, y: e.y })
+            .then(haritayaDokun)
+            .catch(() => {});
+        }),
+    [haritayaDokun],
   );
 
   const suzgecDegis = useCallback((anahtar: string) => {
@@ -125,42 +158,46 @@ export default function AgEkrani() {
 
   return (
     <View style={s.kok} onLayout={(e) => setEkranBoyu(e.nativeEvent.layout.height)}>
-      <MapView
-        ref={harita}
-        style={StyleSheet.absoluteFill}
-        userInterfaceStyle={tema.haritaStili}
-        initialRegion={bolge}
-        showsPointsOfInterests={false}
-        toolbarEnabled={false}
-        onPress={haritayaDokun}
-        onRegionChangeComplete={(b) => {
-          gorunenBolge.current = b;
-        }}
-        mapPadding={{ top: ustBoyu, right: 0, bottom: secili ? yaprakBoyu : 20, left: 0 }}
-      >
-        {gorunen.map((h) => {
-          const seciliMi = secili?.id === h.id;
-          return (
-            <Polyline
-              key={h.id}
-              coordinates={agCizgisi(h.id)}
-              strokeColor={secili && !seciliMi ? karistir(renk(h), tema.zemin, SOLUK) : renk(h)}
-              strokeWidth={seciliMi ? KALIN : INCE}
-              zIndex={seciliMi ? 3 : 1}
-            />
-          );
-        })}
+      <GestureDetector gesture={dokunma}>
+        <View style={StyleSheet.absoluteFill} collapsable={false}>
+          <MapView
+            ref={harita}
+            style={StyleSheet.absoluteFill}
+            userInterfaceStyle={tema.haritaStili}
+            initialRegion={bolge}
+            showsPointsOfInterests={false}
+            toolbarEnabled={false}
+            onPress={yavasDokunma}
+            onRegionChangeComplete={(b) => {
+              gorunenBolge.current = b;
+            }}
+            mapPadding={{ top: ustBoyu, right: 0, bottom: secili ? yaprakBoyu : 20, left: 0 }}
+          >
+            {gorunen.map((h) => {
+              const seciliMi = secili?.id === h.id;
+              return (
+                <Polyline
+                  key={h.id}
+                  coordinates={agCizgisi(h.id)}
+                  strokeColor={secili && !seciliMi ? karistir(renk(h), tema.zemin, SOLUK) : renk(h)}
+                  strokeWidth={seciliMi ? KALIN : INCE}
+                  zIndex={seciliMi ? 3 : 1}
+                />
+              );
+            })}
 
-        {secili?.duraklar.map((i) => (
-          <Marker
-            key={`${secili.id}-${i.id}`}
-            coordinate={{ latitude: i.lat, longitude: i.lon }}
-            title={baslikYap(i.ad)}
-            pinColor={renk(secili)}
-            onCalloutPress={() => duragaGit(i.ad, i.lat, i.lon)}
-          />
-        ))}
-      </MapView>
+            {secili?.duraklar.map((i) => (
+              <Marker
+                key={`${secili.id}-${i.id}`}
+                coordinate={{ latitude: i.lat, longitude: i.lon }}
+                title={baslikYap(i.ad)}
+                pinColor={renk(secili)}
+                onCalloutPress={() => duragaGit(i.ad, i.lat, i.lon)}
+              />
+            ))}
+          </MapView>
+        </View>
+      </GestureDetector>
 
       <View
         style={[s.ust, { paddingTop: kenar.top }]}
