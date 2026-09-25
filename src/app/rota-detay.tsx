@@ -3,6 +3,7 @@
 // günün son seferi uyarısı çıkar.
 
 import * as Haptics from 'expo-haptics';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as Location from 'expo-location';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -11,25 +12,31 @@ import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AltYaprak } from '@/components/alt-yaprak';
+import { AdimKartlari, AdimSekmeleri, TumAdimlar, type YolTarifiVerisi } from '@/components/canli-yol-tarifi';
 import { OtobusIsareti } from '@/components/harita-isaretleri';
 import { HatirlatmaSayfasi, type InisBilgisi } from '@/components/hatirlatma';
 import { canliRenk, GeriCubugu, HatRozeti, Ikon, useStiller, type IkonAdi } from '@/components/ulasim';
 import { bacakCanli } from '@/lib/canli';
 import { hemenBildir, izinIste, useHatirlaticilar } from '@/lib/bildirim';
 import { useKayitlar } from '@/lib/kayitlar';
-import { mesafeMetre, polylineCoz, type Nokta } from '@/lib/cografya';
+import { polylineCoz, type Nokta } from '@/lib/cografya';
 import { araclariYerlestir, kalanYaz, yaklasanOtobus, yasYaz, type YerlesikArac } from '@/lib/arac-konum';
 import { bacakDuraklari, hatKalkislariGetir, seferAraclariGetir, type Bacak } from '@/lib/otp';
 import { guzergahGetir } from '@/lib/secim';
 import { seferBilgisi, sikliktanYazi, type SeferBilgisi } from '@/lib/sefer';
 import { aracAdi, baslikYap, haritaRengi, hatEtiketi, hatRengi, useTema, type Tema } from '@/lib/tema';
 import { TARIFE_TARIHI, UCRET_ADLARI, ucretKisa, ucretYaz, yolculukUcreti } from '@/lib/ucret';
+import {
+  adimlariKur,
+  baslangicDurumu,
+  durumuIlerlet,
+  type BacakOzeti,
+  type YolculukDurumu,
+} from '@/lib/yolculuk';
 import { adimlariYaz, type DonusTuru } from '@/lib/yuruyus';
 import { isodanSaniye, mesafeYaz, saatYaz, saniyedenSaat, sureYaz } from '@/lib/zaman';
 
 type Takip = { bacak: number; kalanDurak: number } | null;
-
-const YAKINLIK_ESIGI = 250; // metre: telefon bir durağa bu kadar yakınsa o duraktayız sayılır
 
 /** Yol tarifi satırlarının simgeleri. */
 const DONUS_SIMGELERI: Record<DonusTuru, IkonAdi> = {
@@ -68,12 +75,18 @@ export default function RotaDetayEkrani() {
   const harita = useRef<MapView>(null);
 
   const [takipAcik, setTakipAcik] = useState(false);
-  const [takip, setTakip] = useState<Takip>(null);
+  // Canlı yol tarifi: hangi adımdayız (konum belirliyor) ve hangi adımın kartına bakılıyor.
+  const [durum, setDurum] = useState<YolculukDurumu | null>(null);
+  const [gorunen, setGorunen] = useState(0);
+  const [kartBoyu, setKartBoyu] = useState(0);
+  const [tumAdimlarAcik, setTumAdimlarAcik] = useState(false);
+  const [simdi, setSimdi] = useState(() => Date.now());
+  const sonKonum = useRef<Nokta | null>(null);
   const [acikBacaklar, setAcikBacaklar] = useState<Record<number, boolean>>({});
   const [seferler, setSeferler] = useState<Record<number, SeferBilgisi>>({});
   const [hatirlatAcik, setHatirlatAcik] = useState(false);
   const { hatirlaticilar, yenile: hatirlaticilariYenile } = useHatirlaticilar();
-  const { ucretTuru } = useKayitlar();
+  const { ucretTuru, ekranAcik } = useKayitlar();
   const aboneligi = useRef<Location.LocationSubscription | null>(null);
   const simulasyon = useRef<ReturnType<typeof setInterval> | null>(null);
   const uyarilanlar = useRef(new Set<string>());
@@ -83,9 +96,34 @@ export default function RotaDetayEkrani() {
   const cizgiler = useMemo(() => bacaklar.map(bacakNoktalari), [bacaklar]);
   const duraklar = useMemo(() => bacaklar.map((b) => (b.transitLeg ? bacakDuraklari(b) : [])), [bacaklar]);
 
+  // Adım adım görünüm için: hangi bacak hangi adım, konumla ilerlemek için bacakların özeti.
+  const ozetler = useMemo<BacakOzeti[]>(
+    () =>
+      bacaklar.map((b, i) => ({
+        arac: !!b.transitLeg,
+        mesafe: b.distance ?? null,
+        bitis: { latitude: b.to.lat, longitude: b.to.lon },
+        duraklar: duraklar[i].map((d) => ({ latitude: d.lat, longitude: d.lon })),
+      })),
+    [bacaklar, duraklar],
+  );
+  const adimlar = useMemo(() => adimlariKur(ozetler), [ozetler]);
+  // Eski liste görünümü (takip dışı) için: içinde bulunulan araç bacağı ve kalan durak.
+  const takip: Takip = useMemo(
+    () =>
+      durum && durum.faz === 'icinde' && adimlar[durum.adim]
+        ? { bacak: adimlar[durum.adim].bacak, kalanDurak: durum.kalanDurak ?? 0 }
+        : null,
+    [durum, adimlar],
+  );
+
   const ucret = useMemo(() => yolculukUcreti(bacaklar, ucretTuru), [bacaklar, ucretTuru]);
   // Yürüme bacaklarının adım adım tarifi; toplu taşıma bacaklarında boş kalır.
   const yolTarifleri = useMemo(() => bacaklar.map((b) => (b.transitLeg ? [] : adimlariYaz(b.steps))), [bacaklar]);
+  const ilkTarif = useMemo(
+    () => yolTarifleri.map((t) => t.find((x) => x.donus !== 'basla')?.metin ?? t[0]?.metin ?? null),
+    [yolTarifleri],
+  );
 
   // Hatırlatıcılar: yola çıkış anı ve her aracın iniş durağına varış anı.
   const hatirlatmaGrubu = `rota-${sira}-${guzergah?.start ?? ''}`;
@@ -214,37 +252,25 @@ export default function RotaDetayEkrani() {
 
   const konumuIsle = useCallback(
     (nokta: Nokta) => {
-      setTakip((onceki) => {
-        const baslangic = onceki?.bacak ?? 0;
-        for (let i = baslangic; i < bacaklar.length; i++) {
-          const liste = duraklar[i];
-          if (!liste.length) continue;
-          let enYakin = -1;
-          let enKisa = Infinity;
-          liste.forEach((d, j) => {
-            const m = mesafeMetre(nokta, { latitude: d.lat, longitude: d.lon });
-            if (m < enKisa) {
-              enKisa = m;
-              enYakin = j;
-            }
-          });
-          if (enKisa <= YAKINLIK_ESIGI) {
-            const kalanDurak = liste.length - 1 - enYakin;
-            const anahtar = `${i}-${kalanDurak}`;
-            if (kalanDurak <= 2 && !uyarilanlar.current.has(anahtar)) {
-              uyarilanlar.current.add(anahtar);
-              Haptics.notificationAsync(
-                kalanDurak === 0 ? Haptics.NotificationFeedbackType.Warning : Haptics.NotificationFeedbackType.Success,
-              );
-            }
-            return { bacak: i, kalanDurak };
-          }
-        }
-        return onceki;
-      });
+      sonKonum.current = nokta;
+      setDurum((d) => (d ? durumuIlerlet(d, nokta, adimlar, ozetler) : d));
     },
-    [bacaklar, duraklar],
+    [adimlar, ozetler],
   );
+
+  // İnişe yaklaşırken titreşim; bir durak kala bildirim ("sıradaki durakta in").
+  useEffect(() => {
+    if (!takip) return;
+    const anahtar = `${takip.bacak}-${takip.kalanDurak}`;
+    if (takip.kalanDurak > 2 || uyarilanlar.current.has(anahtar)) return;
+    uyarilanlar.current.add(anahtar);
+    Haptics.notificationAsync(
+      takip.kalanDurak === 0 ? Haptics.NotificationFeedbackType.Warning : Haptics.NotificationFeedbackType.Success,
+    ).catch(() => {});
+    if (takip.kalanDurak === 1) {
+      hemenBildir('Sıradaki durakta in', `${baslikYap(bacaklar[takip.bacak]?.to.name)} durağında inmeye hazırlan.`);
+    }
+  }, [takip, bacaklar]);
 
   const takibiDurdur = useCallback(() => {
     aboneligi.current?.remove();
@@ -252,7 +278,8 @@ export default function RotaDetayEkrani() {
     if (simulasyon.current) clearInterval(simulasyon.current);
     simulasyon.current = null;
     setTakipAcik(false);
-    setTakip(null);
+    setDurum(null);
+    setTumAdimlarAcik(false);
     uyarilanlar.current.clear();
   }, []);
 
@@ -267,13 +294,22 @@ export default function RotaDetayEkrani() {
     }
   }, [takip, seferleriYukle]);
 
+  /** Adım adım görünümü açar: ilk adım, aktarmalar için sonraki seferler. */
+  const yolculuguAc = () => {
+    setTakipAcik(true);
+    setDurum(baslangicDurumu(adimlar));
+    setGorunen(0);
+    setSimdi(Date.now());
+    bacaklar.forEach((b, i) => b.transitLeg && seferleriYukle(i));
+  };
+
   const takibiBaslat = async () => {
     const izin = await Location.requestForegroundPermissionsAsync();
     if (izin.status !== 'granted') {
       Alert.alert('Konum izni gerekli', 'Yolculuğunu takip edebilmemiz için ayarlardan konum iznini açman gerekiyor.');
       return;
     }
-    setTakipAcik(true);
+    yolculuguAc();
     aboneligi.current = await Location.watchPositionAsync(
       { accuracy: Location.Accuracy.High, distanceInterval: 15, timeInterval: 5000 },
       (k) => konumuIsle({ latitude: k.coords.latitude, longitude: k.coords.longitude }),
@@ -284,20 +320,89 @@ export default function RotaDetayEkrani() {
   // güzergâhtaki duraklar sırayla "ziyaret edilir".
   const simulasyonuBaslat = () => {
     if (!__DEV__) return;
-    const sirali = duraklar.flat();
+    // Yürüyüşlerde çizgi üstünden birkaç nokta, araçta duraklar sırayla "ziyaret edilir".
+    const sirali: Nokta[] = bacaklar.flatMap((b, i) => {
+      if (b.transitLeg) return duraklar[i].map((d) => ({ latitude: d.lat, longitude: d.lon }));
+      const c = cizgiler[i];
+      return [c[0], c[Math.floor(c.length / 2)], c[c.length - 1]].filter(Boolean);
+    });
     if (!sirali.length) return;
     takibiDurdur();
-    setTakipAcik(true);
+    yolculuguAc();
     let adim = 0;
     simulasyon.current = setInterval(() => {
       const d = sirali[adim++];
       if (!d) {
-        takibiDurdur();
+        if (simulasyon.current) clearInterval(simulasyon.current);
+        simulasyon.current = null;
         return;
       }
-      konumuIsle({ latitude: d.lat, longitude: d.lon });
+      konumuIsle(d);
     }, 1500);
   };
+
+  // Yolculuk sürerken: ekran kararmasın (Ayarlar'dan kapatılabilir) ve saat yazıları tazelensin.
+  useEffect(() => {
+    if (!takipAcik) return;
+    if (ekranAcik) activateKeepAwakeAsync('yolculuk').catch(() => {});
+    const saat = setInterval(() => setSimdi(Date.now()), 30_000);
+    return () => {
+      clearInterval(saat);
+      deactivateKeepAwake('yolculuk').catch(() => {});
+    };
+  }, [takipAcik, ekranAcik]);
+
+  // Adım değişince (konumla), o anda şimdiki adıma bakılıyorsa kart da yenisine geçer.
+  // Kullanıcı başka bir adıma bakıyorsa rahatsız edilmez; "şu anki adıma dön" çıkar.
+  const oncekiAdim = useRef(0);
+  useEffect(() => {
+    if (!durum) return;
+    if (gorunenRef.current === oncekiAdim.current) setGorunen(durum.adim);
+    oncekiAdim.current = durum.adim;
+  }, [durum?.adim]); // eslint-disable-line react-hooks/exhaustive-deps
+  const gorunenRef = useRef(gorunen);
+  gorunenRef.current = gorunen;
+
+  // Harita bakılan adıma odaklanır: yürürken yol, beklerken durak ve gelen otobüs,
+  // otobüsteyken kalan güzergâh. Konum her geldiğinde değil, adım/evre değişince.
+  useEffect(() => {
+    if (!durum || !kartBoyu) return;
+    const a = adimlar[gorunen];
+    if (!a) return;
+    const i = a.bacak;
+    const b = bacaklar[i];
+    const simdiki = gorunen === durum.adim;
+    let noktalar: Nokta[];
+    if (simdiki && durum.faz === 'vardi') {
+      noktalar = [{ latitude: b.to.lat, longitude: b.to.lon }];
+    } else if (a.tur === 'yuru') {
+      noktalar = cizgiler[i];
+    } else if (simdiki && durum.faz === 'icinde') {
+      const liste = duraklar[i];
+      const bas = Math.max(0, liste.length - 1 - (durum.kalanDurak ?? liste.length - 1));
+      noktalar = liste.slice(bas).map((d) => ({ latitude: d.lat, longitude: d.lon }));
+    } else {
+      const otobus = binisOtobusleri[i]?.otobus;
+      noktalar = [
+        { latitude: b.from.lat, longitude: b.from.lon },
+        ...(otobus ? [{ latitude: otobus.lat, longitude: otobus.lon }] : []),
+      ];
+    }
+    if (simdiki && sonKonum.current) noktalar = [...noktalar, sonKonum.current];
+    if (noktalar.length === 1) {
+      const P = 0.002;
+      noktalar = [
+        { latitude: noktalar[0].latitude - P, longitude: noktalar[0].longitude - P },
+        { latitude: noktalar[0].latitude + P, longitude: noktalar[0].longitude + P },
+      ];
+    }
+    harita.current?.fitToCoordinates(noktalar, {
+      edgePadding: { top: kenar.top + 70, right: 50, bottom: kartBoyu + 30, left: 50 },
+      animated: true,
+    });
+    // binisOtobusleri bilerek yok: her tazelemede harita zıplamasın.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gorunen, durum?.adim, durum?.faz, kartBoyu, adimlar]);
 
   // Harita, yaprağın ilk yerleşiminden sonra bir kez daha sığdırılıyor: ilk sığdırmada
   // yaprağın boyu henüz ölçülmemiş oluyor. Sonra kullanıcı haritayı kendisi kaydırır.
@@ -331,7 +436,21 @@ export default function RotaDetayEkrani() {
   }
 
   const aktifBacak = takip?.bacak ?? -1;
-  const bildirim = takipAcik ? bildirimMetni(bacaklar, takip) : null;
+  const yolTarifi: YolTarifiVerisi | null = durum
+    ? {
+        bacaklar,
+        duraklar: duraklar.map((l) => l.map((d) => ({ ad: d.ad }))),
+        adimlar,
+        durum,
+        ilkTarif,
+        binisOtobusleri,
+        seferler,
+        yaklasmaUyarisi,
+        uyariDegistir,
+        hedef,
+        simdi,
+      }
+    : null;
 
   return (
     <View style={s.kok}>
@@ -394,15 +513,9 @@ export default function RotaDetayEkrani() {
         </Pressable>
       </View>
 
-      {bildirim && (
-        <View style={[s.bildirim, { top: kenar.top + 8 }]} accessibilityLiveRegion="polite">
-          <View style={s.bildirimIkon}>
-            <Ikon ad="notifications" boyut={20} renkKodu={tema.vurguYazi} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={s.bildirimBaslik}>{bildirim.baslik}</Text>
-            <Text style={s.bildirimMetin}>{bildirim.metin}</Text>
-          </View>
+      {takipAcik && yolTarifi && (
+        <View style={[s.sekmeKonumu, { top: kenar.top + 8 }]} pointerEvents="box-none">
+          <AdimSekmeleri v={yolTarifi} gorunen={gorunen} sec={setGorunen} />
         </View>
       )}
 
@@ -411,7 +524,7 @@ export default function RotaDetayEkrani() {
         pointerEvents="box-none"
         onLayout={(e) => setYaprakAlani(e.nativeEvent.layout.height)}
       >
-        {yaprakAlani > 0 && (
+        {yaprakAlani > 0 && !takipAcik && (
           <AltYaprak
             kapsayiciYukseklik={yaprakAlani}
             ustPay={kenar.top + 60}
@@ -662,34 +775,48 @@ export default function RotaDetayEkrani() {
         )}
       </View>
 
-      <View
-        style={[s.alt, { paddingBottom: kenar.bottom + 10 }]}
-        onLayout={(e) => setAltCubuk(e.nativeEvent.layout.height)}
-      >
-        <Pressable
-          style={[s.zil, kuruluHatirlatici > 0 && s.zilDolu]}
-          onPress={() => setHatirlatAcik(true)}
-          accessibilityRole="button"
-          accessibilityLabel={kuruluHatirlatici > 0 ? `${kuruluHatirlatici} hatırlatıcı kurulu` : 'Hatırlat'}
-        >
-          <Ikon
-            ad={kuruluHatirlatici > 0 ? 'notifications' : 'notifications-outline'}
-            boyut={20}
-            renkKodu={kuruluHatirlatici > 0 ? tema.vurguYazi : tema.vurgu}
+      {takipAcik && yolTarifi ? (
+        <>
+          <AdimKartlari
+            v={yolTarifi}
+            gorunen={gorunen}
+            sec={setGorunen}
+            onBitir={takibiDurdur}
+            onTumAdimlar={() => setTumAdimlarAcik(true)}
+            onBoy={setKartBoyu}
           />
-        </Pressable>
-        <Pressable
-          style={[s.baslat, takipAcik && s.bitir]}
-          onPress={takipAcik ? takibiDurdur : takibiBaslat}
-          onLongPress={simulasyonuBaslat}
-          accessibilityRole="button"
+          <TumAdimlar v={yolTarifi} acik={tumAdimlarAcik} kapat={() => setTumAdimlarAcik(false)} sec={setGorunen} />
+        </>
+      ) : (
+        <View
+          style={[s.alt, { paddingBottom: kenar.bottom + 10 }]}
+          onLayout={(e) => setAltCubuk(e.nativeEvent.layout.height)}
         >
-          <Ikon ad={takipAcik ? 'stop-circle' : 'navigate'} boyut={18} renkKodu={takipAcik ? tema.yuzey : tema.vurguYazi} />
-          <Text style={[s.baslatYazi, { color: takipAcik ? tema.yuzey : tema.vurguYazi }]}>
-            {takipAcik ? 'Yolculuğu bitir' : 'Yolculuğu başlat'}
-          </Text>
-        </Pressable>
-      </View>
+          <Pressable
+            style={[s.zil, kuruluHatirlatici > 0 && s.zilDolu]}
+            onPress={() => setHatirlatAcik(true)}
+            accessibilityRole="button"
+            accessibilityLabel={kuruluHatirlatici > 0 ? `${kuruluHatirlatici} hatırlatıcı kurulu` : 'Hatırlat'}
+          >
+            <Ikon
+              ad={kuruluHatirlatici > 0 ? 'notifications' : 'notifications-outline'}
+              boyut={20}
+              renkKodu={kuruluHatirlatici > 0 ? tema.vurguYazi : tema.vurgu}
+            />
+          </Pressable>
+          <Pressable
+            style={[s.baslat, takipAcik && s.bitir]}
+            onPress={takipAcik ? takibiDurdur : takibiBaslat}
+            onLongPress={simulasyonuBaslat}
+            accessibilityRole="button"
+          >
+            <Ikon ad={takipAcik ? 'stop-circle' : 'navigate'} boyut={18} renkKodu={takipAcik ? tema.yuzey : tema.vurguYazi} />
+            <Text style={[s.baslatYazi, { color: takipAcik ? tema.yuzey : tema.vurguYazi }]}>
+              {takipAcik ? 'Yolculuğu bitir' : 'Yolculuğu başlat'}
+            </Text>
+          </Pressable>
+        </View>
+      )}
 
       <HatirlatmaSayfasi
         acik={hatirlatAcik}
@@ -788,30 +915,12 @@ function aktarmaSuresi(bacaklar: Bacak[], i: number): { dakika: number; sikisik:
   return { dakika, sikisik: dakika - yuruyusDakika <= 2 };
 }
 
-function bildirimMetni(bacaklar: Bacak[], takip: Takip): { baslik: string; metin: string } {
-  if (!takip) {
-    const ilk = bacaklar.find((b) => b.transitLeg);
-    return {
-      baslik: 'Yolculuk takip ediliyor',
-      metin: ilk ? `${baslikYap(ilk.from.name)} durağından ${ilk.route?.shortName ?? ''} hattına bin.` : 'Konumun izleniyor.',
-    };
-  }
-  const bacak = bacaklar[takip.bacak];
-  const sonraki = bacaklar.slice(takip.bacak + 1).find((b) => b.transitLeg);
-  const inis = baslikYap(bacak.to.name);
-  const aktarma = sonraki ? `, ${sonraki.route?.shortName ?? ''} hattına aktarma yap` : '';
-  if (takip.kalanDurak === 0) return { baslik: 'Şimdi in', metin: `${inis} durağındasın${aktarma}.` };
-  if (takip.kalanDurak <= 2) {
-    return { baslik: `İneceğin durağa ${takip.kalanDurak} durak kaldı`, metin: `${inis} durağında in${aktarma}.` };
-  }
-  return { baslik: `${bacak.route?.shortName ?? ''} ile yoldasın`, metin: `${inis} durağına ${takip.kalanDurak} durak var.` };
-}
-
 const stiller = (t: Tema) =>
   StyleSheet.create({
   kok: { flex: 1, backgroundColor: t.zemin },
   bos: { color: t.soluk, padding: 20, textAlign: 'center' },
   geri: { position: 'absolute', left: 14 },
+  sekmeKonumu: { position: 'absolute', left: 64, right: 12, alignItems: 'flex-start' },
   yuvarlak: {
     width: 40,
     height: 40,

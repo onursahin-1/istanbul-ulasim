@@ -5,12 +5,12 @@
 
 import Constants from 'expo-constants';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Ikon, useStiller } from '@/components/ulasim';
 import { hatirlaticiIptal, hatirlaticiSaati, hepsiniIptal, izinIste, useHatirlaticilar } from '@/lib/bildirim';
-import { ucretTuruKaydet, useKayitlar } from '@/lib/kayitlar';
+import { ekranAcikKaydet, ucretTuruKaydet, useKayitlar } from '@/lib/kayitlar';
 import { TARIFE_TARIHI, UCRET_ACIKLAMALARI, UCRET_ADLARI, type UcretTuru } from '@/lib/ucret';
 import { OTP_ADRESI, sunucuBilgisiGetir, type SunucuBilgisi } from '@/lib/otp';
 import { poiBilgisi } from '@/lib/poi';
@@ -32,7 +32,7 @@ export default function AyarlarEkrani() {
   const [poi, setPoi] = useState<{ nokta: number; kaynak: string } | null>(null);
   const [yenileniyor, setYenileniyor] = useState(false);
   const { hatirlaticilar, izin, yenile: hatirlaticilariYenile } = useHatirlaticilar();
-  const { ucretTuru } = useKayitlar();
+  const { ucretTuru, ekranAcik } = useKayitlar();
 
   const yukle = useCallback(async () => {
     setSunucuHatasi(null);
@@ -202,6 +202,24 @@ export default function AyarlarEkrani() {
             </Pressable>
           </>
         )}
+      </View>
+
+      <Text style={s.bolumBaslik}>YOLCULUK</Text>
+      <View style={s.kutu}>
+        <View style={s.satir}>
+          <Ikon ad="phone-portrait-outline" boyut={17} renkKodu={tema.vurgu} />
+          <Text style={[s.satirBaslik, { flex: 1 }]}>Yolculukta ekran açık kalsın</Text>
+          <Switch
+            value={ekranAcik}
+            onValueChange={ekranAcikKaydet}
+            trackColor={{ true: tema.vurgu }}
+            accessibilityLabel="Yolculukta ekran açık kalsın"
+          />
+        </View>
+        <Text style={s.aciklama}>
+          "Yolculuğu başlat"tan sonra telefon ekranı kararmaz; bakınca sıradaki adım hazır olur. Kapatırsan pil daha
+          az harcanır.
+        </Text>
       </View>
 
       <Text style={s.bolumBaslik}>GÖRÜNÜM</Text>
