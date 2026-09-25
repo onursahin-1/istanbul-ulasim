@@ -43,6 +43,12 @@ export type YuruyusAdimi = {
   metin: string;
   /** "240 m" — mesafe bilinmiyorsa boş. */
   mesafe: string;
+  /** Aynı mesafe, metre (canlı tarifte "sıradaki dönüşe kaç metre" hesabı için). */
+  metre: number;
+  /** Yalnız eylem: "Sağa dön", "Düz devam et". Canlı tarifte büyük yazılıyor. */
+  eylem: string;
+  /** Sokak adı; adı olmayan yolda boş. */
+  sokak: string;
 };
 
 const DONUSLER: Record<string, DonusTuru> = {
@@ -131,22 +137,27 @@ export function adimlariYaz(adimlar?: HamAdim[] | null): YuruyusAdimi[] {
     const donus = DONUSLER[adim.relativeDirection ?? ''] ?? 'duz';
     const sokak = sokakAdi(adim);
     let metin: string;
+    let eylem: string = DONUS_SOZU[donus];
 
     if (donus === 'basla') {
       const yon = YONLER[adim.absoluteDirection ?? ''];
       metin = sokak
         ? `${sokak} boyunca ${yon ? `${yon} doğru ` : ''}yürü`
         : `${yon ? `${yon.replace(/^./, (h) => h.toUpperCase())} doğru yürü` : DONUS_SOZU.basla}`;
+      eylem = sokak ? 'Yürümeye başla' : metin;
     } else if (donus === 'asansor') {
       metin = adim.exit ? `Asansörle ${adim.exit}` : DONUS_SOZU.asansor;
+      eylem = metin;
     } else if (donus === 'kavsak' && adim.exit) {
-      metin = `Kavşakta ${adim.exit}. çıkış${sokak ? ` · ${sokak}` : ''}`;
+      eylem = `Kavşakta ${adim.exit}. çıkış`;
+      metin = `${eylem}${sokak ? ` · ${sokak}` : ''}`;
     } else if (donus === 'duz') {
       metin = sokak ? `${sokak} boyunca devam et` : DONUS_SOZU.duz;
+      eylem = 'Düz devam et';
     } else {
       metin = sokak ? `${DONUS_SOZU[donus]} · ${sokak}` : DONUS_SOZU[donus];
     }
 
-    return { donus, metin, mesafe: mesafe > 0 ? mesafeYaz(mesafe) : '' };
+    return { donus, metin, mesafe: mesafe > 0 ? mesafeYaz(mesafe) : '', metre: mesafe, eylem, sokak };
   });
 }

@@ -8,7 +8,8 @@
 //
 // Tasarım: C:\otp\Claude outputs\canli-yol-tarifi-maket.html
 
-import { useEffect, useRef, useState } from 'react';
+import * as Haptics from 'expo-haptics';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Modal,
   Pressable,
@@ -22,24 +23,40 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { canliRenk, HatRozeti, Ikon, NabizNoktasi, useStiller, YaklasmaSeridi } from '@/components/ulasim';
+import { canliRenk, DONUS_SIMGELERI, HatRozeti, Ikon, NabizNoktasi, useStiller, YaklasmaSeridi } from '@/components/ulasim';
 import type { YerlesikArac } from '@/lib/arac-konum';
 import { kalanYaz, yasYaz } from '@/lib/arac-konum';
 import { bacakCanli } from '@/lib/canli';
+import { mesafeMetre, type Nokta } from '@/lib/cografya';
 import type { Bacak } from '@/lib/otp';
 import type { SeferBilgisi } from '@/lib/sefer';
 import { baslikYap, hatRengi, useTema, type Tema } from '@/lib/tema';
-import { aktarmaPayi, binmeIfadesi, siradakiDuraklar, type Adim, type YolculukDurumu } from '@/lib/yolculuk';
-import { mesafeYaz, saatYaz, saniyedenSaat, sureYaz } from '@/lib/zaman';
+import {
+  aktarmaPayi,
+  binmeIfadesi,
+  kalanSureYaz,
+  SAPMA_M,
+  SIMDI_M,
+  yolaCikisAni,
+  yuruyusKonumu,
+  type Adim,
+  type YolculukDurumu,
+} from '@/lib/yolculuk';
+import type { YuruyusAdimi } from '@/lib/yuruyus';
+import { istanbulSaatiYaz, mesafeYaz, saatYaz, saniyedenSaat, sureYaz } from '@/lib/zaman';
 
 export type YolTarifiVerisi = {
   bacaklar: Bacak[];
   /** Araç bacaklarının durakları (biniş → iniş); yürüyüşte boş. */
-  duraklar: { ad: string }[][];
+  duraklar: { ad: string; lat: number; lon: number }[][];
   adimlar: Adim[];
   durum: YolculukDurumu;
-  /** Yürüme bacaklarının ilk tarif satırı ("Sağa dön · Bağdat Caddesi"). */
-  ilkTarif: (string | null)[];
+  /** Yürüme bacaklarının tarif satırları; araçta boş. */
+  tarifler: YuruyusAdimi[][];
+  /** Telefonun son konumu; henüz gelmediyse null. */
+  konum: Nokta | null;
+  /** Bacakların çizgileri; yürürken "sıradaki dönüşe kaç metre" bunun üstünden. */
+  cizgiler: Nokta[][];
   binisOtobusleri: Record<number, { otobus: YerlesikArac; kalan: number }>;
   seferler: Record<number, SeferBilgisi>;
   yaklasmaUyarisi: Record<number, boolean>;
@@ -96,6 +113,65 @@ export function AdimSekmeleri({ v, gorunen, sec }: { v: YolTarifiVerisi; gorunen
   );
 }
 
+/**
+ * Sekmelerin altındaki canlı durum satırı: telefonun konumuna göre şu an nerede
+ * olunduğu. Hangi karta bakılırsa bakılsın gerçek durumu söyler.
+ */
+export function KonumSeridi({ v }: { v: YolTarifiVerisi }) {
+  const tema = useTema();
+  const s = useStiller(stiller);
+  const { durum, adimlar, bacaklar, konum } = v;
+  const a = adimlar[durum.adim];
+  if (!a) return null;
+  const b = bacaklar[a.bacak];
+  let ikon: 'navigate' | 'walk' | 'bus' | 'flag' | 'time-outline' = 'navigate';
+  let ana = '';
+  let yan = '';
+
+  if (durum.faz === 'vardi') {
+    ikon = 'flag';
+    ana = 'Vardın';
+    yan = v.hedef ? baslikYap(v.hedef) : '';
+  } else if (!konum) {
+    ikon = 'time-outline';
+    ana = 'Konum bekleniyor…';
+  } else if (durum.faz === 'icinde') {
+    const liste = v.duraklar[a.bacak];
+    const kalan = durum.kalanDurak ?? liste.length - 1;
+    const simdiki = liste[liste.length - 1 - kalan];
+    const sonraki = liste[liste.length - kalan];
+    ikon = 'bus';
+    ana = kalan === 0 ? `Şimdi in: ${baslikYap(simdiki?.ad)}` : `Şu an: ${baslikYap(simdiki?.ad)}`;
+    yan = kalan === 0 ? '' : `sonraki: ${baslikYap(sonraki?.ad)}`;
+  } else {
+    // Yürürken ve beklerken: gidilen noktaya kalan mesafe.
+    const hedefNokta =
+      durum.faz === 'bekle'
+        ? { latitude: b.from.lat, longitude: b.from.lon }
+        : { latitude: b.to.lat, longitude: b.to.lon };
+    const m = Math.round(mesafeMetre(konum, hedefNokta));
+    const ad = durum.faz === 'bekle' ? baslikYap(b.from.name) : baslikYap(b.to.name);
+    const varis = durum.faz === 'yuru' && (a.rol === 'varis' || a.rol === 'tek');
+    ikon = durum.faz === 'bekle' ? 'bus' : 'walk';
+    if (durum.faz === 'bekle' && m <= 60) {
+      ana = `${ad} durağındasın`;
+      yan = `${b.route?.shortName ?? ''} bekleniyor`;
+    } else {
+      ana = varis ? `Varış noktasına ${mesafeYaz(m)}` : `${ad} durağına ${mesafeYaz(m)}`;
+    }
+  }
+
+  return (
+    <View style={s.konumSeridi} accessibilityLiveRegion="polite" accessible accessibilityLabel={[ana, yan].filter(Boolean).join(', ')}>
+      <Ikon ad={ikon} boyut={15} renkKodu={tema.vurgu} />
+      <Text style={s.konumAna} numberOfLines={1}>
+        {ana}
+        {!!yan && <Text style={s.konumYan}>{`  ·  ${yan}`}</Text>}
+      </Text>
+    </View>
+  );
+}
+
 // ---------------------------------------------------------------- kartlar
 
 /**
@@ -120,9 +196,11 @@ export function AdimKartlari({
   const tema = useTema();
   const s = useStiller(stiller);
   const kenar = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const liste = useRef<ScrollView>(null);
   const kaydiriliyor = useRef(false);
+  // Kart sayfalarının yüksekliği: içerik daha uzunsa (bütün duraklar, bütün tarif) kayar.
+  const sayfaBoyu = Math.max(250, Math.round(height * 0.4));
 
   // Bakılan adım dışarıdan değişince (sekme, kendiliğinden geçiş) kart oraya kaysın.
   useEffect(() => {
@@ -166,7 +244,7 @@ export function AdimKartlari({
       >
         {v.adimlar.map((a, i) => (
           <View key={i} style={{ width, paddingHorizontal: 16 }}>
-            <AdimKarti v={v} sira={i} />
+            <AdimKarti v={v} sira={i} boy={sayfaBoyu} />
           </View>
         ))}
       </ScrollView>
@@ -198,19 +276,38 @@ export function AdimKartlari({
   );
 }
 
-/** Tek bir adımın kartı. İçerik adımın türüne ve (şimdiki adımsa) evresine göre. */
-function AdimKarti({ v, sira }: { v: YolTarifiVerisi; sira: number }) {
+/** Tek bir adımın kartı. İçerik adımın türüne ve (şimdiki adımsa) evresine göre; uzunsa kayar. */
+function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: number }) {
   const tema = useTema();
   const s = useStiller(stiller);
+  const kaydirma = useRef<ScrollView>(null);
   const a = v.adimlar[sira];
   const b = v.bacaklar[a.bacak];
   const simdiki = sira === v.durum.adim;
   const bitti = sira < v.durum.adim;
   const ust = `ADIM ${sira + 1} / ${v.adimlar.length}`;
 
+  // Durak çizelgesinde / tarif listesinde şimdiki satır görünür kalsın.
+  const [odakY, setOdakY] = useState<number | null>(null);
+  useEffect(() => {
+    if (odakY != null) kaydirma.current?.scrollTo({ y: Math.max(0, odakY - 70), animated: true });
+  }, [odakY]);
+
+  const sar = (icerik: ReactNode) => (
+    <ScrollView
+      ref={kaydirma}
+      style={{ height: boy }}
+      contentContainerStyle={s.icerik}
+      nestedScrollEnabled
+      showsVerticalScrollIndicator={false}
+    >
+      {icerik}
+    </ScrollView>
+  );
+
   if (simdiki && v.durum.faz === 'vardi') {
-    return (
-      <View style={s.icerik}>
+    return sar(
+      <>
         <Text style={s.adimNo}>{`${ust} · VARIŞ`}</Text>
         <Text style={s.komut}>Vardın</Text>
         <Text style={s.detay}>
@@ -221,7 +318,7 @@ function AdimKarti({ v, sira }: { v: YolTarifiVerisi; sira: number }) {
           <Ikon ad="checkmark-circle" boyut={17} renkKodu={tema.vurgu} />
           <Text style={s.kutuYazi}>Yolculuk tamamlandı. İyi günler!</Text>
         </View>
-      </View>
+      </>,
     );
   }
 
@@ -238,28 +335,50 @@ function AdimKarti({ v, sira }: { v: YolTarifiVerisi; sira: number }) {
         : a.rol === 'varis' || a.rol === 'tek'
           ? 'Varış noktasına yürü'
           : `${hedefDurak} durağına yürü`;
-    return (
-      <View style={s.icerik}>
+    return sar(
+      <>
         {etiketler}
         <Text style={s.komut}>{komut}</Text>
         <Text style={s.detay}>
           <Text style={s.kalin}>{`${mesafeYaz(b.distance)} · ${sureYaz(b.duration)}`}</Text>
-          {v.ilkTarif[a.bacak] ? ` · ${v.ilkTarif[a.bacak]}` : ''}
           {(a.rol === 'varis' || a.rol === 'tek') && v.hedef ? ` · ${baslikYap(v.hedef)}` : ''}
         </Text>
-        {sonraki && sonrakiAdim && <SonrakiBinisKutusu v={v} yuruyus={a.bacak} binis={sonrakiAdim.bacak} simdiki={simdiki} />}
-      </View>
+        {sonraki && sonrakiAdim && (
+          <SonrakiBinisKutusu v={v} yuruyus={a.bacak} binis={sonrakiAdim.bacak} simdiki={simdiki} aktarma={a.rol === 'aktarma'} />
+        )}
+        <TarifKutusu v={v} bacak={a.bacak} simdiki={simdiki} odak={setOdakY} />
+      </>,
     );
   }
 
-  // ---- araç: içindeyken
+  // ---- araç
   const renk = hatRengi(b.route, tema);
-  if (simdiki && v.durum.faz === 'icinde') {
-    const kalan = v.durum.kalanDurak ?? v.duraklar[a.bacak].length - 1;
+  const liste = v.duraklar[a.bacak];
+  const icinde = simdiki && v.durum.faz === 'icinde';
+  const kalan = icinde ? (v.durum.kalanDurak ?? liste.length - 1) : null;
+  // Çizelgede "şu an": otobüsteyken bulunulan durak, beklerken biniş durağına 60 m'den yakınsa orası.
+  const duraktaBekliyor =
+    simdiki &&
+    v.durum.faz === 'bekle' &&
+    !!v.konum &&
+    mesafeMetre(v.konum, { latitude: b.from.lat, longitude: b.from.lon }) <= 60;
+  const simdikiDurak = kalan != null ? liste.length - 1 - kalan : duraktaBekliyor ? 0 : bitti ? liste.length : -1;
+
+  const cizelge = (
+    <DurakCizelgesi
+      duraklar={liste}
+      renk={renk}
+      simdiki={simdikiDurak}
+      binisSaati={saatYaz(iso(b, 'start'))}
+      inisSaati={saatYaz(iso(b, 'end'))}
+      odak={setOdakY}
+    />
+  );
+
+  if (icinde && kalan != null) {
     const inisDk = Math.max(0, Math.round((an(b, 'end') - v.simdi) / 60_000));
-    const siradaki = siradakiDuraklar(v.duraklar[a.bacak].length, kalan);
-    return (
-      <View style={s.icerik}>
+    return sar(
+      <>
         {etiketler}
         <Text style={s.komut}>
           {kalan === 0 ? `Şimdi in: ${baslikYap(b.to.name)}` : `${baslikYap(b.to.name)} durağında in`}
@@ -274,43 +393,19 @@ function AdimKarti({ v, sira }: { v: YolTarifiVerisi; sira: number }) {
             {`\niniş ${saatYaz(iso(b, 'end'))}`}
           </Text>
         </View>
-        <View style={s.kalanListe}>
-          {siradaki.map((j, k) =>
-            j < 0 ? (
-              <Text key={`bosluk-${k}`} style={s.kalanBosluk}>
-                ⋮
-              </Text>
-            ) : (
-              <View key={j} style={s.kalanSatir}>
-                <View
-                  style={[
-                    j === v.duraklar[a.bacak].length - 1 ? s.kalanInis : s.kalanNokta,
-                    { borderColor: renk },
-                    j === v.duraklar[a.bacak].length - 1 && { backgroundColor: renk },
-                  ]}
-                />
-                <Text
-                  style={[s.kalanAd, j === v.duraklar[a.bacak].length - 1 && s.kalin]}
-                  numberOfLines={1}
-                >
-                  {baslikYap(v.duraklar[a.bacak][j]?.ad)}
-                  {j === v.duraklar[a.bacak].length - 1 ? ' · in' : ''}
-                </Text>
-              </View>
-            ),
-          )}
-        </View>
-      </View>
+        {cizelge}
+      </>,
     );
   }
 
-  // ---- araç: binmeden önce (ya da bakılan gelecek/geçmiş adım)
   const kalkis = an(b, 'start');
   const dk = Math.max(0, Math.round((kalkis - v.simdi) / 60_000));
+  // Bir saatten uzaksa dakika yerine saat: "590 dk" okunmuyor.
+  const uzak = dk >= 60;
   const canli = bacakCanli(b.start.scheduledTime, b.start.estimated?.time);
   const otobus = v.binisOtobusleri[a.bacak];
-  return (
-    <View style={s.icerik}>
+  return sar(
+    <>
       {etiketler}
       <View style={s.komutSatir}>
         <HatRozeti hat={b.route} />
@@ -318,34 +413,201 @@ function AdimKarti({ v, sira }: { v: YolTarifiVerisi; sira: number }) {
           {binmeIfadesi(b.route?.mode ?? b.mode, b.route?.agency?.name)}
         </Text>
       </View>
-      <Text style={s.detay} numberOfLines={1}>
-        {[b.headsign ? `${baslikYap(b.headsign)} yönü` : null, `${baslikYap(b.from.name)} durağı`]
-          .filter(Boolean)
-          .join(' · ')}
-      </Text>
+      {!!b.headsign && (
+        <Text style={s.detay} numberOfLines={1}>
+          {`${baslikYap(b.headsign)} yönü · ${Math.max(liste.length - 1, 1)} durak · ${sureYaz(b.duration)}`}
+        </Text>
+      )}
       <View style={s.buyukSatir}>
         <View>
           <View style={s.sayacSatir}>
             {canli && <NabizNoktasi renk={canliRenk(canli.sinif, tema)} />}
             <Text style={s.sayac}>
-              {dk}
-              <Text style={s.sayacBirim}> dk</Text>
+              {uzak ? saatYaz(iso(b, 'start')) : dk}
+              <Text style={s.sayacBirim}>{uzak ? '' : ' dk'}</Text>
             </Text>
           </View>
           <Text style={[s.detay, canli && { color: canliRenk(canli.sinif, tema), fontWeight: '600' }]}>
-            {`${saatYaz(iso(b, 'start'))} · ${canli ? canli.metin : 'tarifeye göre'}`}
+            {uzak
+              ? `${kalanSureYaz(dk)} sonra · ${canli ? canli.metin : 'tarifeye göre'}`
+              : `${saatYaz(iso(b, 'start'))} · ${canli ? canli.metin : 'tarifeye göre'}`}
           </Text>
         </View>
         {otobus && <YaklasmaSeridi kalan={otobus.kalan} renk={renk} soluk={otobus.otobus.sinif === 'eski'} />}
       </View>
-      {otobus ? (
+      {otobus && (
         <Text style={s.detay}>
           <Text style={s.kalin}>{`Otobüs ${kalanYaz(otobus.kalan)}`}</Text>
           {` · konum ${yasYaz(otobus.otobus.yasSn)}`}
         </Text>
-      ) : (
-        <Text style={s.detay}>{`${Math.max(v.duraklar[a.bacak].length - 1, 1)} durak · ${sureYaz(b.duration)}`}</Text>
       )}
+      {cizelge}
+    </>,
+  );
+}
+
+const CIZELGE_SATIR = 30;
+
+/**
+ * Biniş ile iniş arasındaki bütün duraklar, alt alta. Geçilenler soluk, şu anki
+ * mavi noktayla işaretli, iniş kalın. Otobüste giderken nerede olduğunu buradan
+ * okursun; liste uzunsa kart kayar ve şu anki durak görünür tutulur.
+ */
+function DurakCizelgesi({
+  duraklar,
+  renk,
+  simdiki,
+  binisSaati,
+  inisSaati,
+  odak,
+}: {
+  duraklar: { ad: string }[];
+  renk: string;
+  /** Şu anki durağın sırası; bilinmiyorsa -1, hepsi geçildiyse duraklar.length. */
+  simdiki: number;
+  binisSaati: string;
+  inisSaati: string;
+  odak: (y: number | null) => void;
+}) {
+  const tema = useTema();
+  const s = useStiller(stiller);
+  const [ustY, setUstY] = useState(0);
+  const son = duraklar.length - 1;
+
+  useEffect(() => {
+    odak(simdiki >= 0 && simdiki <= son ? ustY + simdiki * CIZELGE_SATIR : null);
+  }, [simdiki, ustY, son, odak]);
+
+  return (
+    <View style={s.cizelge} onLayout={(e) => setUstY(e.nativeEvent.layout.y)}>
+      {duraklar.map((d, j) => {
+        const gecildi = simdiki >= 0 && j < simdiki;
+        const burada = j === simdiki;
+        const uc = j === 0 || j === son;
+        return (
+          <View key={j} style={[s.cizelgeSatir, { height: CIZELGE_SATIR }]}>
+            <View style={s.cizelgeSutun}>
+              {j > 0 && <View style={[s.cizelgeUst, { backgroundColor: renk, opacity: gecildi || burada ? 0.35 : 1 }]} />}
+              {j < son && <View style={[s.cizelgeAlt, { backgroundColor: renk, opacity: gecildi ? 0.35 : 1 }]} />}
+              {burada ? (
+                <View style={[s.cizelgeBurada, { backgroundColor: tema.konum, borderColor: tema.yuzey }]} />
+              ) : (
+                <View
+                  style={[
+                    uc ? s.cizelgeUc : s.cizelgeNokta,
+                    { borderColor: renk, backgroundColor: j === son ? renk : tema.yuzey },
+                    gecildi && { opacity: 0.45 },
+                  ]}
+                />
+              )}
+            </View>
+            <Text
+              style={[s.cizelgeAd, (uc || burada) && s.kalin, gecildi && { color: tema.soluk }]}
+              numberOfLines={1}
+            >
+              {baslikYap(d.ad)}
+            </Text>
+            {burada && j !== son && <Text style={[s.cizelgeEtiket, { color: tema.konum }]}>şu an</Text>}
+            {j === 0 && !burada && <Text style={s.cizelgeEtiket}>{`bin · ${binisSaati}`}</Text>}
+            {j === son && <Text style={[s.cizelgeEtiket, { color: tema.yazi }]}>{`in · ${inisSaati}`}</Text>}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+/**
+ * Yürürken tarif. Şimdiki adımda ve konum biliniyorsa sıradaki manevra büyük
+ * ("40 m sonra · Sağa dön · Maslak Caddesi"); altında bütün tarif, geçilen adımlar
+ * soluk, bulunulan adım vurgulu. Rotadan 40 m'den çok uzaklaşılırsa uyarı.
+ */
+function TarifKutusu({
+  v,
+  bacak,
+  simdiki,
+  odak,
+}: {
+  v: YolTarifiVerisi;
+  bacak: number;
+  simdiki: boolean;
+  odak: (y: number | null) => void;
+}) {
+  const tema = useTema();
+  const s = useStiller(stiller);
+  const [ustY, setUstY] = useState(0);
+  const tarif = v.tarifler[bacak] ?? [];
+  const b = v.bacaklar[bacak];
+  const yer = simdiki && v.konum ? yuruyusKonumu(tarif, v.cizgiler[bacak] ?? [], v.konum) : null;
+  const sonraki = yer ? tarif[yer.simdiki + 1] : undefined;
+  const simdi = !!yer && yer.sonrakine <= SIMDI_M;
+
+  // Manevraya gelince kısa bir titreşim: telefona bakmadan "şimdi dön" anlaşılsın.
+  const titredi = useRef('');
+  useEffect(() => {
+    if (!yer || !simdi) return;
+    const anahtar = `${bacak}-${yer.simdiki + 1}`;
+    if (titredi.current === anahtar) return;
+    titredi.current = anahtar;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+  }, [yer, simdi, bacak]);
+
+  useEffect(() => {
+    odak(yer ? ustY + yer.simdiki * 28 : null);
+  }, [yer?.simdiki, ustY]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!tarif.length) return null;
+  const varisAdi = b.to.stop ? `${baslikYap(b.to.name)} durağı` : 'Varış noktası';
+
+  return (
+    <View style={s.tarif}>
+      {yer && (
+        <>
+          {yer.rotadan > SAPMA_M && (
+            <View style={[s.kutu, s.kutuDikkat, { marginTop: 0 }]}>
+              <Ikon ad="alert-circle-outline" boyut={16} renkKodu={tema.uyari} />
+              <Text style={s.kutuYazi}>{`Rotadan ${mesafeYaz(yer.rotadan)} uzaklaştın; haritadaki kesikli çizgiye dön.`}</Text>
+            </View>
+          )}
+          <View style={s.manevra}>
+            <View style={[s.manevraSimge, simdi && { backgroundColor: tema.uyari }]}>
+              <Ikon ad={sonraki ? DONUS_SIMGELERI[sonraki.donus] : 'flag'} boyut={20} renkKodu={tema.vurguYazi} />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[s.manevraMesafe, simdi && { color: tema.uyari }]}>
+                {simdi ? 'Şimdi' : `${mesafeYaz(yer.sonrakine)} sonra`}
+              </Text>
+              <Text style={s.manevraYazi} numberOfLines={1}>
+                {sonraki ? sonraki.eylem : 'Vardın'}
+              </Text>
+              <Text style={s.manevraSokak} numberOfLines={1}>
+                {sonraki ? sonraki.sokak || ' ' : varisAdi}
+              </Text>
+            </View>
+          </View>
+        </>
+      )}
+      <View onLayout={(e) => setUstY(e.nativeEvent.layout.y)}>
+        {tarif.map((t, i) => {
+          const gecildi = !!yer && i < yer.simdiki;
+          const burada = !!yer && i === yer.simdiki;
+          return (
+            <View key={i} style={[s.tarifListeSatir, burada && s.tarifBurada]}>
+              <Ikon ad={DONUS_SIMGELERI[t.donus]} boyut={14} renkKodu={burada ? tema.vurgu : tema.soluk} />
+              <Text style={[s.tarifSatir, burada && { color: tema.yazi, fontWeight: '700' }, gecildi && { opacity: 0.5 }]} numberOfLines={1}>
+                {t.metin}
+              </Text>
+              {!!t.mesafe && <Text style={[s.tarifMesafe, gecildi && { opacity: 0.5 }]}>{t.mesafe}</Text>}
+            </View>
+          );
+        })}
+        <View style={s.tarifListeSatir}>
+          <Ikon ad="flag" boyut={14} renkKodu={tema.soluk} />
+          <Text style={s.tarifSatir} numberOfLines={1}>
+            {varisAdi}
+          </Text>
+        </View>
+      </View>
     </View>
   );
 }
@@ -356,11 +618,13 @@ function SonrakiBinisKutusu({
   yuruyus,
   binis,
   simdiki,
+  aktarma,
 }: {
   v: YolTarifiVerisi;
   yuruyus: number;
   binis: number;
   simdiki: boolean;
+  aktarma: boolean;
 }) {
   const tema = useTema();
   const s = useStiller(stiller);
@@ -390,7 +654,10 @@ function SonrakiBinisKutusu({
           ? `. Yetişmek zor${sonrakiSefer != null ? `; sonraki ${hat} ${saniyedenSaat(sonrakiSefer)}` : ''}.`
           : Number.isNaN(pay)
             ? ''
-            : `. ${pay} dk payın var.`}
+            : !aktarma && pay > 15
+              ? // Kalkışa daha çok varsa "587 dk payın var" yerine ne zaman yola çıkılacağı.
+                `. En geç ${istanbulSaatiYaz(yolaCikisAni(an(bb, 'start'), yb.duration ?? 0) / 1000)} yola çık.`
+              : `. ${pay} dk payın var.`}
       </Text>
     </View>
   );
@@ -542,7 +809,50 @@ const stiller = (t: Tema) =>
     noktalar: { flexDirection: 'row', justifyContent: 'center', gap: 5, marginBottom: 8 },
     nokta: { width: 6, height: 6, borderRadius: 3, backgroundColor: t.cizgi },
     noktaAktif: { width: 16, backgroundColor: t.vurgu },
-    icerik: { minHeight: 196, gap: 4 },
+    icerik: { gap: 4, paddingBottom: 10 },
+    cizelge: { marginTop: 10 },
+    cizelgeSatir: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    cizelgeSutun: { width: 16, height: '100%', alignItems: 'center', justifyContent: 'center' },
+    cizelgeUst: { position: 'absolute', top: 0, height: '50%', width: 3 },
+    cizelgeAlt: { position: 'absolute', bottom: 0, height: '50%', width: 3 },
+    cizelgeNokta: { width: 9, height: 9, borderRadius: 5, borderWidth: 2.5 },
+    cizelgeUc: { width: 13, height: 13, borderRadius: 7, borderWidth: 3 },
+    cizelgeBurada: { width: 16, height: 16, borderRadius: 8, borderWidth: 3 },
+    cizelgeAd: { flex: 1, fontSize: 13.5, color: t.yazi },
+    cizelgeEtiket: { fontSize: 12, fontWeight: '700', color: t.soluk, fontVariant: ['tabular-nums'] },
+    manevraSokak: { fontSize: 13, color: t.soluk },
+    tarifBurada: { backgroundColor: t.vurguAcik, borderRadius: 8 },
+    tarifMesafe: { fontSize: 12, color: t.soluk, fontVariant: ['tabular-nums'] },
+    soluk: { color: t.soluk, fontWeight: '500' },
+    konumSeridi: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 7,
+      marginTop: 6,
+      paddingHorizontal: 12,
+      height: 34,
+      borderRadius: 12,
+      backgroundColor: t.yuzey,
+      maxWidth: '100%',
+      shadowColor: '#000',
+      shadowOpacity: t.koyu ? 0.5 : 0.2,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 3 },
+    },
+    konumAna: { flexShrink: 1, fontSize: 13.5, fontWeight: '700', color: t.yazi },
+    konumYan: { fontWeight: '500', color: t.soluk },
+    tarif: { marginTop: 6, gap: 6 },
+    manevra: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: t.yuzeyIkincil, borderRadius: 12, padding: 10 },
+    manevraSimge: { width: 36, height: 36, borderRadius: 10, backgroundColor: t.vurgu, alignItems: 'center', justifyContent: 'center' },
+    manevraMesafe: { fontSize: 12, fontWeight: '700', color: t.vurgu },
+    manevraYazi: { fontSize: 15, fontWeight: '700', color: t.yazi },
+    tarifSatir: { flex: 1, fontSize: 12.5, color: t.soluk },
+    tarifListeSatir: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 28, paddingHorizontal: 6 },
+    durakKutusu: { marginTop: 8, borderRadius: 12, backgroundColor: t.yuzeyIkincil, padding: 10 },
+    durakKutusuSatir: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    durakKutusuCizgi: { width: 3, height: 10, marginLeft: 5.5, borderRadius: 2 },
+    durakKutusuYazi: { flex: 1, fontSize: 13.5, fontWeight: '700', color: t.yazi },
+    durakKutusuSaat: { fontSize: 12.5, fontWeight: '600', color: t.soluk, fontVariant: ['tabular-nums'] },
     adimNo: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, color: t.soluk },
     komutSatir: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     komut: { fontSize: 21, fontWeight: '800', letterSpacing: -0.3, color: t.yazi, lineHeight: 26 },

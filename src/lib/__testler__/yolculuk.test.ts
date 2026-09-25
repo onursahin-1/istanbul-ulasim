@@ -8,6 +8,9 @@ import {
   aktarmaPayi,
   baslangicDurumu,
   binmeIfadesi,
+  kalanSureYaz,
+  yolaCikisAni,
+  yuruyusKonumu,
   durumuIlerlet,
   siradakiDuraklar,
   type BacakOzeti,
@@ -110,5 +113,61 @@ describe('binmeIfadesi', () => {
     assert.equal(binmeIfadesi('FERRY'), 'vapuruna bin');
     assert.equal(binmeIfadesi('BUS', 'Minibus'), 'minibüsüne bin');
     assert.equal(binmeIfadesi(null), 'hattına bin');
+  });
+});
+
+describe('yuruyusKonumu', () => {
+  // Kuzeye ~100 m, sonra doğuya ~100 m (L şeklinde bir yürüyüş); ikinci adım "sağa dön".
+  const cizgi = [
+    { latitude: 41, longitude: 29 },
+    { latitude: 41.0009, longitude: 29 },
+    { latitude: 41.0009, longitude: 29.0012 },
+  ];
+  const adimlar = [{ metre: 100 }, { metre: 100 }];
+
+  it('bulunulan adım ve dönüşe yol boyunca kalan metre', () => {
+    const r = yuruyusKonumu(adimlar, cizgi, { latitude: 41.0005, longitude: 29.00005 });
+    assert.equal(r?.simdiki, 0);
+    assert.ok(r && r.sonrakine > 40 && r.sonrakine < 55, `${r?.sonrakine}`);
+    assert.ok(r && r.rotadan < 10);
+  });
+
+  it('dönüşü geçince sonraki adım; kalan bacağın sonuna', () => {
+    const r = yuruyusKonumu(adimlar, cizgi, { latitude: 41.0009, longitude: 29.0006 });
+    assert.equal(r?.simdiki, 1);
+    assert.ok(r && r.sonrakine > 45 && r.sonrakine < 55, `${r?.sonrakine}`);
+  });
+
+  it('köşeyi kuş uçuşu kesmez: dönüşe 5 m kala hâlâ ilk adımdayız', () => {
+    const r = yuruyusKonumu(adimlar, cizgi, { latitude: 41.00085, longitude: 29 });
+    assert.equal(r?.simdiki, 0);
+    assert.ok(r && r.sonrakine <= 10, `${r?.sonrakine}`);
+  });
+
+  it('adım mesafeleri çizgiyle tutmasa da ölçekler', () => {
+    const r = yuruyusKonumu([{ metre: 60 }, { metre: 60 }], cizgi, { latitude: 41.0005, longitude: 29 });
+    assert.equal(r?.simdiki, 0);
+  });
+
+  it('çizgiden uzaklaşınca sapmayı verir', () => {
+    const r = yuruyusKonumu(adimlar, cizgi, { latitude: 41.0003, longitude: 29.0008 });
+    assert.ok(r && r.rotadan > 55, `${r?.rotadan}`);
+  });
+
+  it('çizgi ya da adım yoksa null', () => {
+    assert.equal(yuruyusKonumu([], cizgi, cizgi[0]), null);
+    assert.equal(yuruyusKonumu(adimlar, [cizgi[0]], cizgi[0]), null);
+  });
+});
+
+describe('süre yazımı', () => {
+  it('saat ve dakika', () => {
+    assert.equal(kalanSureYaz(45), '45 dk');
+    assert.equal(kalanSureYaz(120), '2 sa');
+    assert.equal(kalanSureYaz(590), '9 sa 50 dk');
+  });
+
+  it('yola çıkış: kalkıştan yürüme ve 2 dk pay düşülür', () => {
+    assert.equal(yolaCikisAni(60 * 60_000, 300), 60 * 60_000 - 300_000 - 120_000);
   });
 });

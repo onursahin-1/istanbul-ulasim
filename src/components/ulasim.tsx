@@ -20,6 +20,7 @@ import {
 import type { CanliBilgi, CanliSinif } from '@/lib/canli';
 import { tazelikYaz } from '@/lib/onbellek';
 import type { Duyuru } from '@/lib/duyuru';
+import type { DonusTuru } from '@/lib/yuruyus';
 import { istanbulSaatiYaz, kalkisGosterimi } from '@/lib/zaman';
 import type { Bacak, Hat } from '@/lib/otp';
 import { aracSimgesi, hatEtiketi, hatRengi, metrobusMu, rozetRenkleri, useTema, type Tema } from '@/lib/tema';
@@ -369,6 +370,24 @@ export function YaklasmaSeridi({ kalan, renk, soluk = false }: { kalan: number; 
     </View>
   );
 }
+
+/** Yol tarifi satırlarının simgeleri. */
+export const DONUS_SIMGELERI: Record<DonusTuru, IkonAdi> = {
+  basla: 'walk',
+  duz: 'arrow-up',
+  sol: 'arrow-back',
+  sag: 'arrow-forward',
+  hafifSol: 'arrow-back-outline',
+  hafifSag: 'arrow-forward-outline',
+  keskinSol: 'arrow-back-circle-outline',
+  keskinSag: 'arrow-forward-circle-outline',
+  geri: 'refresh',
+  kavsak: 'sync',
+  asansor: 'swap-vertical',
+  giris: 'enter-outline',
+  cikis: 'exit-outline',
+  tabela: 'information-circle-outline',
+};
 
 /**
  * Temaya bağlı stilleri belleğe alır. Ekranlar stil tablolarını modül düzeyinde

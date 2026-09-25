@@ -12,10 +12,10 @@ import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AltYaprak } from '@/components/alt-yaprak';
-import { AdimKartlari, AdimSekmeleri, TumAdimlar, type YolTarifiVerisi } from '@/components/canli-yol-tarifi';
+import { AdimKartlari, AdimSekmeleri, KonumSeridi, TumAdimlar, type YolTarifiVerisi } from '@/components/canli-yol-tarifi';
 import { OtobusIsareti } from '@/components/harita-isaretleri';
 import { HatirlatmaSayfasi, type InisBilgisi } from '@/components/hatirlatma';
-import { canliRenk, GeriCubugu, HatRozeti, Ikon, useStiller, type IkonAdi } from '@/components/ulasim';
+import { canliRenk, DONUS_SIMGELERI, GeriCubugu, HatRozeti, Ikon, useStiller } from '@/components/ulasim';
 import { bacakCanli } from '@/lib/canli';
 import { hemenBildir, izinIste, useHatirlaticilar } from '@/lib/bildirim';
 import { useKayitlar } from '@/lib/kayitlar';
@@ -33,28 +33,13 @@ import {
   type BacakOzeti,
   type YolculukDurumu,
 } from '@/lib/yolculuk';
-import { adimlariYaz, type DonusTuru } from '@/lib/yuruyus';
+import { adimlariYaz } from '@/lib/yuruyus';
 import { isodanSaniye, mesafeYaz, saatYaz, saniyedenSaat, sureYaz } from '@/lib/zaman';
 
 type Takip = { bacak: number; kalanDurak: number } | null;
 
-/** Yol tarifi satırlarının simgeleri. */
-const DONUS_SIMGELERI: Record<DonusTuru, IkonAdi> = {
-  basla: 'walk',
-  duz: 'arrow-up',
-  sol: 'arrow-back',
-  sag: 'arrow-forward',
-  hafifSol: 'arrow-back-outline',
-  hafifSag: 'arrow-forward-outline',
-  keskinSol: 'arrow-back-circle-outline',
-  keskinSag: 'arrow-forward-circle-outline',
-  geri: 'refresh',
-  kavsak: 'sync',
-  asansor: 'swap-vertical',
-  giris: 'enter-outline',
-  cikis: 'exit-outline',
-  tabela: 'information-circle-outline',
-};
+/** Bundan kötü doğruluklu konum adım geçişine karar vermez (metre). */
+const KOTU_DOGRULUK_M = 50;
 
 function bacakNoktalari(b: Bacak): Nokta[] {
   const cizgi = polylineCoz(b.legGeometry?.points);
@@ -82,6 +67,7 @@ export default function RotaDetayEkrani() {
   const [tumAdimlarAcik, setTumAdimlarAcik] = useState(false);
   const [simdi, setSimdi] = useState(() => Date.now());
   const sonKonum = useRef<Nokta | null>(null);
+  const [konum, setKonum] = useState<Nokta | null>(null);
   const [acikBacaklar, setAcikBacaklar] = useState<Record<number, boolean>>({});
   const [seferler, setSeferler] = useState<Record<number, SeferBilgisi>>({});
   const [hatirlatAcik, setHatirlatAcik] = useState(false);
@@ -120,10 +106,6 @@ export default function RotaDetayEkrani() {
   const ucret = useMemo(() => yolculukUcreti(bacaklar, ucretTuru), [bacaklar, ucretTuru]);
   // Yürüme bacaklarının adım adım tarifi; toplu taşıma bacaklarında boş kalır.
   const yolTarifleri = useMemo(() => bacaklar.map((b) => (b.transitLeg ? [] : adimlariYaz(b.steps))), [bacaklar]);
-  const ilkTarif = useMemo(
-    () => yolTarifleri.map((t) => t.find((x) => x.donus !== 'basla')?.metin ?? t[0]?.metin ?? null),
-    [yolTarifleri],
-  );
 
   // Hatırlatıcılar: yola çıkış anı ve her aracın iniş durağına varış anı.
   const hatirlatmaGrubu = `rota-${sira}-${guzergah?.start ?? ''}`;
@@ -251,8 +233,12 @@ export default function RotaDetayEkrani() {
   );
 
   const konumuIsle = useCallback(
-    (nokta: Nokta) => {
+    (nokta: Nokta, dogruluk?: number | null) => {
       sonKonum.current = nokta;
+      setKonum(nokta);
+      // Doğruluğu kötü konum (kapalı alan, dar sokak: 50 m'den kötü) ekranda gösterilir
+      // ama adım geçişine karar vermez: yanlışlıkla "otobüse bindin" denmesin.
+      if (dogruluk != null && dogruluk > KOTU_DOGRULUK_M) return;
       setDurum((d) => (d ? durumuIlerlet(d, nokta, adimlar, ozetler) : d));
     },
     [adimlar, ozetler],
@@ -279,6 +265,8 @@ export default function RotaDetayEkrani() {
     simulasyon.current = null;
     setTakipAcik(false);
     setDurum(null);
+    setKonum(null);
+    sonKonum.current = null;
     setTumAdimlarAcik(false);
     uyarilanlar.current.clear();
   }, []);
@@ -310,9 +298,11 @@ export default function RotaDetayEkrani() {
       return;
     }
     yolculuguAc();
+    // Yol tarifi için en yüksek doğruluk ve sık güncelleme: yürürken dönüşlere 5 m'de
+    // bir bakılabilsin. Pil daha çok gider ama yalnız yolculuk sürerken.
     aboneligi.current = await Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.High, distanceInterval: 15, timeInterval: 5000 },
-      (k) => konumuIsle({ latitude: k.coords.latitude, longitude: k.coords.longitude }),
+      { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 5, timeInterval: 2000 },
+      (k) => konumuIsle({ latitude: k.coords.latitude, longitude: k.coords.longitude }, k.coords.accuracy),
     );
   };
 
@@ -439,10 +429,12 @@ export default function RotaDetayEkrani() {
   const yolTarifi: YolTarifiVerisi | null = durum
     ? {
         bacaklar,
-        duraklar: duraklar.map((l) => l.map((d) => ({ ad: d.ad }))),
+        duraklar,
         adimlar,
         durum,
-        ilkTarif,
+        tarifler: yolTarifleri,
+        konum,
+        cizgiler,
         binisOtobusleri,
         seferler,
         yaklasmaUyarisi,
@@ -516,6 +508,7 @@ export default function RotaDetayEkrani() {
       {takipAcik && yolTarifi && (
         <View style={[s.sekmeKonumu, { top: kenar.top + 8 }]} pointerEvents="box-none">
           <AdimSekmeleri v={yolTarifi} gorunen={gorunen} sec={setGorunen} />
+          <KonumSeridi v={yolTarifi} />
         </View>
       )}
 

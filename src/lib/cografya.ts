@@ -79,6 +79,36 @@ export function cizgiyeUzaklik(nokta: Nokta, cizgi: Nokta[]): number {
 }
 
 /**
+ * Noktanın bir çizgi üstündeki yeri: çizginin başından, noktanın izdüşümüne kadar
+ * çizgi boyunca kaç metre (`boyunca`), noktanın çizgiye uzaklığı (`uzaklik`) ve
+ * çizginin toplam boyu. Yürüme tarifinde "sıradaki dönüşe kaç metre" bunun üstüne
+ * kuruluyor: kuş uçuşu değil, yürünecek yol boyunca.
+ */
+export function cizgiUzerindeYer(nokta: Nokta, cizgi: Nokta[]): { boyunca: number; uzaklik: number; toplam: number } {
+  const kx = 111320 * Math.cos((nokta.latitude * Math.PI) / 180);
+  const ky = 110540;
+  const x = (p: Nokta) => (p.longitude - nokta.longitude) * kx;
+  const y = (p: Nokta) => (p.latitude - nokta.latitude) * ky;
+  if (cizgi.length < 2) {
+    return { boyunca: 0, uzaklik: cizgi.length ? Math.hypot(x(cizgi[0]), y(cizgi[0])) : Infinity, toplam: 0 };
+  }
+  let biriken = 0;
+  let enIyi = { boyunca: 0, uzaklik: Infinity };
+  for (let i = 1; i < cizgi.length; i++) {
+    const ax = x(cizgi[i - 1]);
+    const ay = y(cizgi[i - 1]);
+    const dx = x(cizgi[i]) - ax;
+    const dy = y(cizgi[i]) - ay;
+    const boy = Math.hypot(dx, dy);
+    const t = boy ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / (boy * boy))) : 0;
+    const u = Math.hypot(ax + t * dx, ay + t * dy);
+    if (u < enIyi.uzaklik) enIyi = { boyunca: biriken + t * boy, uzaklik: u };
+    biriken += boy;
+  }
+  return { ...enIyi, toplam: biriken };
+}
+
+/**
  * Dokunulan noktaya en yakın çizginin anahtarı; hiçbiri eşikten yakın değilse null.
  *
  * Harita kütüphanesinin kendi çizgi dokunma algısı kullanılmıyor: iOS'ta çizgiye

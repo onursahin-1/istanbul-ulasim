@@ -15,7 +15,7 @@
 //
 // Bağımlılıksız: React Native'e dokunmuyor, testlerden çağrılabiliyor.
 
-import { mesafeMetre, type Nokta } from './cografya';
+import { cizgiUzerindeYer, mesafeMetre, type Nokta } from './cografya';
 
 /** Bundan kısa yürüyüşler (aynı duraktaki aktarma, OTP'nin birkaç metrelik bacakları) adım sayılmaz. */
 export const KISA_YURUME_M = 30;
@@ -197,4 +197,60 @@ export function binmeIfadesi(mode?: string | null, isletmeci?: string | null): s
     default:
       return 'hattına bin';
   }
+}
+
+/**
+ * Yürürken tarifte neredeyiz.
+ *
+ * Telefonun konumu yürüme çizgisine izdüşürülüp çizgi boyunca kaç metre yürünmüş
+ * olduğu bulunuyor; tarif adımlarının başlangıçları da adım mesafelerinin toplamından
+ * geliyor (çizginin boyuna ölçeklenerek: OTP'nin adım mesafeleri ile çizginin boyu
+ * birkaç metre tutmayabiliyor). Böylece "sıradaki dönüşe kaç metre" kuş uçuşu değil,
+ * yürünecek yol boyunca; kıvrılan sokaklarda da doğru adım seçiliyor.
+ *
+ * @returns simdiki: içinde bulunulan adım; sonrakine: sıradaki manevraya (son adımda
+ *   bacağın sonuna) kalan metre; rotadan: telefonun çizgiye uzaklığı (sapma).
+ */
+export function yuruyusKonumu(
+  adimlar: { metre: number }[],
+  cizgi: Nokta[],
+  konum: Nokta,
+): { simdiki: number; sonrakine: number; rotadan: number } | null {
+  if (!adimlar.length || cizgi.length < 2) return null;
+  const yer = cizgiUzerindeYer(konum, cizgi);
+  const adimToplam = adimlar.reduce((t, a) => t + (a.metre || 0), 0);
+  const olcek = adimToplam > 0 ? yer.toplam / adimToplam : 0;
+  let bas = 0;
+  const baslangiclar = adimlar.map((a) => {
+    const b = bas;
+    bas += (a.metre || 0) * olcek;
+    return b;
+  });
+  let simdiki = 0;
+  for (let k = 0; k < baslangiclar.length; k++) if (baslangiclar[k] <= yer.boyunca + 1) simdiki = k;
+  const sonraki = simdiki + 1 < baslangiclar.length ? baslangiclar[simdiki + 1] : yer.toplam;
+  return {
+    simdiki,
+    sonrakine: Math.max(0, Math.round(sonraki - yer.boyunca)),
+    rotadan: Math.round(yer.uzaklik),
+  };
+}
+
+/** Bu kadar yaklaşınca manevra "şimdi" yazılır. */
+export const SIMDI_M = 15;
+/** Yürüme çizgisinden bu kadar uzaklaşınca "rotadan çıktın" uyarısı. */
+export const SAPMA_M = 40;
+
+/** Kalan süre: "45 dk", "2 sa", "9 sa 50 dk". */
+export function kalanSureYaz(dakika: number): string {
+  const dk = Math.max(0, Math.round(dakika));
+  if (dk < 60) return `${dk} dk`;
+  const sa = Math.floor(dk / 60);
+  const kalan = dk % 60;
+  return kalan ? `${sa} sa ${kalan} dk` : `${sa} sa`;
+}
+
+/** Durağa yetişmek için en geç yola çıkış: kalkıştan yürüme süresi ve 2 dk pay düşülür. */
+export function yolaCikisAni(kalkisMs: number, yurumeSn: number): number {
+  return kalkisMs - yurumeSn * 1000 - 2 * 60_000;
 }
