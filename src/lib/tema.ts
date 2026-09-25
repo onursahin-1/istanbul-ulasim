@@ -98,81 +98,90 @@ export function useTema(): Tema {
 
 // ---------- Hat renkleri ----------
 
-/** Haritada çizilen resmî hat renkleri (ağ haritasındaki hâlleri). */
+/**
+ * Resmî hat renkleri. Metro İstanbul'un işlettiği hatlar metro.istanbul'daki hat
+ * rozetlerinin kendi renkleri (2026-09); T2, T6, M11 ve F2/F3 için OSM'deki hat rengi,
+ * Marmaray için TCDD mavisi. Haritadaki çizgiler ve raylı hat rozetleri bunları kullanır.
+ */
 const HARITA_RENKLERI: Record<string, string> = {
-  M1A: '#e2261c',
-  M1B: '#e2261c',
-  M2: '#019a44',
-  M2A: '#019a44',
-  M3: '#05a8e2',
-  M4: '#e72177',
-  M5: '#693064',
-  M6: '#cbaa77',
-  M7: '#f39ec0',
+  M1A: '#ee3124',
+  M1B: '#ee3124',
+  M2: '#009944',
+  M2A: '#009944',
+  M3: '#00a8e1',
+  M4: '#e91e76',
+  M5: '#683064',
+  M6: '#caa977',
+  M7: '#f89aba',
   M8: '#447abe',
-  M9: '#ffd300',
+  M9: '#f0e514',
   M11: '#ab548f',
   MARMARAY: '#00529b',
-  T1: '#0075c9',
+  T1: '#004f7d',
   T2: '#92aaa0',
-  T3: '#00a3a1',
-  T4: '#a6093d',
-  T5: '#5c7f3a',
+  T3: '#a86528',
+  T4: '#f47e46',
+  T5: '#7c72b3',
   T6: '#e47a7b',
-  F1: '#7d8b99',
-  F2: '#7d8b99',
-  F3: '#7d8b99',
-  F4: '#7d8b99',
-  TF1: '#5e8c31',
-  TF2: '#5e8c31',
+  F1: '#7c7358',
+  F2: '#7c7358',
+  F3: '#7c7358',
+  F4: '#7c7358',
+  TF1: '#68bcb0',
+  TF2: '#68bcb0',
 };
 
-/** Açık temada rozet renkleri: yazı okunsun diye bazıları koyulaştırıldı. */
-const ROZET_ACIK: Record<string, string> = {
-  ...HARITA_RENKLERI,
-  M2: '#018a3d',
-  M2A: '#018a3d',
-  M3: '#0b7fac',
-  M4: '#de1c72',
-  M8: '#3c6ea9',
-  T2: '#6a8479',
-  T6: '#c9504f',
-  F1: '#63707c',
-  F2: '#63707c',
-  F3: '#63707c',
-  F4: '#63707c',
-  TF1: '#4e7526',
-  TF2: '#4e7526',
-};
+/** Açık temada hat rengi (çizgiler, şeritler, işaretler): resmî renkler. */
+const ROZET_ACIK: Record<string, string> = { ...HARITA_RENKLERI };
 
-/** Koyu temada rozet renkleri: zemin açılır, yazı koyulaşır. */
+/** Koyu temada hat rengi: koyu zeminde seçilsin diye resmî rengin açılmış hâli. */
 const ROZET_KOYU: Record<string, string> = {
   M1A: '#ff6b60',
   M1B: '#ff6b60',
   M2: '#3cc274',
   M2A: '#3cc274',
-  M3: '#4fc3f0',
+  M3: '#3fc0ec',
   M4: '#ff6faa',
   M5: '#b671b1',
   M6: '#d9bc90',
-  M7: '#f7b7d2',
+  M7: '#fab3cb',
   M8: '#7ea9de',
-  M9: '#ffd935',
+  M9: '#f5ec4a',
   M11: '#d98ac0',
   MARMARAY: '#5a9ad8',
-  T1: '#4d9fe0',
-  T3: '#45c4c1',
-  T4: '#e0728f',
-  T5: '#93b96a',
+  T1: '#4c9bd0',
   T2: '#b3c7bf',
+  T3: '#d08e53',
+  T4: '#f7925f',
+  T5: '#a49ddb',
   T6: '#f0a0a1',
-  F1: '#9aa8b5',
-  F2: '#9aa8b5',
-  F3: '#9aa8b5',
-  F4: '#9aa8b5',
-  TF1: '#8db357',
-  TF2: '#8db357',
+  F1: '#b3aa8a',
+  F2: '#b3aa8a',
+  F3: '#b3aa8a',
+  F4: '#b3aa8a',
+  TF1: '#8fd1c7',
+  TF2: '#8fd1c7',
 };
+
+/**
+ * Resmî rozeti daire olan raylı hatlar (metro.istanbul'daki gibi: hat renginde daire,
+ * içinde kod). Açık renkli zeminlerde yazı koyu: resmî rozette beyaz ama M9 sarısında,
+ * M6 bejinde, M7 pembesinde okunmuyor.
+ */
+const DAIRE_ROZETLI = new Set(Object.keys(HARITA_RENKLERI).filter((k) => k !== 'MARMARAY'));
+const KOYU_YAZILI = new Set(['M6', 'M7', 'M9', 'TF1', 'TF2', 'T2']);
+
+/**
+ * Hattın resmî daire rozeti; yoksa (otobüs, Marmaray, vapur) null. Otobüs olarak
+ * işaretli bir hat kısa adı "T1" olsa bile daire almaz.
+ */
+export function resmiRozet(hat: HatBilgisi): { renk: string; yazi: string; kod: string } | null {
+  const { shortName, mode } = hatAyikla(hat);
+  const kod = hatAnahtari(shortName?.trim() ?? '');
+  if (!kod || !DAIRE_ROZETLI.has(kod)) return null;
+  if (['BUS', 'TROLLEYBUS', 'COACH', 'FERRY'].includes((mode ?? '').toUpperCase())) return null;
+  return { renk: HARITA_RENKLERI[kod], yazi: KOYU_YAZILI.has(kod) ? '#1b1b1b' : '#ffffff', kod };
+}
 
 /** Hat kodu bilinmeyen raylı sistem ve vapur hatları için araç tipinin rengi. */
 const MOD_RENKLERI_ACIK: Record<string, string> = {

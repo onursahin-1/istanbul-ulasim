@@ -23,7 +23,7 @@ import type { Duyuru } from '@/lib/duyuru';
 import type { DonusTuru } from '@/lib/yuruyus';
 import { istanbulSaatiYaz, kalkisGosterimi } from '@/lib/zaman';
 import type { Bacak, Hat } from '@/lib/otp';
-import { aracSimgesi, hatEtiketi, hatRengi, metrobusMu, rozetRenkleri, useTema, type Tema } from '@/lib/tema';
+import { aracSimgesi, hatEtiketi, hatRengi, metrobusMu, resmiRozet, rozetRenkleri, useTema, type Tema } from '@/lib/tema';
 
 export type IkonAdi = ComponentProps<typeof Ionicons>['name'];
 
@@ -64,6 +64,28 @@ export type RozetHatti = {
 
 export function HatRozeti({ hat, kucuk = false }: { hat?: RozetHatti | string | null; kucuk?: boolean }) {
   const tema = useTema();
+  // Metro, tramvay, füniküler, teleferik: resmî rozet gibi hat renginde daire, içinde kod.
+  const resmi = resmiRozet(hat);
+  if (resmi) {
+    const cap = kucuk ? 24 : 30;
+    const uzun = resmi.kod.length >= 3;
+    return (
+      <View
+        style={[stil.daire, { width: cap, height: cap, borderRadius: cap / 2, backgroundColor: resmi.renk }]}
+        accessibilityLabel={resmi.kod}
+      >
+        <Text
+          style={[
+            stil.daireYazi,
+            { color: resmi.yazi, fontSize: kucuk ? (uzun ? 8.5 : 10) : uzun ? 10.5 : 12.5 },
+          ]}
+          numberOfLines={1}
+        >
+          {resmi.kod}
+        </Text>
+      </View>
+    );
+  }
   const kisaAd = typeof hat === 'string' ? hat : hat?.shortName;
   const tur = typeof hat === 'string' ? null : hat?.mode;
   const isletmeci = typeof hat === 'string' ? null : hat?.agency?.name;
@@ -430,6 +452,8 @@ const stil = StyleSheet.create({
   cevrimdisiDene: { fontSize: 13, fontWeight: '600' },
   rozet: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', overflow: 'hidden' },
   rozetKutu: { alignItems: 'center', justifyContent: 'center' },
+  daire: { alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start' },
+  daireYazi: { fontWeight: '800', letterSpacing: -0.3, includeFontPadding: false },
   rozetYazi: { fontWeight: '700', fontSize: 12.5, paddingHorizontal: 8, maxWidth: 110 },
   rozetYaziKucuk: { fontSize: 11.5, paddingHorizontal: 7 },
   zincir: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', rowGap: 6 },
