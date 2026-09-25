@@ -152,6 +152,17 @@ export default function DurakEkrani() {
     return liste.sort((a, b) => a.kalkislar[0].dakika - b.kalkislar[0].dakika);
   }, [durak]);
 
+  // Gündüz seferleri sıklıkla tanımlı hatlar (Marmaray, M7, M11, T5, T6 …): OTP bunların
+  // kalkışlarını döndürmüyor, satırları hiç görünmüyordu. Saat yerine sıklık yazılıyor.
+  const siklikliHatlar = useMemo(
+    () =>
+      hatlar
+        .filter((h) => !yonler.some((y) => y.hat?.gtfsId === h.gtfsId))
+        .map((h) => ({ hat: h, metin: siklikYaz(hatSikligi(h.shortName)) }))
+        .filter((x): x is { hat: Hat; metin: string } => !!x.metin),
+    [hatlar, yonler],
+  );
+
   // Ekranda canlı kalkış varsa, canlı olmayanlar "tarifeye göre" diye ayrılıyor.
   // Bütünüyle tarifeli bir durakta (metro, vapur) her satıra bunu yazmak gürültü olur.
   const canliVar = yonler.some((y) => y.kalkislar[0].canli);
@@ -291,10 +302,12 @@ export default function DurakEkrani() {
               );
             })()}
 
-            {(yonler.length > 0 || saatsiz.length === 0) && (
+            {(yonler.length > 0 || siklikliHatlar.length > 0 || saatsiz.length === 0) && (
             <View style={{ gap: 4 }}>
               <Text style={s.altBaslik}>YÖNE GÖRE SONRAKİ KALKIŞLAR</Text>
-              {yonler.length === 0 && <Text style={s.bos}>Önümüzdeki 3 saatte bu duraktan sefer görünmüyor.</Text>}
+              {yonler.length === 0 && siklikliHatlar.length === 0 && (
+                <Text style={s.bos}>Önümüzdeki 3 saatte bu duraktan sefer görünmüyor.</Text>
+              )}
               {yonler.map((y) => (
                 <Pressable
                   key={y.anahtar}
@@ -362,6 +375,26 @@ export default function DurakEkrani() {
                     )}
                   </View>
                   <Dakika an={y.kalkislar[0].an} canli={y.kalkislar[0].canli} />
+                </Pressable>
+              ))}
+              {siklikliHatlar.map(({ hat: h, metin }) => (
+                <Pressable
+                  key={`siklik-${h.gtfsId}`}
+                  style={s.sefer}
+                  onPress={() => router.push({ pathname: '/hat/[id]', params: { id: h.gtfsId } })}
+                  accessibilityRole="button"
+                  accessibilityLabel={[h.shortName ?? '', baslikYap(h.longName), metin].filter(Boolean).join(' · ')}
+                >
+                  <View style={{ minWidth: ROZET_SUTUNU }}>
+                    <HatRozeti hat={h} />
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={s.seferYon} numberOfLines={1}>
+                      {baslikYap(h.longName) || h.shortName}
+                    </Text>
+                    <Text style={s.seferSaat}>{metin}</Text>
+                  </View>
+                  <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.soluk} />
                 </Pressable>
               ))}
             </View>

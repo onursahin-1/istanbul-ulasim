@@ -12,6 +12,7 @@ node hazirla-gtfs.mjs C:\otp\istanbul                                        # 1
 python osm-cikar.py C:\otp\istanbul\Istanbul.osm.pbf C:\otp\osm-hatlar.json  # 2
 python istasyon-tamamla.py C:\otp\osm-hatlar.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python marmaray-duzelt.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
+python eksik-hatlar.py C:\otp\osm-hatlar.json C:\otp\istanbul
 python cizgi-ekle.py C:\otp\osm-hatlar.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python hat-adi-duzelt.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python durak-birlestir.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
@@ -24,7 +25,7 @@ python siklik-cikar.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip ..\assets\ver
 Yarıda kalmış bir zip'e yeniden çalıştırmak yerine `hazirla-gtfs.mjs` ile baştan
 üretmek gerekiyor. **Elle alınmış yedeklere güvenme**: `hazirla-gtfs.mjs` zaman
 içinde düzeldiği için eski bir yedek, araç tipi yanlış atanmış bir sürüm olabilir.
-`dogrula.py` çıktısındaki hat sayıları (12 metro, 3 Marmaray, 3 tramvay…) bu tür
+`dogrula.py` çıktısındaki hat sayıları (12 metro, 3 Marmaray, 7 tramvay…) bu tür
 bir karışıklığı hemen gösterir.
 
 ## 1. GTFS — sefer tarifeleri
@@ -55,8 +56,9 @@ Onarılan başlıca sorunlar:
   durağında saati olmayan seferler, kopuk referanslar.
 - Bütünüyle tırnak içine sıkışmış satırlar.
 
-Sağlama: derleme sonrası hat sayıları beklenene yakın olmalı — 12 metro,
-3 Marmaray, 3 tramvay, 3 füniküler, 2 teleferik, ~100 vapur, kalanı otobüs/minibüs.
+Sağlama: bütün adımlardan sonra hat sayıları beklenene yakın olmalı — 12 metro,
+3 Marmaray, 7 tramvay (T1, T3, T4, T5, T6 ve İETT'nin iki yönlü T2'si), 4 füniküler,
+2 teleferik, ~100 vapur, kalanı otobüs/minibüs.
 
 ## 2. OSM — yol ağı
 
@@ -131,6 +133,29 @@ kapsamıyor — çizgiyi `cizgi-ekle.py` geri veriyor (bkz. 6).
 
 Betik zip dosyasını **yerinde** değiştirir; tekrar çalıştırmadan önce `hazirla-gtfs.mjs`
 ile yeniden üretmek ya da yedekten dönmek gerekir.
+
+## 4b. Hiç olmayan hatlar, kapanan hat, yanlış türler
+
+```powershell
+python eksik-hatlar.py C:\otp\osm-hatlar.json C:\otp\istanbul
+```
+
+2026-09 denetiminde OSM'de olup beslemede hiç bulunmayan hatlar: **T5** Eminönü–Alibeyköy
+tramvayı, **T6** Sirkeci–Kazlıçeşme raylı sistemi, **F4** Hisarüstü–Aşiyan füniküleri.
+Betik bunları OSM istasyon dizisinden kuruyor; saatler resmî sayfalardan (T5 06:00–00:00,
+zirvede 5 dk, 32 dk; T6 25 dk arayla, son tren Sirkeci 23:05 / Kazlıçeşme 22:40, 18 dk;
+F4 8 dk). T5'in zirve dışı sıklığı yayımlanmamış, 10 dk varsayıldı.
+
+Ayrıca:
+
+- **M3A** çıkarılıyor: 2021'de M9'un parçası oldu, M9 aynı istasyonları zaten kapsıyor.
+- **M7, M8, M9** gündüz sıklıkları resmî değerlere çekiliyor. M8 beslemede yalnız hafta
+  içi çalışıyordu (hafta sonu hiç yoktu) ve 4 dk görünüyordu; gerçekte her gün 7 dk.
+- İETT beslemesinde **T2** (nostaljik tramvay) ve **F2** (Tünel) otobüs türünde
+  duruyordu; türleri düzeltiliyor. T2'nin saatleri İETT'nin kendi tarifesi.
+
+Betik yeniden çalıştırılabilir (kendi eklediklerini `ek-` kimliğinden tanıyıp önce
+siliyor). Ardından `cizgi-ekle.py` ve `durak-birlestir.py` yeniden çalıştırılmalı.
 
 ## 5. Marmaray'ın kısa dönüş hattı
 

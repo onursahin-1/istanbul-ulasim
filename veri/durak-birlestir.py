@@ -43,6 +43,8 @@ EL_ILE = [
     ('Kayaşehir Merkez', 'Kayaşehir'),            # 194 m — M3 / M11
     ('Aksaray', 'Yusufpaşa'),                     # 217 m — M1 / T1
     ('Bakırköy', 'Özgürlük Meydanı'),             # 238 m — Marmaray / M3
+    ('Rumeli Hisarüstü', 'Boğaziçi Üniversitesi'), #  58 m — F4 / M6 (eksik-hatlar.py)
+    ('Eyüpsultan Teleferik', 'Eyüp'),             # 102 m — T5 / TF2
 ]
 # Bilerek dışarıda bırakılanlar — mesafe ya da aktarma olup olmadığı tartışmalı:
 #   Olimpiyat (M3A/M9) – Olimpiyatköy (M11)      281 m

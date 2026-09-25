@@ -1,6 +1,6 @@
 // Ağ haritasının çizgi ve dokunma hesaplarının testleri.
 //
-// Son bölüm uygulamayla giden gerçek assets/veri/ag.json'u okuyor: 24 hattın
+// Son bölüm uygulamayla giden gerçek assets/veri/ag.json'u okuyor: 26 hattın
 // hepsi çiziliyor mu, hepsine dokunulabiliyor mu.
 
 import assert from 'node:assert/strict';
@@ -81,8 +81,8 @@ describe('gerçek ağ verisi (assets/veri/ag.json)', () => {
   };
   const hatlar = ham.hatlar.map((h) => ({ ...h, noktalar: polylineCoz(h.cizgi) }));
 
-  it('24 hattın hepsi var ve çiziliyor', () => {
-    assert.equal(hatlar.length, 24);
+  it('26 hattın hepsi var ve çiziliyor (T5, T6, F4 eklendi; M3A M9 oldu)', () => {
+    assert.equal(hatlar.length, 26);
     for (const h of hatlar) assert.ok(h.noktalar.length >= 2, `${h.kod} çizilemiyor`);
   });
 

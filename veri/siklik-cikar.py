@@ -1,4 +1,5 @@
-# Minibüs ve dolmuş hatlarının sefer sıklığını bir JSON'a çıkarır.
+# Minibüs ve dolmuş hatlarının, bir de bütünüyle sıklıkla tanımlı raylı hatların
+# (Marmaray, M11, T5, T6, F4 …) sefer sıklığını bir JSON'a çıkarır.
 #
 # Neden: bu hatların GTFS'te saatli seferi yok, "07:00–23:00 arası her 5 dakikada"
 # gibi sıklık pencereleri var (frequencies.txt). OTP bunlarla rota kuruyor ama durak
@@ -44,16 +45,28 @@ def buyuk(metin):
 def main(zip_yolu, cikti):
     with zipfile.ZipFile(zip_yolu) as z:
         ajanslar = {a['agency_id']: a['agency_name'] for a in oku(z, 'agency.txt')}
-        hatlar = {r['route_id']: r for r in oku(z, 'routes.txt') if saatsiz_mi(ajanslar.get(r['agency_id']))}
+        rotalar = oku(z, 'routes.txt')
+        tum_seferler = oku(z, 'trips.txt')
+        frekanslar = oku(z, 'frequencies.txt')
+        # Gündüz seferleri sıklıkla tanımlı hatlar (Marmaray, M7, M11, T5 …): OTP durak
+        # kalkışlarında sıklık seferlerini döndürmüyor, durak ekranı bu dosyadan "her 25 dk"
+        # yazıyor. Gündüz şablonu: ilk penceresi 05:00–10:00 arasında başlayan sefer.
+        ilk_pencere = {}
+        for f in frekanslar:
+            ilk_pencere[f['trip_id']] = min(ilk_pencere.get(f['trip_id'], '99'), f['start_time'].zfill(8))
+        hep_siklik = {t['route_id'] for t in tum_seferler
+                      if '05:00:00' <= ilk_pencere.get(t['trip_id'], '99') < '10:00:00'}
+        hatlar = {r['route_id']: r for r in rotalar
+                  if saatsiz_mi(ajanslar.get(r['agency_id'])) or r['route_id'] in hep_siklik}
         takvim = {}
         for c in oku(z, 'calendar.txt'):
             takvim[c['service_id']] = ''.join(
                 c[g] for g in ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday')
             )
-        seferler = {t['trip_id']: t for t in oku(z, 'trips.txt') if t['route_id'] in hatlar}
+        seferler = {t['trip_id']: t for t in tum_seferler if t['route_id'] in hatlar}
         # (hat, gün maskesi) → dakika dakika en sık aralık
         izgara = collections.defaultdict(dict)
-        for f in oku(z, 'frequencies.txt'):
+        for f in frekanslar:
             t = seferler.get(f['trip_id'])
             if not t:
                 continue

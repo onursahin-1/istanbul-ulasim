@@ -5,7 +5,7 @@
 // geometrisi, istasyonlar GTFS'ten.
 //
 // Tasarım: harita tam ekran, üstte araç tipi süzgeci, bir hatta basınca
-// istasyonları alttan açılıyor. Süzgeç araç tipine göre çünkü 24 hat rozetini
+// istasyonları alttan açılıyor. Süzgeç araç tipine göre çünkü 26 hat rozetini
 // alt şeritte tutmak hem yer yiyor hem kaydırma gerektiriyordu.
 
 import { router } from 'expo-router';
