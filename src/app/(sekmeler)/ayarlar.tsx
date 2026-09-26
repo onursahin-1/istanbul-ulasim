@@ -21,7 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Ikon, useStiller } from '@/components/ulasim';
 import { hatirlaticiIptal, hatirlaticiSaati, hepsiniIptal, izinIste, useHatirlaticilar } from '@/lib/bildirim';
-import { ekranAcikKaydet, ucretTuruKaydet, useKayitlar } from '@/lib/kayitlar';
+import { ekranAcikKaydet, sesliTarifKaydet, ucretTuruKaydet, useKayitlar } from '@/lib/kayitlar';
 import { TARIFE_TARIHI, UCRET_ACIKLAMALARI, UCRET_ADLARI, type UcretTuru } from '@/lib/ucret';
 import { OTP_ADRESI, sunucuBilgisiGetir, type SunucuBilgisi } from '@/lib/otp';
 import { poiBilgisi } from '@/lib/poi';
@@ -47,7 +47,7 @@ export default function AyarlarEkrani() {
   const [yenileniyor, setYenileniyor] = useState(false);
   const [sonYenileme, setSonYenileme] = useState<Date | null>(null);
   const { hatirlaticilar, izin, yenile: hatirlaticilariYenile } = useHatirlaticilar();
-  const { ucretTuru, ekranAcik } = useKayitlar();
+  const { ucretTuru, ekranAcik, sesliTarif } = useKayitlar();
 
   const yukle = useCallback(async () => {
     setSunucuHatasi(null);
@@ -249,6 +249,20 @@ export default function AyarlarEkrani() {
         <Text style={s.aciklama}>
           "Yolculuğu başlat"tan sonra telefon ekranı kararmaz; bakınca sıradaki adım hazır olur. Kapatırsan pil daha
           az harcanır.
+        </Text>
+        <View style={[s.satir, { marginTop: 6 }]}>
+          <Ikon ad="volume-high-outline" boyut={17} renkKodu={tema.vurgu} />
+          <Text style={[s.satirBaslik, { flex: 1 }]}>Sesli yol tarifi</Text>
+          <Switch
+            value={sesliTarif}
+            onValueChange={sesliTarifKaydet}
+            trackColor={{ true: tema.vurgu }}
+            accessibilityLabel="Sesli yol tarifi"
+          />
+        </View>
+        <Text style={s.aciklama}>
+          Yürürken dönüşleri ("80 metre sonra sağa dön"), araçta ineceğin durağı iki ve bir durak kala söyler.
+          Yolculuk ekranındaki hoparlör düğmesiyle de açıp kapatabilirsin. Telefon sessizdeyken duyulmayabilir.
         </Text>
       </View>
 

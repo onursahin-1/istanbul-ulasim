@@ -12,13 +12,20 @@ import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AltYaprak } from '@/components/alt-yaprak';
-import { AdimKartlari, AdimSekmeleri, KonumSeridi, TumAdimlar, type YolTarifiVerisi } from '@/components/canli-yol-tarifi';
+import {
+  AdimKartlari,
+  AdimSekmeleri,
+  KonumSeridi,
+  TumAdimlar,
+  useSesliTarif,
+  type YolTarifiVerisi,
+} from '@/components/canli-yol-tarifi';
 import { OtobusIsareti } from '@/components/harita-isaretleri';
 import { HatirlatmaSayfasi, type InisBilgisi } from '@/components/hatirlatma';
 import { canliRenk, DONUS_SIMGELERI, GeriCubugu, HatRozeti, Ikon, useStiller } from '@/components/ulasim';
 import { bacakCanli } from '@/lib/canli';
 import { hemenBildir, izinIste, useHatirlaticilar } from '@/lib/bildirim';
-import { useKayitlar } from '@/lib/kayitlar';
+import { sesliTarifKaydet, useKayitlar } from '@/lib/kayitlar';
 import { polylineCoz, type Nokta } from '@/lib/cografya';
 import { araclariYerlestir, kalanYaz, yaklasanOtobus, yasYaz, type YerlesikArac } from '@/lib/arac-konum';
 import { bacakDuraklari, hatKalkislariGetir, kopruyeIlgiBildir, seferAraclariGetir, type Bacak } from '@/lib/otp';
@@ -77,7 +84,7 @@ export default function RotaDetayEkrani() {
   const [seferler, setSeferler] = useState<Record<number, SeferBilgisi>>({});
   const [hatirlatAcik, setHatirlatAcik] = useState(false);
   const { hatirlaticilar, yenile: hatirlaticilariYenile } = useHatirlaticilar();
-  const { ucretTuru, ekranAcik } = useKayitlar();
+  const { ucretTuru, ekranAcik, sesliTarif } = useKayitlar();
   const aboneligi = useRef<Location.LocationSubscription | null>(null);
   const simulasyon = useRef<ReturnType<typeof setInterval> | null>(null);
   const uyarilanlar = useRef(new Set<string>());
@@ -421,16 +428,6 @@ export default function RotaDetayEkrani() {
     });
   };
 
-  if (!guzergah) {
-    return (
-      <View style={[s.kok, { paddingTop: kenar.top + 4, paddingHorizontal: 14 }]}>
-        <GeriCubugu baslik="Rota detayı" />
-        <Text style={s.bos}>Bu rota artık bellekte değil. Rota listesine dönüp tekrar seç.</Text>
-      </View>
-    );
-  }
-
-  const aktifBacak = takip?.bacak ?? -1;
   const yolTarifi: YolTarifiVerisi | null = durum
     ? {
         bacaklar,
@@ -448,6 +445,20 @@ export default function RotaDetayEkrani() {
         simdi,
       }
     : null;
+
+  // Yürürken dönüşleri, araçta inilecek durağı sesli söyler (yalnız yolculuk takip edilirken).
+  useSesliTarif(takipAcik ? yolTarifi : null, sesliTarif);
+
+  if (!guzergah) {
+    return (
+      <View style={[s.kok, { paddingTop: kenar.top + 4, paddingHorizontal: 14 }]}>
+        <GeriCubugu baslik="Rota detayı" />
+        <Text style={s.bos}>Bu rota artık bellekte değil. Rota listesine dönüp tekrar seç.</Text>
+      </View>
+    );
+  }
+
+  const aktifBacak = takip?.bacak ?? -1;
 
   return (
     <View style={s.kok}>
@@ -513,7 +524,7 @@ export default function RotaDetayEkrani() {
       {takipAcik && yolTarifi && (
         <View style={[s.sekmeKonumu, { top: kenar.top + 8 }]} pointerEvents="box-none">
           <AdimSekmeleri v={yolTarifi} gorunen={gorunen} sec={setGorunen} />
-          <KonumSeridi v={yolTarifi} />
+          <KonumSeridi v={yolTarifi} ses={{ acik: sesliTarif, degistir: () => sesliTarifKaydet(!sesliTarif) }} />
         </View>
       )}
 

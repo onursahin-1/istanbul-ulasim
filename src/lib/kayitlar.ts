@@ -18,6 +18,7 @@ const ARAMA_ANAHTARI = 'son-aramalar-v1';
 const UCRET_ANAHTARI = 'ucret-turu-v1';
 const ROTA_ANAHTARI = 'rota-secenekleri-v1';
 const EKRAN_ANAHTARI = 'yolculukta-ekran-acik-v1';
+const SES_ANAHTARI = 'yolculukta-sesli-tarif-v1';
 const ARAMA_SINIRI = 12;
 
 type Yerler = Partial<Record<YerTuru, Konum>>;
@@ -89,6 +90,12 @@ export async function ekranAcikKaydet(acik: boolean): Promise<void> {
   haberVer();
 }
 
+/** Yolculukta sesli yol tarifi (varsayılan: açık). */
+export async function sesliTarifKaydet(acik: boolean): Promise<void> {
+  await yaz(SES_ANAHTARI, acik);
+  haberVer();
+}
+
 export async function ucretTuruKaydet(tur: UcretTuru): Promise<void> {
   await yaz(UCRET_ANAHTARI, tur);
   haberVer();
@@ -101,6 +108,7 @@ export function useKayitlar() {
   const [ucretTuru, setUcretTuru] = useState<UcretTuru>('tam');
   const [rotaSecenekleri, setRotaSecenekleri] = useState<RotaSecenekleri>(VARSAYILAN_SECENEKLER);
   const [ekranAcik, setEkranAcik] = useState(true);
+  const [sesliTarif, setSesliTarif] = useState(true);
   // İlk okuma bitene kadar değerler varsayılan; buna göre iş başlatan ekranlar (rota araması) bekler.
   const [yuklendi, setYuklendi] = useState(false);
 
@@ -111,6 +119,7 @@ export function useKayitlar() {
     setUcretTuru(await oku<UcretTuru>(UCRET_ANAHTARI, 'tam'));
     setRotaSecenekleri(secenekleriDuzelt(await oku<RotaSecenekleri>(ROTA_ANAHTARI, VARSAYILAN_SECENEKLER)));
     setEkranAcik(await oku<boolean>(EKRAN_ANAHTARI, true));
+    setSesliTarif(await oku<boolean>(SES_ANAHTARI, true));
     setYuklendi(true);
   }, []);
 
@@ -122,5 +131,5 @@ export function useKayitlar() {
     };
   }, [yukle]);
 
-  return { yerler, favoriler, aramalar, ucretTuru, rotaSecenekleri, ekranAcik, yuklendi };
+  return { yerler, favoriler, aramalar, ucretTuru, rotaSecenekleri, ekranAcik, sesliTarif, yuklendi };
 }

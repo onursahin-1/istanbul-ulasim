@@ -9,6 +9,7 @@
 // Tasarım: C:\otp\Claude outputs\canli-yol-tarifi-maket.html
 
 import * as Haptics from 'expo-haptics';
+import * as Speech from 'expo-speech';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Modal,
@@ -30,6 +31,7 @@ import { bacakCanli } from '@/lib/canli';
 import { mesafeMetre, type Nokta } from '@/lib/cografya';
 import type { Bacak } from '@/lib/otp';
 import type { SeferBilgisi } from '@/lib/sefer';
+import { sesliDuyurular, type SesGirdisi } from '@/lib/sesli-tarif';
 import { baslikYap, hatRengi, useTema, type Tema } from '@/lib/tema';
 import {
   aktarmaPayi,
@@ -117,7 +119,14 @@ export function AdimSekmeleri({ v, gorunen, sec }: { v: YolTarifiVerisi; gorunen
  * Sekmelerin altındaki canlı durum satırı: telefonun konumuna göre şu an nerede
  * olunduğu. Hangi karta bakılırsa bakılsın gerçek durumu söyler.
  */
-export function KonumSeridi({ v }: { v: YolTarifiVerisi }) {
+export function KonumSeridi({
+  v,
+  ses,
+}: {
+  v: YolTarifiVerisi;
+  /** Sesli tarif düğmesi (şeridin sağında). */
+  ses?: { acik: boolean; degistir: () => void };
+}) {
   const tema = useTema();
   const s = useStiller(stiller);
   const { durum, adimlar, bacaklar, konum } = v;
@@ -162,14 +171,84 @@ export function KonumSeridi({ v }: { v: YolTarifiVerisi }) {
   }
 
   return (
-    <View style={s.konumSeridi} accessibilityLiveRegion="polite" accessible accessibilityLabel={[ana, yan].filter(Boolean).join(', ')}>
-      <Ikon ad={ikon} boyut={15} renkKodu={tema.vurgu} />
-      <Text style={s.konumAna} numberOfLines={1}>
-        {ana}
-        {!!yan && <Text style={s.konumYan}>{`  ·  ${yan}`}</Text>}
-      </Text>
+    <View style={s.konumSeridi}>
+      <View
+        style={s.konumMetin}
+        accessibilityLiveRegion="polite"
+        accessible
+        accessibilityLabel={[ana, yan].filter(Boolean).join(', ')}
+      >
+        <Ikon ad={ikon} boyut={15} renkKodu={tema.vurgu} />
+        <Text style={s.konumAna} numberOfLines={1}>
+          {ana}
+          {!!yan && <Text style={s.konumYan}>{`  ·  ${yan}`}</Text>}
+        </Text>
+      </View>
+      {ses && (
+        <Pressable
+          onPress={ses.degistir}
+          hitSlop={10}
+          style={s.sesDugme}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: ses.acik }}
+          accessibilityLabel="Sesli yol tarifi"
+        >
+          <Ikon ad={ses.acik ? 'volume-high' : 'volume-mute'} boyut={17} renkKodu={ses.acik ? tema.vurgu : tema.soluk} />
+        </Pressable>
+      )}
     </View>
   );
+}
+
+// ---------------------------------------------------------------- sesli tarif
+
+/**
+ * Sesli yol tarifi: yolculuk durumu ya da konum değiştikçe söylenecek cümleyi bulur
+ * (src/lib/sesli-tarif.ts) ve Türkçe okur. Dönüş "şimdi"si, inilecek durak gibi
+ * öncelikli cümleler o an okunanı keser. Kapatılınca ya da ekrandan çıkılınca susar.
+ */
+export function useSesliTarif(v: YolTarifiVerisi | null, acik: boolean) {
+  const soylenen = useRef(new Set<string>());
+
+  useEffect(() => () => void Speech.stop(), []);
+  const takipte = !!v;
+  useEffect(() => {
+    if (!acik || !takipte) Speech.stop();
+    // Yolculuk bitince yeniden başlarsa en baştan söylesin.
+    if (!takipte) soylenen.current.clear();
+  }, [acik, takipte]);
+
+  const durum = v?.durum;
+  const konum = v?.konum;
+  useEffect(() => {
+    if (!v || !acik) return;
+    const a = v.adimlar[v.durum.adim];
+    const b = a ? v.bacaklar[a.bacak] : undefined;
+    if (!a || !b) return;
+    const g: SesGirdisi = { adim: v.durum.adim, tur: a.tur, faz: v.durum.faz, rol: a.rol };
+    if (a.tur === 'yuru') {
+      const tarif = v.tarifler[a.bacak] ?? [];
+      g.tarif = tarif;
+      g.yer = v.konum ? yuruyusKonumu(tarif, v.cizgiler[a.bacak] ?? [], v.konum) : null;
+      g.hedefAdi = b.to.stop ? `${baslikYap(b.to.name)} durağı` : 'varış noktası';
+      g.toplamMetre = b.distance;
+      g.toplamDakika = b.duration != null ? b.duration / 60 : null;
+    } else {
+      g.hat = b.route?.shortName ?? '';
+      g.binme = binmeIfadesi(b.route?.mode ?? b.mode, b.route?.agency?.name);
+      g.inisAdi = baslikYap(b.to.name);
+      g.kalanDurak = v.durum.kalanDurak;
+      g.durakta = v.durum.durakta;
+      const kalkis = an(b, 'start');
+      g.kalkisaDakika = Number.isFinite(kalkis) ? (kalkis - Date.now()) / 60_000 : null;
+    }
+    const { soyle, unut } = sesliDuyurular(g, soylenen.current);
+    for (const anahtar of unut) soylenen.current.delete(anahtar);
+    if (!soyle.length) return;
+    for (const d of soyle) soylenen.current.add(d.anahtar);
+    if (soyle.some((d) => d.oncelikli)) Speech.stop();
+    Speech.speak(soyle.map((d) => d.metin).join(' '), { language: 'tr-TR' });
+  }, [durum, konum, acik]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 // ---------------------------------------------------------------- kartlar
@@ -838,6 +917,15 @@ const stiller = (t: Tema) =>
       shadowOpacity: t.koyu ? 0.5 : 0.2,
       shadowRadius: 8,
       shadowOffset: { width: 0, height: 3 },
+    },
+    konumMetin: { flexDirection: 'row', alignItems: 'center', gap: 7, flexShrink: 1 },
+    sesDugme: {
+      marginLeft: 2,
+      paddingLeft: 9,
+      borderLeftWidth: StyleSheet.hairlineWidth,
+      borderLeftColor: t.cizgi,
+      height: 20,
+      justifyContent: 'center',
     },
     konumAna: { flexShrink: 1, fontSize: 13.5, fontWeight: '700', color: t.yazi },
     konumYan: { fontWeight: '500', color: t.soluk },
