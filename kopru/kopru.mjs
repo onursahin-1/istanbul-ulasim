@@ -182,7 +182,10 @@ export function araclariEslestir(tarife, araclar, hafiza, tarayici, simdi = new 
   const sayac = {
     toplam: 0, hatBilinmiyor: 0, rotaYok: 0, durakYok: 0, yonBilinmiyor: 0, seferYok: 0,
     surdurulen: 0, tazeGuzergah: 0, yondenBulunan: 0, eskimis: 0, makulDisi: 0,
+    ayrilan: 0, cakisan: 0,
   };
+  /** Sefere bağlanan araçlar; aynı sefere düşenler aşağıda ayrıştırılıyor. */
+  const adaylar = [];
 
   for (const a of araclar) {
     sayac.toplam++;
@@ -284,6 +287,16 @@ export function araclariEslestir(tarife, araclar, hafiza, tarayici, simdi = new 
       sayac[yoldan]++;
     }
 
+    adaylar.push({ a, kapiNo, zaman, secilen, rotaIdx, durakIdx, metre, kayit });
+  }
+
+  // Aynı sefere birden çok araç düşmüşse (Metrobüste tarifedeki seferler 1–2 dk arayla,
+  // en yakın saat çakışıyor) sefer tarifeye en yakın olanda kalır; öbürleri kendi
+  // durağından geçen, henüz kimseye verilmemiş en yakın sefere bağlanır. Eskiden
+  // arkadaki araç aynı seferde kalıyor ve gecikme akışına hiç girmiyordu.
+  seferleriAyristir(tarife, adaylar, aktif, sayac);
+
+  for (const { a, kapiNo, zaman, secilen, rotaIdx, durakIdx, metre, kayit } of adaylar) {
     // Gecikme: gözlem anı − aracın bulunduğu noktadaki planlanan an. Pozitif = geç kalmış.
     const yerPlan = konumdakiPlan(tarife, secilen.sefer, durakIdx, a.enlem, a.boylam);
     const gecikme = fark(zaman.saniye, yerPlan?.planlanan ?? secilen.planlanan);
@@ -324,6 +337,53 @@ export function araclariEslestir(tarife, araclar, hafiza, tarayici, simdi = new 
   hafiza.temizle(simdi);
   iz?.temizle(an);
   return { eslesenler, sayac };
+}
+
+/** İki aday aynı seferde eşitse sürdüren kalır: bu kadar saniyelik fark "eşit" sayılır. */
+const SURDURME_PAYI_SN = 60;
+
+/**
+ * Her sefer en çok bir araca. Çakışan grupta tarifeye en yakın (|sapma| en küçük) araç
+ * seferde kalır; fark SURDURME_PAYI_SN içindeyse önceki nabızda da o seferde olan kalır
+ * (araç iki sefer arasında gidip gelmesin). Kalanlar alınmamış en yakın sefere geçer;
+ * bulunamayan aday düşer. `adaylar` yerinde değişir.
+ */
+export function seferleriAyristir(tarife, adaylar, aktif, sayac = {}) {
+  const gruplar = new Map();
+  for (const x of adaylar) {
+    const g = gruplar.get(x.secilen.sefer) ?? [];
+    g.push(x);
+    gruplar.set(x.secilen.sefer, g);
+  }
+  const alinan = new Set(gruplar.keys());
+  const dusen = new Set();
+  const sapma = (x) => Math.abs(fark(x.zaman.saniye, x.secilen.planlanan));
+  const surduruyor = (x) => !!x.kayit && x.kayit.sefer === x.secilen.sefer;
+  for (const g of gruplar.values()) {
+    if (g.length < 2) continue;
+    g.sort((p, q) => {
+      const d = sapma(p) - sapma(q);
+      if (Math.abs(d) >= SURDURME_PAYI_SN) return d;
+      return Number(surduruyor(q)) - Number(surduruyor(p)) || d;
+    });
+    for (const x of g.slice(1)) {
+      const yeni = seferBul(tarife, x.rotaIdx, x.durakIdx, x.zaman.saniye, aktif, 45 * 60, alinan);
+      if (yeni) {
+        alinan.add(yeni.sefer);
+        x.secilen = yeni;
+        sayac.ayrilan = (sayac.ayrilan ?? 0) + 1;
+      } else {
+        dusen.add(x);
+        sayac.cakisan = (sayac.cakisan ?? 0) + 1;
+      }
+    }
+  }
+  if (dusen.size) {
+    const kalan = adaylar.filter((x) => !dusen.has(x));
+    adaylar.length = 0;
+    adaylar.push(...kalan);
+  }
+  return adaylar;
 }
 
 function baslik(simdi) {

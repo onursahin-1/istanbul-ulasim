@@ -385,15 +385,17 @@ export function gununServisleri(tarife, tarih = new Date()) {
  * @param saniye   gözlem anı (gün başından saniye)
  * @param aktif    gününServisleri() çıktısı
  * @param enFazlaSapma bu kadar saniyeden uzak bir eşleşme kabul edilmez
+ * @param haric başka araca verilmiş seferler (Set) — bunlar atlanır
  * @returns {{sefer:number, planlanan:number, sira:number, sapma:number}|null}
  */
-export function seferBul(tarife, rotaIdx, durakIdx, saniye, aktif, enFazlaSapma = 45 * 60) {
+export function seferBul(tarife, rotaIdx, durakIdx, saniye, aktif, enFazlaSapma = 45 * 60, haric = null) {
   const bas = tarife.durakBas[durakIdx];
   const bit = tarife.durakBas[durakIdx + 1];
   let enIyi = null;
   for (let i = bas; i < bit; i++) {
     const sefer = tarife.sSefer[i];
     if (tarife.seferRota[sefer] !== rotaIdx) continue;
+    if (haric?.has(sefer)) continue;
     const servis = tarife.seferServis[sefer];
     if (servis < 0 || !aktif[servis]) continue;
     const planlanan = tarife.sSaniye[i];

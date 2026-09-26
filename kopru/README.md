@@ -172,6 +172,14 @@ sefer eşleşmesi %7'de kalıyordu; ara değerlemeyle %98'e çıktı.
 seferin aracı" sanılır ve gecikme hiç görünmez. Araç durak sırasında geriye giderse
 yeni tur başlamış sayılır ve eşleştirme yenilenir.
 
+**Her sefer tek araca.** Metrobüs gibi sık hatlarda tarifedeki seferler 1–2 dakika
+arayla; araçları "şu ana en yakın saatteki sefere" bağlamak otobüslerin ~%30'unu başka bir
+otobüsle aynı sefere düşürüyordu. Akışa seferin yalnız öndeki aracı giriyor, arkadakinin
+bilgisi boşa gidiyordu. Şimdi çakışan grupta tarifeye en yakın araç seferde kalıyor (fark
+bir dakikadan azsa önceki nabızda da o seferde olan), öbürleri kendi durağından geçen ve
+henüz kimseye verilmemiş en yakın sefere geçiyor (`seferleriAyristir`). `/durum`'da
+`ayrilan` başka sefere geçirilen, `cakisan` boş sefer bulamayıp düşen araç sayısı.
+
 **Gecikme aracın bulunduğu noktada ölçülüyor.** Eskiden en yakın durağın saatiyle
 karşılaştırılıyordu: o durağa 400 m kala görülen otobüs, oraya daha varmadığı için
 planın gerisinde görünüp "erken" sayılıyor, durağı geçmiş olan ise olduğundan geç.
