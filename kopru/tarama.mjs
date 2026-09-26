@@ -16,6 +16,11 @@
 // sorulmamış hatların araç sayısı tarifedeki günlük sefer sayısından tahmin
 // ediliyor; ilk tur boş mahalle hatlarıyla değil, 34G ve 500T gibi yoğun hatlarla
 // başlıyor.
+//
+// Gece (İstanbul saatiyle 01:00–05:00) tarama duruyor. O saatte hatların çoğunda araç
+// yok; sorulan hat "0 araç" diye kaydediliyor, puanı dibe vuruyor ve gündüz 20 aracı
+// olan hat bir sonraki turda en sona kalıyordu. Tek bir düşük sayım da puanı bir anda
+// silmesin diye araç sayısı yumuşatılıyor: yeni = max(gözlenen, eski × 0,6).
 
 import { ArizaHatasi, hattakiAraclar, SinirHatasi } from './iett.mjs';
 
@@ -23,6 +28,22 @@ import { ArizaHatasi, hattakiAraclar, SinirHatasi } from './iett.mjs';
 export const HAT_OMRU_MS = 7 * 24 * 3_600_000;
 
 const bekle = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** İstanbul saati (0–23). İstanbul yaz saati uygulamıyor: her zaman UTC+3. */
+export function istanbulSaati(an = Date.now()) {
+  return new Date(an + 3 * 3_600_000).getUTCHours();
+}
+
+/** Taramanın durduğu saatler: araçların çoğu garajda, sayım yanıltıcı. */
+export function geceMi(an = Date.now()) {
+  const s = istanbulSaati(an);
+  return s >= 1 && s < 5;
+}
+
+/** Bir hat sorgusunun ardından araç sayısının yeni değeri. */
+export function aracSayisiGuncelle(eski, gozlenen) {
+  return Math.max(gozlenen, Math.round((eski ?? 0) * 0.6));
+}
 
 export class Tarayici {
   /**
@@ -59,7 +80,11 @@ export class Tarayici {
       if (k?.hat && simdi - k.an <= HAT_OMRU_MS) this.atama.set(kapi, k);
     }
     for (const [hat, d] of Object.entries(hatDurumu)) {
-      if (d && Number.isFinite(d.sonBakilan)) this.hatDurumu.set(hat, { ...d, soruldu: true });
+      if (!d || !Number.isFinite(d.sonBakilan)) continue;
+      // Eski sürüm gece de tarıyordu: o saatte sayılan hatların sayısı tarifeden onarılır.
+      const tahmin = this.tahmin.get(hat.toUpperCase()) ?? 0;
+      const aracSayisi = geceMi(d.sonBakilan) ? Math.max(d.aracSayisi ?? 0, tahmin) : d.aracSayisi;
+      this.hatDurumu.set(hat, { ...d, aracSayisi, soruldu: true });
     }
   }
 
@@ -91,7 +116,7 @@ export class Tarayici {
   isle(hat, araclar, an = Date.now()) {
     const durum = this.hatDurumu.get(hat) ?? { sonBakilan: 0, aracSayisi: 0 };
     durum.sonBakilan = an;
-    durum.aracSayisi = araclar.length;
+    durum.aracSayisi = aracSayisiGuncelle(durum.aracSayisi, araclar.length);
     durum.soruldu = true;
     this.hatDurumu.set(hat, durum);
     for (const a of araclar) {
@@ -104,6 +129,12 @@ export class Tarayici {
     if (this.calisiyor || !Number.isFinite(this.aralikMs)) return;
     this.calisiyor = true;
     while (this.calisiyor) {
+      if (geceMi()) {
+        this.gecede = true;
+        await bekle(5 * 60_000);
+        continue;
+      }
+      this.gecede = false;
       const hat = this.sıradakiHat();
       if (!hat) {
         await bekle(5000);
@@ -156,6 +187,7 @@ export class Tarayici {
       sinir: this.sayac.sinir,
       hata: this.sayac.hata,
       taramaAraligiSn: Number.isFinite(this.aralikMs) ? Math.round(this.aralikMs / 1000) : null,
+      geceBekliyor: !!this.gecede,
     };
   }
 }

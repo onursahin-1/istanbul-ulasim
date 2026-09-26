@@ -106,6 +106,9 @@ Bütçe ikiye bölünüyor:
 - **Tarama** (kalan bütçe, ~75 saniyede bir hat, saatte ~48): `GetHatOtoKonum_json`
   hat hat sorularak hangi aracın hangi hatta olduğu öğreniliyor. En yoğun hatlar önce;
   hiç sorulmamış hatların yoğunluğu tarifedeki sefer sayısından tahmin ediliyor.
+  Gece 01:00–05:00 tarama duruyor: o saatte sorulan hat "0 araç" diye kaydedilip
+  gündüz sırasında en sona düşüyordu. Tek bir düşük sayım da hattın önceliğini
+  silmesin diye araç sayısı yumuşatılıyor.
 
 784 hattın bir turu bu hızla ~16 saat. Bunu işe yarar kılan gözlem: **bir İETT otobüsü
 gün boyu, çoğu zaman günlerce aynı hatta çalışıyor.** Öğrenilen "araç → hat" bilgisi
