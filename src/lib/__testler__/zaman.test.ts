@@ -6,7 +6,17 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { istanbulSaatiYaz, isodanSaniye, kalkisGosterimi, mesafeYaz, saatYaz, saniyedenSaat, sureYaz } from '../zaman';
+import {
+  andanSecim,
+  istanbulSaatiYaz,
+  isodanSaniye,
+  kalkisGosterimi,
+  mesafeYaz,
+  saatYaz,
+  saniyedenSaat,
+  secimdenAn,
+  sureYaz,
+} from '../zaman';
 
 describe('saatYaz', () => {
   it('ISO saatten saat ve dakikayı alır', () => {
@@ -129,5 +139,27 @@ describe('istanbulSaatiYaz', () => {
   it('UTC+3 ile yazar ve sıfırla doldurur', () => {
     assert.equal(istanbulSaatiYaz(Date.UTC(2026, 8, 22, 2, 51) / 1000), '05:51');
     assert.equal(istanbulSaatiYaz(Date.UTC(2026, 8, 22, 21, 5) / 1000), '00:05');
+  });
+});
+
+describe('saat çarkı dönüşümü', () => {
+  // İstanbul'da 27 Eylül Pazar 02:07 (UTC 26 Eylül 23:07): telefon ekranındaki an.
+  const simdi = Date.UTC(2026, 8, 26, 23, 7);
+
+  it('seçimi İstanbul saatine göre mutlak ana çevirir', () => {
+    assert.equal(secimdenAn(0, 2, 7, simdi).toISOString(), '2026-09-26T23:07:00.000Z');
+    assert.equal(secimdenAn(1, 9, 30, simdi).toISOString(), '2026-09-28T06:30:00.000Z');
+  });
+
+  it('çarkın anını gün farkına ve saate geri çevirir', () => {
+    assert.deepEqual(andanSecim(new Date('2026-09-27T20:45:00Z'), simdi), { gun: 0, saat: 23, dakika: 45 });
+    assert.deepEqual(andanSecim(new Date('2026-09-27T21:10:00Z'), simdi), { gun: 1, saat: 0, dakika: 10 });
+    assert.deepEqual(andanSecim(new Date('2026-10-03T05:00:00Z'), simdi), { gun: 6, saat: 8, dakika: 0 });
+  });
+
+  it('gidiş-dönüş aynı seçimi verir', () => {
+    for (const [g, h, d] of [[0, 0, 0], [3, 23, 59], [6, 12, 1]]) {
+      assert.deepEqual(andanSecim(secimdenAn(g, h, d, simdi), simdi), { gun: g, saat: h, dakika: d });
+    }
   });
 });

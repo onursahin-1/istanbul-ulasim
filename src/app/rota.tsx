@@ -2,7 +2,8 @@
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -31,8 +32,10 @@ import {
   isoDakikaSonra,
   istanbulSaat,
   istanbulSimdi,
+  andanSecim,
   istanbulZamanYap,
   saatDakikaYaz,
+  secimdenAn,
   saatYaz,
   sureYaz,
 } from '@/lib/zaman';
@@ -296,7 +299,14 @@ export default function RotaEkrani() {
           <Pressable
             style={[s.filtre, s.filtreKoyu]}
             onPress={() => {
-              setTaslak(zaman ?? { tur: 'kalkis', gun: 0, saat: Number(istanbulSaat().slice(0, 2)), dakika: 0 });
+              setTaslak(
+                zaman ?? {
+                  tur: 'kalkis',
+                  gun: 0,
+                  saat: Number(istanbulSaat().slice(0, 2)),
+                  dakika: Number(istanbulSaat().slice(3, 5)),
+                },
+              );
               setZamanAcik(true);
             }}
             accessibilityRole="button"
@@ -412,9 +422,25 @@ export default function RotaEkrani() {
         <Pressable style={s.perde} onPress={() => setZamanAcik(false)} accessibilityLabel="Kapat" />
         <View style={[s.zamanSayfa, { paddingBottom: kenar.bottom + 16 }]}>
           <View style={s.zamanTutamac} />
-          <Text style={s.zamanBaslik}>
-            {taslak.tur === 'varis' ? 'Ne zaman orada olmalısın?' : 'Ne zaman yola çıkıyorsun?'}
-          </Text>
+          <View style={s.zamanUst}>
+            <Text style={[s.zamanBaslik, s.zamanUstBaslik]} numberOfLines={1}>
+              {taslak.tur === 'varis' ? 'Ne zaman orada olmalısın?' : 'Ne zaman yola çıkıyorsun?'}
+            </Text>
+            <Pressable
+              style={[s.simdiHap, !zaman && s.simdiSecili]}
+              onPress={() => {
+                setZaman(null);
+                setZamanAcik(false);
+              }}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Şimdi yola çık"
+              accessibilityState={{ selected: !zaman }}
+            >
+              <Ikon ad="flash" boyut={14} renkKodu={tema.vurgu} />
+              <Text style={s.simdiHapYazi}>Şimdi</Text>
+            </Pressable>
+          </View>
 
           <View style={s.turSecici} accessibilityRole="tablist">
             {(
@@ -435,69 +461,79 @@ export default function RotaEkrani() {
             ))}
           </View>
 
-          <Pressable
-            style={[s.simdiDugme, !zaman && s.simdiSecili]}
-            onPress={() => {
-              setZaman(null);
-              setZamanAcik(false);
-            }}
-            accessibilityRole="button"
-            accessibilityState={{ selected: !zaman }}
-          >
-            <Ikon ad="flash" boyut={16} renkKodu={!zaman ? tema.vurgu : tema.soluk} />
-            <Text style={[s.simdiYazi, !zaman && { color: tema.vurgu }]}>Şimdi</Text>
-          </Pressable>
+          {Platform.OS === 'ios' ? (
+            // iOS'un kendi çarkı (Saat uygulamasındaki alarmla aynı bileşen): gün, saat ve
+            // dakika tek bakışta; titreşim, dakikanın dönmesi ve VoiceOver kendiliğinden.
+            <DateTimePicker
+              value={secimdenAn(taslak.gun, taslak.saat, taslak.dakika)}
+              mode="datetime"
+              display="spinner"
+              locale="tr-TR"
+              timeZoneName="Europe/Istanbul"
+              minimumDate={secimdenAn(0, 0, 0)}
+              maximumDate={secimdenAn(GUN_SAYISI - 1, 23, 59)}
+              themeVariant={tema.koyu ? 'dark' : 'light'}
+              textColor={tema.yazi}
+              onChange={(_, an) => {
+                if (an) setTaslak((t) => ({ ...t, ...andanSecim(an) }));
+              }}
+              style={s.cark}
+            />
+          ) : (
+            <>
+              <Text style={s.zamanAltBaslik}>GÜN</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.zamanSatiri}>
+                {Array.from({ length: GUN_SAYISI }, (_, g) => (
+                  <Pressable
+                    key={g}
+                    style={[s.zamanHap, taslak.gun === g && s.zamanHapSecili]}
+                    onPress={() => setTaslak((t) => ({ ...t, gun: g }))}
+                    accessibilityState={{ selected: taslak.gun === g }}
+                  >
+                    <Text style={[s.zamanHapYazi, taslak.gun === g && { color: tema.vurgu }]}>{gunEtiketi(g, true)}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
 
-          <Text style={s.zamanAltBaslik}>GÜN</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.zamanSatiri}>
-            {Array.from({ length: GUN_SAYISI }, (_, g) => (
-              <Pressable
-                key={g}
-                style={[s.zamanHap, taslak.gun === g && s.zamanHapSecili]}
-                onPress={() => setTaslak((t) => ({ ...t, gun: g }))}
-                accessibilityState={{ selected: taslak.gun === g }}
-              >
-                <Text style={[s.zamanHapYazi, taslak.gun === g && { color: tema.vurgu }]}>{gunEtiketi(g, true)}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+              <Text style={s.zamanAltBaslik}>SAAT</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.zamanSatiri}>
+                {Array.from({ length: 24 }, (_, h) => (
+                  <Pressable
+                    key={h}
+                    style={[s.zamanHap, taslak.saat === h && s.zamanHapSecili]}
+                    onPress={() => setTaslak((t) => ({ ...t, saat: h }))}
+                    accessibilityState={{ selected: taslak.saat === h }}
+                  >
+                    <Text style={[s.zamanHapYazi, taslak.saat === h && { color: tema.vurgu }]}>
+                      {String(h).padStart(2, '0')}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
 
-          <Text style={s.zamanAltBaslik}>SAAT</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.zamanSatiri}>
-            {Array.from({ length: 24 }, (_, h) => (
-              <Pressable
-                key={h}
-                style={[s.zamanHap, taslak.saat === h && s.zamanHapSecili]}
-                onPress={() => setTaslak((t) => ({ ...t, saat: h }))}
-                accessibilityState={{ selected: taslak.saat === h }}
-              >
-                <Text style={[s.zamanHapYazi, taslak.saat === h && { color: tema.vurgu }]}>
-                  {String(h).padStart(2, '0')}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+              <Text style={s.zamanAltBaslik}>DAKİKA</Text>
+              <View style={s.zamanSatiri}>
+                {DAKIKALAR.map((d) => (
+                  <Pressable
+                    key={d}
+                    style={[s.zamanHap, taslak.dakika === d && s.zamanHapSecili]}
+                    onPress={() => setTaslak((t) => ({ ...t, dakika: d }))}
+                    accessibilityState={{ selected: taslak.dakika === d }}
+                  >
+                    <Text style={[s.zamanHapYazi, taslak.dakika === d && { color: tema.vurgu }]}>
+                      {String(d).padStart(2, '0')}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
 
-          <Text style={s.zamanAltBaslik}>DAKİKA</Text>
-          <View style={s.zamanSatiri}>
-            {DAKIKALAR.map((d) => (
-              <Pressable
-                key={d}
-                style={[s.zamanHap, taslak.dakika === d && s.zamanHapSecili]}
-                onPress={() => setTaslak((t) => ({ ...t, dakika: d }))}
-                accessibilityState={{ selected: taslak.dakika === d }}
-              >
-                <Text style={[s.zamanHapYazi, taslak.dakika === d && { color: tema.vurgu }]}>
-                  {String(d).padStart(2, '0')}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
+            </>
+          )}
 
           <Text style={s.zamanOzet}>
             {`${gunTarihi(taslak.gun)}, ${saatDakikaYaz(taslak.saat, taslak.dakika)}`}
             {taslak.tur === 'varis' ? ' · en geç bu saatte varan rotalar' : ''}
-            {taslak.saat < 5 ? '  ·  gece metrosu Cuma ve Cumartesi gecelerinde çalışır' : ''}
+            {taslak.saat < 5 ? '  ·  gece metrosu yalnız cuma ve cumartesi geceleri çalışır' : ''}
           </Text>
 
           <Pressable style={s.zamanOnayla} onPress={() => { setZaman(taslak); setZamanAcik(false); }} accessibilityRole="button">
@@ -540,8 +576,8 @@ export default function RotaEkrani() {
             <View style={{ flex: 1 }}>
               <Text style={s.tercihBaslik}>Basamaksız güzergâh</Text>
               <Text style={s.tercihAlt}>
-                Asansörü ya da rampası olmayan duraklardan ve erişilemeyen seferlerden kaçınılır. Veride bu bilgi
-                eksik olan duraklar tamamen elenmez, düşük öncelikli sayılır.
+                Merdivenli yollardan ve basamaklı araçlardan (T2, T3 nostaljik tramvay) kaçınılır; metro, Marmaray ve
+                modern tramvay istasyonları öne alınır. Otobüs ve vapurun erişim bilgisi yok: elenmez, geride sayılır.
               </Text>
             </View>
             <Switch
@@ -653,19 +689,23 @@ const stiller = (t: Tema) =>
     turDugme: { flex: 1, height: 34, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
     turSecili: { backgroundColor: t.yuzey },
     turYazi: { fontSize: 14, fontWeight: '700', color: t.soluk },
-    simdiDugme: {
+    simdiSecili: { borderColor: t.vurgu, backgroundColor: t.vurguAcik },
+    simdiYazi: { fontSize: 15, fontWeight: '700', color: t.soluk },
+    zamanUst: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
+    zamanUstBaslik: { flex: 1, marginBottom: 0 },
+    simdiHap: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
-      gap: 7,
-      height: 44,
-      borderRadius: 12,
+      gap: 4,
+      height: 32,
+      paddingHorizontal: 12,
+      borderRadius: 16,
       borderWidth: 1,
       borderColor: t.cizgi,
       backgroundColor: t.yuzeyIkincil,
     },
-    simdiSecili: { borderColor: t.vurgu, backgroundColor: t.vurguAcik },
-    simdiYazi: { fontSize: 15, fontWeight: '700', color: t.soluk },
+    simdiHapYazi: { fontSize: 13.5, fontWeight: '700', color: t.vurgu },
+    cark: { alignSelf: 'stretch', height: 216, marginTop: 2 },
     zamanAltBaslik: { fontSize: 11, letterSpacing: 0.8, fontWeight: '700', color: t.soluk, marginTop: 14, marginBottom: 6 },
     zamanSatiri: { flexDirection: 'row', gap: 7, paddingRight: 8 },
     zamanHap: {

@@ -138,6 +138,22 @@ export function gunTarihi(gunFarki: number): string {
   return `${d.getUTCDate()} ${aylar[d.getUTCMonth()]} ${GUN_KISA[d.getUTCDay()]}`;
 }
 
+/** Zaman seçimi (bugünden kaç gün sonra, İstanbul saati) → mutlak an. Saat çarkına verilir. */
+export function secimdenAn(gunFarki: number, saat: number, dakika: number, simdiMs: number = Date.now()): Date {
+  const d = new Date(simdiMs + 3 * 3600 * 1000);
+  d.setUTCDate(d.getUTCDate() + gunFarki);
+  d.setUTCHours(saat, dakika, 0, 0);
+  return new Date(d.getTime() - 3 * 3600 * 1000);
+}
+
+/** Saat çarkının verdiği an → { bugünden kaç gün sonra, İstanbul saati, dakikası }. */
+export function andanSecim(an: Date, simdiMs: number = Date.now()): { gun: number; saat: number; dakika: number } {
+  const secilen = new Date(an.getTime() + 3 * 3600 * 1000);
+  const simdi = new Date(simdiMs + 3 * 3600 * 1000);
+  const gunNo = (d: Date) => Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 86_400_000);
+  return { gun: gunNo(secilen) - gunNo(simdi), saat: secilen.getUTCHours(), dakika: secilen.getUTCMinutes() };
+}
+
 /** 7 → "07:00" */
 export function saatDakikaYaz(saat: number, dakika: number): string {
   return `${IKI(saat)}:${IKI(dakika)}`;
