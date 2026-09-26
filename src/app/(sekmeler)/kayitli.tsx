@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { KaydirmaliSatir } from '@/components/kaydirmali-satir';
 import { Dakika, Ikon, useStiller } from '@/components/ulasim';
 import { aramalariTemizle, favoriDegistir, useKayitlar, type YerTuru } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
@@ -112,33 +113,28 @@ export default function KayitliEkrani() {
       ) : (
         <View style={s.liste}>
           {favoriler.map((f) => (
-            <Pressable
-              key={f.gtfsId}
-              style={s.satir}
-              onPress={() => router.push({ pathname: '/durak/[id]', params: { id: f.gtfsId } })}
-              onLongPress={() =>
-                Alert.alert(baslikYap(f.ad), 'Bu durağı favorilerden çıkar?', [
-                  { text: 'Çıkar', style: 'destructive', onPress: () => favoriDegistir(f) },
-                  { text: 'Vazgeç', style: 'cancel' },
-                ])
-              }
-              accessibilityRole="button"
-            >
-              <View style={s.satirIkon}>
-                <Ikon ad="heart" boyut={17} renkKodu={tema.vurgu} />
-              </View>
-              <View style={s.satirMetin}>
-                <Text style={s.satirBaslik} numberOfLines={1}>
-                  {baslikYap(f.ad)}
-                </Text>
-                <Text style={s.satirAlt}>Kaldırmak için basılı tut</Text>
-              </View>
-              {dakikalar[f.gtfsId] != null ? (
-                <Dakika an={dakikalar[f.gtfsId] as number} />
-              ) : (
-                <Text style={s.satirAlt}>—</Text>
-              )}
-            </Pressable>
+            <KaydirmaliSatir key={f.gtfsId} onSil={() => favoriDegistir(f)} silEtiketi="Favorilerden çıkar">
+              <Pressable
+                style={s.satir}
+                onPress={() => router.push({ pathname: '/durak/[id]', params: { id: f.gtfsId } })}
+                accessibilityRole="button"
+              >
+                <View style={s.satirIkon}>
+                  <Ikon ad="heart" boyut={17} renkKodu={tema.vurgu} />
+                </View>
+                <View style={s.satirMetin}>
+                  <Text style={s.satirBaslik} numberOfLines={1}>
+                    {baslikYap(f.ad)}
+                  </Text>
+                  <Text style={s.satirAlt}>Silmek için sola kaydır</Text>
+                </View>
+                {dakikalar[f.gtfsId] != null ? (
+                  <Dakika an={dakikalar[f.gtfsId] as number} />
+                ) : (
+                  <Text style={s.satirAlt}>—</Text>
+                )}
+              </Pressable>
+            </KaydirmaliSatir>
           ))}
         </View>
       )}
