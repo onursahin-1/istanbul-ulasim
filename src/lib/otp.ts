@@ -40,7 +40,7 @@ import { SORGULAR as S, VARSAYILAN_SECENEKLER, tercihleriYap, type RotaSecenekle
 import type { HamArac } from './arac-konum';
 import type { Duyuru } from './duyuru';
 import { isletmeciAdi } from './hat-adi';
-import { kardesKimlikleri } from './hat-tekil';
+import { desenleriBirlestir, kardesKimlikleri } from './hat-tekil';
 import { aramayiIndir, ayniAdliSaatsizHatlar, saatsizHatlariKatla, yakinlariIndir, type Ebeveynli } from './istasyon';
 import { gunuKaydir } from './onbellek';
 import { onbellegeYaz, onbellektenOku } from './onbellek-depo';
@@ -384,7 +384,11 @@ export async function hatDetayiKardesleriyle(
     );
     return {
       ...hat,
-      patterns: [...(hat.patterns ?? []), ...kardesler.flatMap((k) => k.patterns ?? [])],
+      patterns: [
+        ...new Map(
+          [...(hat.patterns ?? []), ...kardesler.flatMap((k) => k.patterns ?? [])].map((d) => [d.code, d] as const),
+        ).values(),
+      ],
       kardesler: [hat.gtfsId, ...kardesler.map((k) => k.gtfsId)],
     };
   } catch (hata) {
@@ -477,7 +481,9 @@ export async function durakSaatleriGetir(
     { id, kalkis: kalkisSayisi, aralik: aralikSaniye },
     sinyal,
   );
-  const sonuc = veri.stop ?? veri.istasyon;
+  const ham = veri.stop ?? veri.istasyon;
+  // İstasyonun iki peronu ya da ring hattı aynı deseni iki kez getirebiliyor.
+  const sonuc = ham ? { ...ham, desenler: desenleriBirlestir(ham.desenler ?? []) } : null;
   if (sonuc) void onbellegeYaz(`durak:${id}`, sonuc);
   return sonuc;
 }
@@ -548,7 +554,10 @@ export async function durakSaatleriYedekli(
     return {
       durak: {
         ...kayit.veri,
-        desenler: (kayit.veri.desenler ?? []).map((d) => ({ ...d, stoptimes: (d.stoptimes ?? []).map(kaydir) })),
+        desenler: desenleriBirlestir(kayit.veri.desenler ?? []).map((d) => ({
+          ...d,
+          stoptimes: (d.stoptimes ?? []).map(kaydir),
+        })),
       },
       cevrimdisi: kayit.zaman,
     };
