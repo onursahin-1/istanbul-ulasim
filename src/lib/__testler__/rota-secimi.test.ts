@@ -74,9 +74,9 @@ describe('rotalariSirala', () => {
 });
 
 describe('aramalariYap', () => {
-  it('önerilen iki arama: biri otobüsü hafifçe pahalı sayar', () => {
+  it('önerilen: ilk arama otobüsü hafifçe pahalı sayar', () => {
     const a = aramalariYap({ tercih: 'dengeli', erisilebilir: false });
-    assert.equal(a.length, 2);
+    assert.equal(a.length, 3);
     const kipler = (a[0].modlar as any).transit.transit as { mode: string; cost: { reluctance: number } }[];
     assert.ok(kipler.find((k) => k.mode === 'BUS')!.cost.reluctance > 1);
     assert.equal(kipler.find((k) => k.mode === 'SUBWAY')!.cost.reluctance, 1);
@@ -97,5 +97,34 @@ describe('secenekleriDuzelt', () => {
     assert.deepEqual(secenekleriDuzelt({ tercih: 'eski' as any, erisilebilir: true }), { tercih: 'dengeli', erisilebilir: true });
     assert.deepEqual(secenekleriDuzelt(null), { tercih: 'dengeli', erisilebilir: false });
     assert.deepEqual(secenekleriDuzelt({ tercih: 'rayli', erisilebilir: false }), { tercih: 'rayli', erisilebilir: false });
+  });
+});
+
+describe('raylı rotalar', () => {
+  const otobus = (s: string, dk: number, yuru: number) => rota(s, dk, yuru, 0, bacak('BUS', dk - yuru, `B${s}`));
+  const metro = (s: string, dk: number, yuru: number) => rota(s, dk, yuru, 0, bacak('SUBWAY', dk - yuru, 'M7'));
+
+  it('raylı rotada 30 dk yürüme kabul, otobüste 20', () => {
+    const { rotalar } = yurumeSiniri([otobus('a', 40, 22), metro('b', 57, 25), metro('c', 60, 31)]);
+    assert.deepEqual(rotalar.map((r) => r.start), ['b']);
+  });
+
+  it('önerilende en iyi raylı ilk üçe girer', () => {
+    const liste = [otobus('1', 32, 8), otobus('2', 33, 10), otobus('3', 34, 8), otobus('4', 36, 5), metro('m', 57, 25)];
+    const sonuc = rotalariSirala(liste, 'dengeli');
+    assert.equal(sonuc[2].start, 'm');
+    assert.equal(sonuc.length, 5);
+  });
+
+  it('raylı zaten öndeyse sıra değişmez', () => {
+    const liste = [metro('m', 30, 5), otobus('1', 45, 5)];
+    assert.equal(rotalariSirala(liste, 'dengeli')[0].start, 'm');
+  });
+
+  it('önerilen üç arama yapar, üçüncüsü raylıyı güçlü kayırır', () => {
+    const a = aramalariYap({ tercih: 'dengeli', erisilebilir: false });
+    assert.equal(a.length, 3);
+    const bus = (a[2].modlar as any).transit.transit.find((k: any) => k.mode === 'BUS');
+    assert.ok(bus.cost.reluctance >= 2);
   });
 });

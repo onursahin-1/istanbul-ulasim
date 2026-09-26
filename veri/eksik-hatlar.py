@@ -17,6 +17,11 @@
 #   M7  zirvede 4 dk (beslemede gün boyu 6 dk). M9 zirvede 9 dk (beslemede 10 dk).
 #       Zirve pencereleri 07–10 ve 17–20 varsayıldı; zirve dışı beslemedeki değer.
 #
+# Raylı sıklıklar kesin saatli (exact_times=1): OTP kesin olmayan sıklıkta yolcunun
+# bir tam aralık beklediğini varsayıyor (M7'de 6 dk), metrolu rotalar olduğundan uzun
+# çıkıyor ve otobüse yeniliyordu. Kesin saatte seferler aralıkla sıralanıyor; bekleme
+# gerçek bir sonraki sefere göre ve durak ekranı kalkış saatlerini de görebiliyor.
+#
 # Saatler (resmî sayfalardan, 2026-09):
 #   T5: 06:00–00:00, zirvede 5 dk, uçtan uca 32 dk (metro.istanbul hat sayfası).
 #       Zirve dışı sıklık yayımlanmamış; 10 dk varsayıldı (TAHMİNİ).
@@ -57,7 +62,6 @@ YENI_HATLAR = {
         'tur': '0',
         'renk': 'E47A7B',
         'sure_dk': 18,
-        'kesin': True,  # yayımlanmış tarife: seferler tam bu saatlerde
         # Yöne göre: ilk durağın adına göre seçiliyor.
         'pencereler_yon': {'Kazlıçeşme': [('06:00:00', '22:40:30', 1500)],
                            'Sirkeci': [('06:00:00', '23:05:30', 1500)]},
@@ -82,6 +86,7 @@ SIKLIK_DUZELT = {
 }
 # İETT beslemesinde türü yanlış hatlar: kısa ad → doğru route_type
 IETT_TUR = {'T2': '0', 'F2': '7'}
+RAYLI_TURLER = {'0', '1', '2', '5', '6', '7'}
 # OSM'de aynı ref'i kullanan başka şehir hatları (İzmit tramvayı T1/T2) elensin.
 OSM_ELE = {'Ulaşım Park'}
 
@@ -211,7 +216,7 @@ def hat_ekle(kod, tarif, dizi, t, servis, ajans_id):
         for bas, bit, ara in pencereler:
             t['frequencies.txt'].append({
                 'trip_id': sefer_id, 'start_time': bas, 'end_time': bit,
-                'headway_secs': str(ara), 'exact_times': '1' if tarif.get('kesin') else '0',
+                'headway_secs': str(ara), 'exact_times': '1',
             })
     return rota_id, satir, round(sum(sureler) / 60 + DURAKLAMA * (len(dizi) - 2) / 60, 1)
 
@@ -256,11 +261,22 @@ def rayli(osm, zip_yolu):
         for x in sablonlar:
             x['service_id'] = servis
         t['frequencies.txt'] = [f for f in t['frequencies.txt'] if f['trip_id'] not in ids] + [
-            {'trip_id': i, 'start_time': b, 'end_time': e, 'headway_secs': str(h), 'exact_times': '0'}
+            {'trip_id': i, 'start_time': b, 'end_time': e, 'headway_secs': str(h), 'exact_times': '1'}
             for i in sorted(ids) for b, e, h in pencereler]
         print(f'{kod}: sıklık güncellendi ({len(ids)} şablon sefer, her gün)')
 
-    # 5) Eksik hatlar.
+    # 5) Raylı hatların sıklıkları kesin saatli (bkz. baştaki açıklama).
+    rayli_rotalar = {x['route_id'] for x in t['routes.txt'] if x['route_type'] in RAYLI_TURLER}
+    rayli_seferler = {x['trip_id'] for x in t['trips.txt'] if x['route_id'] in rayli_rotalar}
+    kesin = 0
+    for f in t['frequencies.txt']:
+        if f['trip_id'] in rayli_seferler and f.get('exact_times') != '1':
+            f['exact_times'] = '1'
+            kesin += 1
+    if kesin:
+        print(f'raylı sıklık: {kesin} pencere kesin saatli yapıldı')
+
+    # 6) Eksik hatlar.
     varOlan = {r['route_short_name'] for r in t['routes.txt']}
     for kod, tarif in YENI_HATLAR.items():
         if kod in varOlan:

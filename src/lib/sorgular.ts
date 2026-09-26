@@ -252,6 +252,13 @@ export function secenekleriDuzelt(ham: Partial<RotaSecenekleri> | null | undefin
  */
 export const EN_COK_YURUME_SN = 20 * 60;
 
+/**
+ * Metro, Marmaray, tramvay ya da vapur içeren rotalarda yürüme sınırı. İstasyonlar
+ * duraklardan seyrek: Bağcılar Göztepe Mh.'den en yakın metro 11–19 dk yürüme, metrolu
+ * rotanın toplam yürüyüşü 24–25 dk tutuyor ve 20 dk sınırı onları hep eliyordu.
+ */
+export const EN_COK_YURUME_RAYLI_SN = 30 * 60;
+
 // OTP'nin varsayılanları: yürüme isteksizliği 2.0, aktarma bedeli 0.
 // Aşağıdaki değerler bu varsayılanların üzerine biniyor.
 const YURUME_ISTEKSIZLIGI = 5.0;
@@ -308,9 +315,12 @@ export function aramalariYap(secenekler: RotaSecenekleri): RotaAramasi[] {
   const tercihler = tercihleriYap(secenekler);
   switch (secenekler.tercih) {
     case 'dengeli':
+      // Üçüncü arama raylıyı güçlü kayırıyor: en iyi raylı seçenek her zaman elde olsun
+      // (listede ilk üçe konuyor, bkz. rota-secimi.ts).
       return [
         { tercihler, modlar: otobusIsteksiz(OTOBUS_HAFIF) },
         { tercihler, modlar: null },
+        { tercihler, modlar: otobusIsteksiz(OTOBUS_GUCLU) },
       ];
     case 'rayli':
       return [

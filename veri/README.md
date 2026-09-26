@@ -151,6 +151,10 @@ Ayrıca:
 - **M3A** çıkarılıyor: 2021'de M9'un parçası oldu, M9 aynı istasyonları zaten kapsıyor.
 - **M7, M8, M9** gündüz sıklıkları resmî değerlere çekiliyor. M8 beslemede yalnız hafta
   içi çalışıyordu (hafta sonu hiç yoktu) ve 4 dk görünüyordu; gerçekte her gün 7 dk.
+- Raylı hatların sıklık pencereleri **kesin saatli** (`exact_times=1`) yapılıyor. OTP
+  kesin olmayan sıklıkta yolcunun bir tam aralık beklediğini varsayıyordu (M7'de 6 dk);
+  metrolu rotalar olduğundan uzun çıkıp otobüse yeniliyordu. Kesin saatte bekleme gerçek
+  bir sonraki sefere göre ve bu seferler durak ekranında saatleriyle görünüyor.
 - İETT beslemesinde **T2** (nostaljik tramvay) ve **F2** (Tünel) otobüs türünde
   duruyordu; türleri düzeltiliyor. T2'nin saatleri İETT'nin kendi tarifesi.
 

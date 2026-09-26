@@ -20,7 +20,7 @@ import {
 } from '@/components/ulasim';
 import { bacakCanli } from '@/lib/canli';
 import { OtpHatasi, rotaPlanlaYedekli, type Guzergah, type Konum, type RotaTercihi } from '@/lib/otp';
-import { rotalariSirala } from '@/lib/rota-secimi';
+import { rayliMi, rotalariSirala } from '@/lib/rota-secimi';
 import { rotaSecenekleriKaydet, useKayitlar } from '@/lib/kayitlar';
 import { guzergahlariSakla } from '@/lib/secim';
 import { ucretKisa, yolculukUcreti } from '@/lib/ucret';
@@ -228,6 +228,7 @@ export default function RotaEkrani() {
     );
     return sirali.map((g) => liste.find((x) => x.ana.g === g)!);
   }, [guzergahlar, rotaSecenekleri.tercih]);
+  const ilkRayli = useMemo(() => gruplar.findIndex((x) => rayliMi(x.ana.g)), [gruplar]);
 
 
   /** Başlangıç ya da varış alanına dokununca arama ekranı açılır; seçim buraya geri döner. */
@@ -329,16 +330,19 @@ export default function RotaEkrani() {
         {gruplar.map(({ ana: { g, sira }, sonrakiler }, i) => {
           const ilkArac = g.legs.find((b) => b.transitLeg);
           const oneri = i === 0 && rotaSecenekleri.tercih === 'dengeli';
+          // Önerilen listede öne alınan metrolu/Marmaraylı seçenek ayrıca işaretlenir.
+          const rayliSecenek = !oneri && rotaSecenekleri.tercih === 'dengeli' && i === ilkRayli;
+          const etiket = oneri ? 'ÖNERİLEN' : rayliSecenek ? 'RAYLI SEÇENEK' : null;
           return (
             <Pressable key={sira} style={[s.kart, oneri && s.kartOneri]} onPress={() => detayaGit(sira)}>
               <View style={s.kartUst}>
                 <Text style={s.sure}>{sureYaz(g.duration)}</Text>
-                {oneri ? <Text style={s.etiket}>ÖNERİLEN</Text> : <Text style={s.saat}>{`${saatYaz(g.start)}–${saatYaz(g.end)}`}</Text>}
+                {etiket ? <Text style={s.etiket}>{etiket}</Text> : <Text style={s.saat}>{`${saatYaz(g.start)}–${saatYaz(g.end)}`}</Text>}
               </View>
               <BacakZinciri bacaklar={g.legs} />
               <SureSeridi bacaklar={g.legs} />
               <View style={s.kartAlt}>
-                {oneri && <Text style={[s.altYazi, s.kalin]}>{`${saatYaz(g.start)}–${saatYaz(g.end)}`}</Text>}
+                {etiket && <Text style={[s.altYazi, s.kalin]}>{`${saatYaz(g.start)}–${saatYaz(g.end)}`}</Text>}
                 <Text style={s.altYazi}>{sureYaz(g.walkTime)} yürüme</Text>
                 <Text style={s.altYazi}>{g.numberOfTransfers === 0 ? 'Aktarmasız' : `${g.numberOfTransfers} aktarma`}</Text>
                 {ucretler[sira] && <Text style={[s.altYazi, s.ucret]}>{ucretler[sira]}</Text>}

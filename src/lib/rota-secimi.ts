@@ -2,7 +2,7 @@
 //
 // Bağımlılıksız: testlerden çağrılabiliyor.
 
-import { EN_COK_YURUME_SN, type RotaTercihi } from './sorgular';
+import { EN_COK_YURUME_RAYLI_SN, EN_COK_YURUME_SN, type RotaTercihi } from './sorgular';
 
 /** Burada gereken kadarı: OTP'nin itinerary alanları. */
 export type SiralanacakRota = {
@@ -42,16 +42,24 @@ export function rotalariBirlestir<T extends SiralanacakRota>(listeler: T[][]): T
   return sonuc;
 }
 
+/** Otobüs dışı toplu taşıma var mı: metro, Marmaray, tramvay, füniküler, teleferik, vapur. */
+export function rayliMi(g: SiralanacakRota): boolean {
+  return g.legs.some((b) => b.transitLeg && !OTOBUS_KIPLERI.includes((b.mode ?? '').toUpperCase()));
+}
+
+const OTOBUS_KIPLERI = ['BUS', 'TROLLEYBUS', 'COACH'];
+
 /**
- * Yürüme sınırı: 20 dakikadan çok yürütülen rotalar atılır. Hiçbiri sınırın altında
- * kalmıyorsa (şehir dışı, gece) boş liste vermek yerine en az yürüyen rotalar kalır ve
- * `asildi` işaretlenir; ekran bunu yolcuya söyler.
+ * Yürüme sınırı: otobüslü rotalarda 20, raylı rotalarda 30 dakikadan çok yürütenler
+ * atılır. Hiçbiri sınırın altında kalmıyorsa (şehir dışı, gece) boş liste vermek yerine
+ * en az yürüyen rotalar kalır ve `asildi` işaretlenir; ekran bunu yolcuya söyler.
  */
 export function yurumeSiniri<T extends SiralanacakRota>(
   liste: T[],
   sinirSn: number = EN_COK_YURUME_SN,
+  rayliSinirSn: number = EN_COK_YURUME_RAYLI_SN,
 ): { rotalar: T[]; asildi: boolean } {
-  const uygun = liste.filter((g) => (g.walkTime ?? 0) <= sinirSn);
+  const uygun = liste.filter((g) => (g.walkTime ?? 0) <= (rayliMi(g) ? rayliSinirSn : sinirSn));
   if (uygun.length || !liste.length) return { rotalar: uygun, asildi: false };
   const enAz = Math.min(...liste.map((g) => g.walkTime ?? 0));
   // En az yürüyenle arası 5 dakikadan az olanlar: yolcuya birkaç seçenek kalsın.
@@ -61,7 +69,7 @@ export function yurumeSiniri<T extends SiralanacakRota>(
 /** Rotadaki otobüs (ve minibüs, dolmuş) süresi: trafiğe takılabilen kısım. */
 export function otobusSuresi(g: SiralanacakRota): number {
   return g.legs
-    .filter((b) => b.transitLeg && ['BUS', 'TROLLEYBUS', 'COACH'].includes((b.mode ?? '').toUpperCase()))
+    .filter((b) => b.transitLeg && OTOBUS_KIPLERI.includes((b.mode ?? '').toUpperCase()))
     .reduce((t, b) => t + (b.duration ?? 0), 0);
 }
 
@@ -88,7 +96,26 @@ export function rotalariSirala<T extends SiralanacakRota>(liste: T[], tercih: Ro
       return kopya.sort((a, b) => a.numberOfTransfers - b.numberOfTransfers || sure(a) - sure(b));
     case 'rayli':
       return kopya.sort((a, b) => otobusSuresi(a) - otobusSuresi(b) || sure(a) - sure(b));
-    default:
-      return kopya.sort((a, b) => oneriPuani(a) - oneriPuani(b) || erken(a) - erken(b));
+    default: {
+      const sirali = kopya.sort((a, b) => oneriPuani(a) - oneriPuani(b) || erken(a) - erken(b));
+      return rayliyiOneAl(sirali);
+    }
   }
+}
+
+/** Önerilen listede en iyi raylı rotanın en geç bulunacağı sıra (0'dan). */
+export const RAYLI_EN_GEC_SIRA = 2;
+
+/**
+ * En iyi raylı rota listenin ilk üçünde değilse üçüncü sıraya alınır. Otobüsün tarifesi
+ * trafiği bilmiyor ve İETT'de ara durak saatleri uydurma; metrolu seçenek puanda geride
+ * kalsa bile yolcu onu görmeli.
+ */
+export function rayliyiOneAl<T extends SiralanacakRota>(liste: T[]): T[] {
+  const i = liste.findIndex(rayliMi);
+  if (i <= RAYLI_EN_GEC_SIRA) return liste;
+  const sonuc = [...liste];
+  const [rayli] = sonuc.splice(i, 1);
+  sonuc.splice(RAYLI_EN_GEC_SIRA, 0, rayli);
+  return sonuc;
 }
