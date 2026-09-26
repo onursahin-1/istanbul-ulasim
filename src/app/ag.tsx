@@ -38,6 +38,9 @@ const SOLUK = 0.78;
  */
 const ISABET_PX = 22;
 
+/** Sığdırılan hattın görünen alanın kenarlarına uzaklığı (pt). */
+const KENAR_PAYI = 28;
+
 export default function AgEkrani() {
   const kenar = useSafeAreaInsets();
   const tema = useTema();
@@ -52,6 +55,9 @@ export default function AgEkrani() {
   const [ekranBoyu, setEkranBoyu] = useState(0);
   const [ustBoyu, setUstBoyu] = useState(110);
   const [yaprakBoyu, setYaprakBoyu] = useState(300);
+  const [yaprakAcik, setYaprakAcik] = useState(false);
+  // Yeni seçilen hat, yaprak boyunu bildirince (ilk ölçüm) çerçevelenir.
+  const sigdirilecek = useRef<string | null>(null);
 
   const gorunen = useMemo(() => {
     const s = AG_SUZGECLERI.find((x) => x.anahtar === suzgec) ?? AG_SUZGECLERI[0];
@@ -77,6 +83,7 @@ export default function AgEkrani() {
         payMetre,
       );
       // Boş yere basmak seçimi kapatır; bir hatta basmak onu seçer (ya da seçili tutar).
+      if (hatId && hatId !== secili?.id) sigdirilecek.current = hatId;
       setSecili(hatId ? (gorunen.find((h) => h.id === hatId) ?? null) : null);
     },
     [gorunen, ekranGenisligi, secili],
@@ -113,6 +120,24 @@ export default function AgEkrani() {
             .catch(() => {});
         }),
     [haritayaDokun],
+  );
+
+  /**
+   * Hattın bütününü haritanın görünen kısmına sığdırır: üstteki süzgeç çubuğunun altı
+   * ile alttaki yaprağın üstü arası. Eskiden kamera hiç kıpırdamıyordu; hattın yarısı
+   * yaprağın arkasında kalabiliyor, ekranın çoğu boş denizi gösteriyordu.
+   */
+  const hattiSigdir = useCallback(
+    (hat: AgHatti, altBoy: number) => {
+      const cizgi = agCizgisi(hat.id);
+      const kapsam = cizgi.length > 1 ? cizgi : hat.duraklar.map((d) => ({ latitude: d.lat, longitude: d.lon }));
+      if (kapsam.length < 2) return;
+      harita.current?.fitToCoordinates(kapsam, {
+        edgePadding: { top: ustBoyu + KENAR_PAYI, right: KENAR_PAYI, bottom: altBoy + KENAR_PAYI, left: KENAR_PAYI },
+        animated: true,
+      });
+    },
+    [ustBoyu],
   );
 
   const suzgecDegis = useCallback((anahtar: string) => {
@@ -231,6 +256,18 @@ export default function AgEkrani() {
         </View>
       )}
 
+      {secili && !yaprakAcik && (
+        <Pressable
+          style={[s.tamami, { bottom: yaprakBoyu + 12 }]}
+          onPress={() => hattiSigdir(secili, yaprakBoyu)}
+          accessibilityRole="button"
+          accessibilityLabel="Hattın tamamını göster"
+        >
+          <Ikon ad="scan-outline" boyut={16} renkKodu={tema.vurgu} />
+          <Text style={s.tamamiYazi}>Hattın tamamı</Text>
+        </Pressable>
+      )}
+
       {secili && ekranBoyu > 0 && (
         <AltYaprak
           key={secili.id}
@@ -238,7 +275,15 @@ export default function AgEkrani() {
           ustPay={ustBoyu + 8}
           kapaliYukseklik={84}
           ortaOran={0.45}
-          onDurum={(_, boy) => setYaprakBoyu(boy)}
+          onDurum={(durum, boy) => {
+            setYaprakBoyu(boy);
+            setYaprakAcik(durum === 'acik');
+            // Yaprak açılışta boyunu bildirir; hat o boya göre bir kez çerçevelenir.
+            if (sigdirilecek.current === secili.id) {
+              sigdirilecek.current = null;
+              hattiSigdir(secili, boy);
+            }
+          }}
           erisilebilirlikEtiketi="İstasyon listesini aç ya da kapat"
           baslik={
             <View style={s.yaprakBas}>
@@ -328,4 +373,22 @@ const stiller = (t: Tema) =>
     nokta: { width: 9, height: 9, borderRadius: 5, borderWidth: 2 },
     ucNokta: { width: 13, height: 13, borderRadius: 7 },
     istAd: { flex: 1, fontSize: 14, color: t.yazi },
+    tamami: {
+      position: 'absolute',
+      right: 12,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 999,
+      backgroundColor: t.yuzey,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: t.cizgi,
+      shadowColor: '#000',
+      shadowOpacity: 0.15,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
+    },
+    tamamiYazi: { fontSize: 13, fontWeight: '600', color: t.vurgu },
   });

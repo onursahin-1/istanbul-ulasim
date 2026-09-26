@@ -67,6 +67,7 @@ export default function HatEkrani() {
   const harita = useRef<MapView>(null);
   const [alan, setAlan] = useState(0);
   const [yaprakBoyu, setYaprakBoyu] = useState(300);
+  const [yaprakAcik, setYaprakAcik] = useState(false);
   const haritaHazir = useRef(false);
   const sigdirilan = useRef('');
 
@@ -311,13 +312,28 @@ export default function HatEkrani() {
             ))}
           </MapView>
 
+          {!yaprakAcik && cizgi.length > 1 && (
+            <Pressable
+              style={[s.tamami, { bottom: yaprakBoyu + 12 }]}
+              onPress={() => odakla(cizgi, true)}
+              accessibilityRole="button"
+              accessibilityLabel="Hattın tamamını göster"
+            >
+              <Ikon ad="scan-outline" boyut={16} renkKodu={tema.vurgu} />
+              <Text style={s.tamamiYazi}>Hattın tamamı</Text>
+            </Pressable>
+          )}
+
           {alan > 0 && (
             <AltYaprak
               kapsayiciYukseklik={alan}
               ustPay={48}
               kapaliYukseklik={80}
               ortaOran={0.5}
-              onDurum={(_, boy) => setYaprakBoyu(boy)}
+              onDurum={(durum, boy) => {
+                setYaprakBoyu(boy);
+                setYaprakAcik(durum === 'acik');
+              }}
               erisilebilirlikEtiketi="Durak listesini aç ya da kapat"
               listeRef={liste}
               baslik={
@@ -564,4 +580,22 @@ const stiller = (t: Tema) =>
     otobusYazi: { flex: 1, fontSize: 12.5, color: t.yazi },
     otobusYas: { color: t.soluk },
     otobusSoluk: { flex: 1, fontSize: 12.5, color: t.soluk, fontStyle: 'italic' },
+    tamami: {
+      position: 'absolute',
+      right: 12,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 999,
+      backgroundColor: t.yuzey,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: t.cizgi,
+      shadowColor: '#000',
+      shadowOpacity: 0.15,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
+    },
+    tamamiYazi: { fontSize: 13, fontWeight: '600', color: t.vurgu },
   });
