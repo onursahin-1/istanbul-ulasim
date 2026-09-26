@@ -146,7 +146,21 @@ export default function KayitliEkrani() {
       <View style={s.bolumSatiri}>
         <Text style={s.bolumBaslik}>SON ARAMALAR</Text>
         {aramalar.length > 0 && (
-          <Pressable onPress={aramalariTemizle} hitSlop={10} accessibilityRole="button">
+          <Pressable
+            onPress={() =>
+              Alert.alert(
+                'Son aramalar silinsin mi?',
+                `${aramalar.length} arama kaydı silinecek. Ev, İş ve favori durakların yerinde kalır.`,
+                [
+                  { text: 'Vazgeç', style: 'cancel' },
+                  { text: 'Sil', style: 'destructive', onPress: () => aramalariTemizle() },
+                ],
+              )
+            }
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Son aramaları temizle"
+          >
             <Text style={s.temizle}>Temizle</Text>
           </Pressable>
         )}

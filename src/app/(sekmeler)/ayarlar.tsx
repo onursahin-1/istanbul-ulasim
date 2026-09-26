@@ -5,7 +5,18 @@
 
 import Constants from 'expo-constants';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Linking,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Ikon, useStiller } from '@/components/ulasim';
@@ -30,7 +41,11 @@ export default function AyarlarEkrani() {
   const [sunucu, setSunucu] = useState<SunucuBilgisi | null>(null);
   const [sunucuHatasi, setSunucuHatasi] = useState<string | null>(null);
   const [poi, setPoi] = useState<{ nokta: number; kaynak: string } | null>(null);
+  /** Aşağı çekerek yenileme (RefreshControl'ün kendi göstergesi). */
+  const [cekiliyor, setCekiliyor] = useState(false);
+  /** Düğmeyle ya da çekerek başlayan yenileme sürüyor. */
   const [yenileniyor, setYenileniyor] = useState(false);
+  const [sonYenileme, setSonYenileme] = useState<Date | null>(null);
   const { hatirlaticilar, izin, yenile: hatirlaticilariYenile } = useHatirlaticilar();
   const { ucretTuru, ekranAcik } = useKayitlar();
 
@@ -49,6 +64,20 @@ export default function AyarlarEkrani() {
     yukle();
   }, [yukle]);
 
+  // "Bilgileri yenile" eskiden yalnız yukle'yi çağırıyordu: sunucu aynı cevabı verince ekranda
+  // hiçbir şey değişmiyor, düğme çalışmıyor gibi görünüyordu; sunucu kapalıyken de yeniden
+  // denemeler sürerken hiçbir işaret yoktu. Şimdi sürdüğü görünüyor, bitince saati yazılıyor.
+  const yenile = useCallback(async () => {
+    if (yenileniyor) return;
+    setYenileniyor(true);
+    try {
+      await Promise.all([yukle(), hatirlaticilariYenile()]);
+    } finally {
+      setYenileniyor(false);
+      setSonYenileme(new Date());
+    }
+  }, [yenileniyor, yukle, hatirlaticilariYenile]);
+
   const besleme = sunucu?.feeds ?? [];
   const aralik = sunucu?.serviceTimeRange;
 
@@ -58,12 +87,12 @@ export default function AyarlarEkrani() {
       contentContainerStyle={{ paddingTop: kenar.top + 6, paddingBottom: kenar.bottom + 24 }}
       refreshControl={
         <RefreshControl
-          refreshing={yenileniyor}
+          refreshing={cekiliyor}
           tintColor={tema.vurgu}
           onRefresh={async () => {
-            setYenileniyor(true);
-            await yukle();
-            setYenileniyor(false);
+            setCekiliyor(true);
+            await yenile();
+            setCekiliyor(false);
           }}
         />
       }
@@ -100,9 +129,10 @@ export default function AyarlarEkrani() {
           </View>
         ))}
         <Text style={s.aciklama}>
-          Otobüs ve Metrobüs tarifesi İETT'nin güncel verisinden geliyor. Metro, Marmaray, tramvay, füniküler ve
-          vapur saatleri İBB'nin artık güncellemediği veriden geldiği için güncel döneme kaydırıldı; saatler
-          yaklaşıktır.
+          Otobüs ve Metrobüs tarifesi İETT'nin güncel verisinden geliyor. Metro, tramvay, füniküler ve teleferik
+          saatleri Metro İstanbul'un, Şehir Hatları vapurları Şehir Hatları'nın güncel tarifesinden. Marmaray ile
+          Turyol, Dentur ve İDO vapurlarının saatleri İBB'nin artık güncellemediği veriden geldiği için güncel döneme
+          kaydırıldı; bunlar yaklaşıktır.
         </Text>
       </View>
 
@@ -239,10 +269,25 @@ export default function AyarlarEkrani() {
           <Text style={s.etiket}>Sürüm</Text>
           <Text style={s.deger}>{Constants.expoConfig?.version ?? '—'}</Text>
         </View>
-        <Pressable onPress={yukle} style={s.dugme} accessibilityRole="button">
-          <Ikon ad="refresh" boyut={16} renkKodu={tema.vurgu} />
-          <Text style={s.dugmeYazi}>Bilgileri yenile</Text>
+        <Pressable
+          onPress={yenile}
+          disabled={yenileniyor}
+          style={({ pressed }) => [s.dugme, (pressed || yenileniyor) && { opacity: 0.55 }]}
+          accessibilityRole="button"
+          accessibilityState={{ busy: yenileniyor, disabled: yenileniyor }}
+        >
+          {yenileniyor ? (
+            <ActivityIndicator size="small" color={tema.vurgu} />
+          ) : (
+            <Ikon ad="refresh" boyut={16} renkKodu={tema.vurgu} />
+          )}
+          <Text style={s.dugmeYazi}>{yenileniyor ? 'Yenileniyor…' : 'Bilgileri yenile'}</Text>
         </Pressable>
+        {sonYenileme && !yenileniyor && (
+          <Text style={s.aciklama}>
+            {`Son yenileme ${sonYenileme.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} · rota sunucusu ${sunucu ? 'bağlı' : 'ulaşılamıyor'}`}
+          </Text>
+        )}
       </View>
     </ScrollView>
   );
