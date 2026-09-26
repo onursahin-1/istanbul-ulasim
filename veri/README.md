@@ -13,6 +13,8 @@ python osm-cikar.py C:\otp\istanbul\Istanbul.osm.pbf C:\otp\osm-hatlar.json  # 2
 python istasyon-tamamla.py C:\otp\osm-hatlar.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python marmaray-duzelt.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python eksik-hatlar.py C:\otp\osm-hatlar.json C:\otp\istanbul
+node metro-tarife-indir.mjs C:\otp\metro-tarife.json            # yalnız senin bilgisayarında (~10 dk)
+python metro-tarife-uygula.py C:\otp\metro-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python cizgi-ekle.py C:\otp\osm-hatlar.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python hat-adi-duzelt.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python durak-birlestir.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
@@ -160,6 +162,43 @@ Ayrıca:
 
 Betik yeniden çalıştırılabilir (kendi eklediklerini `ek-` kimliğinden tanıyıp önce
 siliyor). Ardından `cizgi-ekle.py` ve `durak-birlestir.py` yeniden çalıştırılmalı.
+
+## 4c. Metro İstanbul'un gerçek tarifesi
+
+```powershell
+node metro-tarife-indir.mjs C:\otp\metro-tarife.json
+python metro-tarife-uygula.py C:\otp\metro-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
+```
+
+Metro İstanbul'un mobil uygulamasının servisi (`api.ibb.gov.tr/MetroIstanbul`) her
+istasyonun her yöndeki gerçek kalkış saatlerini veriyor: hafta içi, cumartesi, pazar.
+Servise bulut ortamından erişilemiyor (403); indirme betiği bu bilgisayarda çalışmalı.
+
+Uygulama betiği her yönün seferlerini istasyon saatlerinden kuruyor (bir yönde her
+istasyonun listesi aynı uzunlukta, k. sefer her istasyonun k. saati) ve beslemedeki o
+hat-yönün eski seferlerinin yerine koyuyor. İstasyonlar beslemedeki durağa konum (400 m,
+adı tutan durak dört kat yakın sayılır) ve sırayla bağlanıyor; M2'nin Sanayi–Seyrantepe
+mekiği M2A'ya, M7'nin onarım nedeniyle bölünmüş işletmesi M7'nin duraklarına düşüyor.
+Eski seferlerin uğramadığı istasyon (M7 Yeşilpınar) beslemedeki aynı adlı durağa, o da
+yoksa servisin konumuyla yeni bir `mi-` durağına bağlanıyor. Servisin koordinatsız verdiği
+istasyonlar (M5'in Sultanbeyli uzantısı) atlanıyor. Servisin boş döndüğü yönler eski
+tarifesiyle kalıyor. Metro İstanbul'un güncel işletme duyuruları (onarım, bölünmüş hat)
+çıktının sonunda yazılıyor.
+
+Servisin iki tuhaflığı düzeltiliyor: son istasyona bir öncekinin saati yazılıyor (iki
+istasyonlu füniküler ve teleferiklerde iki uç aynı dakika) — son aralığa beslemedeki eski
+yol süresi ekleniyor; T3 ringinde saat listeleri gidiş yönünün tersine sıralı — T3 istasyon
+sırasıyla ve servisin konumlarıyla kuruluyor (beslemedeki T3 durakları yanlış adlı).
+
+T2 (İETT), T6, M11 ve Marmaray (TCDD), F2 (İETT) ve F3 Metro İstanbul servisinde yok;
+onlar beslemedeki (ya da `eksik-hatlar.py`'nin eklediği) tarifeleriyle kalıyor.
+
+Betik yeniden çalıştırılabilir ama eski yol sürelerini beslemeden okuduğu için en iyisi
+`eksik-hatlar.py` çıktısı üzerinde çalıştırmak (yedeği `C:\otp\yedekler`'de tut).
+
+`eksik-hatlar.py`'den sonra çalıştırılmalı (o T5'i ve M7/M8/M9 sıklıklarını yaklaşık
+değerlerle yeniden kuruyor; bu betik gerçeğini koyuyor). Metro İstanbul tarifesini
+değiştirdikçe yeniden indirip uygulamak yeter.
 
 ## 5. Marmaray'ın kısa dönüş hattı
 
