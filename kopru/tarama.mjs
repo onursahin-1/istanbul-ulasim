@@ -178,7 +178,9 @@ export class Tarayici {
   }
 
   ozet(simdi = Date.now()) {
-    const sorulanHat = [...this.hatDurumu.values()].filter((d) => d.soruldu).length;
+    // Yalnız güncel listedeki hatlar: diskte İETT'nin kaldırdığı bir hat kalmışsa
+    // "784/783" gibi toplamı aşan bir sayı çıkıyordu.
+    const sorulanHat = this.hatlar.filter((h) => this.hatDurumu.get(h)?.soruldu).length;
     return {
       bilinenArac: this.atama.size,
       sorulanHat,

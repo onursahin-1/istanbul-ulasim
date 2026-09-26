@@ -8,8 +8,9 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const KLASOR = new URL('./kayit/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+const KLASOR = fileURLToPath(new URL('./kayit/', import.meta.url));
 const istenen = process.argv[2];
 const dosyalar = existsSync(KLASOR) ? readdirSync(KLASOR).filter((a) => /^kalite-.*\.json$/.test(a)).sort() : [];
 const dosya = istenen ? `kalite-${istenen}.json` : dosyalar.at(-1);

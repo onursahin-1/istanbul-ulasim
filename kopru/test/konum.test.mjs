@@ -102,3 +102,20 @@ describe('KaliteOlcer', () => {
     assert.equal(olcer.rapor().sayac.seferDegisti, 1);
   });
 });
+
+describe('KaliteOlcer.yukle', () => {
+  it('aynı günün dosyasından devam eder, başka günü yok sayar', () => {
+    const a = new KaliteOlcer(kucukTarife());
+    a.sifirla('2026-09-26');
+    a.gecikme.yeni.n = 5;
+    a.sayac.gozlem = 5;
+    const veri = JSON.parse(JSON.stringify(a.disaAktar()));
+    const b = new KaliteOlcer(kucukTarife());
+    assert.equal(b.yukle(veri, new Date('2026-09-26T12:00:00+03:00')), true);
+    assert.equal(b.sayac.gozlem, 5);
+    assert.equal(b.gecikme.yeni.n, 5);
+    const c = new KaliteOlcer(kucukTarife());
+    assert.equal(c.yukle(veri, new Date('2026-09-27T12:00:00+03:00')), false);
+    assert.equal(c.sayac.gozlem, 0);
+  });
+});

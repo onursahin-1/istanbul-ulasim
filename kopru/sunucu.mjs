@@ -26,7 +26,7 @@
 // Doğruluk ölçümü: kayit/kalite-YYYY-MM-DD.json, özet için `node kalite-rapor.mjs`.
 
 import { createServer } from 'node:http';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -90,6 +90,20 @@ const kaliteyiYaz = (veri = kalite.disaAktar()) => {
   }
 };
 kalite.onGunBitti = () => kaliteyiYaz();
+{
+  // Gün içinde yeniden başlatılınca bugünün ölçümü kaldığı yerden sürsün.
+  const bugun = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Istanbul' });
+  const dosya = join(KAYIT_KLASORU, `kalite-${bugun}.json`);
+  if (existsSync(dosya)) {
+    try {
+      if (kalite.yukle(JSON.parse(readFileSync(dosya, 'utf8')))) {
+        console.log(`bugünün doğruluk ölçümü sürdürülüyor (${kalite.sayac.gozlem} gözlem)`);
+      }
+    } catch (e) {
+      console.error(`doğruluk ölçümü okunamadı: ${e.message}`);
+    }
+  }
+}
 const iz = new KonumIzi();
 let hatListesi = onceki.hatListesi ?? null;
 

@@ -165,6 +165,26 @@ export class KaliteOlcer {
     };
   }
 
+  /**
+   * Aynı günün dosyasından devam eder: köprü gün içinde yeniden başlatılınca
+   * ölçüm sıfırlanmasın. Başka günün ya da eski biçimin dosyası yok sayılır.
+   */
+  yukle(veri, simdi = new Date()) {
+    const gun = simdi.toLocaleDateString('sv-SE', { timeZone: 'Europe/Istanbul' });
+    const ham = veri?.ham;
+    if (!ham || veri.gun !== gun || !ham.yeni || !ham.eski || !ham.gecikme) return false;
+    const uygun = (o) => o && Array.isArray(o.kutular) && o.kutular.length === KUTU_SAYISI;
+    if (!UFUKLAR.every((u) => uygun(ham.yeni[u]) && uygun(ham.eski[u]))) return false;
+    if (!uygun(ham.gecikme.yeni) || !uygun(ham.gecikme.eski)) return false;
+    this.gun = gun;
+    this.baslangic = veri.baslangic ?? this.baslangic;
+    this.yeni = ham.yeni;
+    this.eski = ham.eski;
+    this.gecikme = ham.gecikme;
+    this.sayac = { ...this.sayac, ...veri.sayac };
+    return true;
+  }
+
   /** Histogramlar dahil ham durum (günlük dosyaya). */
   disaAktar() {
     return { ...this.rapor(), ham: { yeni: this.yeni, eski: this.eski, gecikme: this.gecikme } };
