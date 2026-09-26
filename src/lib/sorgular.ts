@@ -15,7 +15,8 @@ const KALKIS_ALANLARI = `
   realtime
   serviceDay
   headsign
-  trip { gtfsId route { ${HAT_ALANLARI} } }
+  stop { gtfsId }
+  trip { gtfsId pattern { code headsign } route { ${HAT_ALANLARI} } }
 `;
 
 const YAKIN_DURAKLAR = `
@@ -28,7 +29,12 @@ query YakinDuraklar($lat: Float!, $lon: Float!) {
           __typename
           ... on Stop {
             gtfsId name code desc lat lon
-            parentStation { gtfsId name code desc lat lon }
+            # Durak bir istasyonun peronuysa kalkışlar istasyonun bütün peronlarından: durak
+            # ekranı istasyonu açıyor, liste aynı saatleri göstersin (yolun karşı tarafı dahil).
+            parentStation {
+              gtfsId name code desc lat lon
+              kalkislar: stoptimesWithoutPatterns(numberOfDepartures: 4, omitNonPickups: true) { ${KALKIS_ALANLARI} }
+            }
             routes { ${HAT_ALANLARI} }
             kalkislar: stoptimesWithoutPatterns(numberOfDepartures: 3, omitNonPickups: true) { ${KALKIS_ALANLARI} }
           }

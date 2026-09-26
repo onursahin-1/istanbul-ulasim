@@ -121,7 +121,11 @@ export default function DurakEkrani() {
         // Bu yöne gelen en yakın otobüs: desenin durak sırasında bu durak kaçıncı,
         // otobüs nerede. İstasyondan (birden çok peron) gelindiyse ad tutan durak.
         const desenDuraklari = d.pattern?.stops ?? [];
-        let sira = desenDuraklari.findIndex((x) => x.gtfsId === durak?.gtfsId);
+        // İstasyon ekranında kalkışın hangi perondan olduğu kalkışın kendisinde yazıyor.
+        // Ring hatları istasyonun iki peronundan da (gidişte ve dönüşte) geçiyor.
+        const peron = (d.stoptimes ?? []).find((k) => k?.stop?.gtfsId)?.stop?.gtfsId;
+        let sira = peron ? desenDuraklari.findIndex((x) => x.gtfsId === peron) : -1;
+        if (sira < 0) sira = desenDuraklari.findIndex((x) => x.gtfsId === durak?.gtfsId);
         if (sira < 0 && ad) sira = desenDuraklari.findIndex((x) => trKucuk(x.name ?? '').trim() === ad);
         const ilkSefer = (d.stoptimes ?? []).find((k) => k)?.trip?.gtfsId;
         const yaklasan =
@@ -138,7 +142,9 @@ export default function DurakEkrani() {
           .filter((k) => k.dakika >= 0)
           .sort((a, b) => a.dakika - b.dakika);
         return {
-          anahtar: d.pattern?.code ?? '',
+          anahtar: `${d.pattern?.code ?? ''}|${peron ?? ''}`,
+          desen: d.pattern?.code ?? '',
+          sonrakiDurak: sira >= 0 ? baslikYap(desenDuraklari[sira + 1]?.name) : '',
           hat: d.pattern?.route ?? null,
           yon: baslikYap(d.pattern?.headsign) || baslikYap(d.pattern?.route?.longName),
           // Minibüs ve dolmuşta rozet yalnızca araç tipini yazıyor; güzergâh buraya düşüyor.
@@ -149,6 +155,15 @@ export default function DurakEkrani() {
         };
       })
       .filter((x) => x.hat && x.kalkislar.length > 0);
+    // Aynı desen iki perondan geçiyorsa (ring) iki satır aynı adı taşır; hangisinin hangi
+    // yöne gittiği sıradaki durağın adından anlaşılsın.
+    const desenSayisi = new Map<string, number>();
+    for (const x of liste) desenSayisi.set(x.desen, (desenSayisi.get(x.desen) ?? 0) + 1);
+    for (const x of liste) {
+      if ((desenSayisi.get(x.desen) ?? 0) > 1 && x.sonrakiDurak) {
+        x.guzergah = [x.guzergah, `sonraki durak: ${x.sonrakiDurak}`].filter(Boolean).join(' · ');
+      }
+    }
     return liste.sort((a, b) => a.kalkislar[0].dakika - b.kalkislar[0].dakika);
   }, [durak]);
 
@@ -317,7 +332,7 @@ export default function DurakEkrani() {
                     router.push({
                       pathname: '/hat/[id]',
                       // Hat ekranı bu yönü açsın, bu durağı işaretlesin: yaklaşan otobüsler görünsün.
-                      params: { id: y.hat.gtfsId, desen: y.anahtar, durak: durak?.gtfsId ?? '', durakAd: durak?.name ?? '' },
+                      params: { id: y.hat.gtfsId, desen: y.desen, durak: durak?.gtfsId ?? '', durakAd: durak?.name ?? '' },
                     })
                   }
                   accessibilityRole="button"

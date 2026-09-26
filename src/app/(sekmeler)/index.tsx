@@ -227,7 +227,7 @@ export default function AnaEkran() {
                     </View>
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={s.seferYon} numberOfLines={1}>
-                        {baslikYap(k.headsign)}
+                        {baslikYap(k.trip?.pattern?.headsign) || baslikYap(k.headsign)}
                       </Text>
                       {canli ? <CanliAciklama canli={canli} /> : canliVar ? <TarifeEtiketi /> : null}
                     </View>

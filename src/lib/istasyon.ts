@@ -70,10 +70,23 @@ export type IndirilmisYakin<K, R> = { mesafe: number; durak: Konumlu & { kalkisl
  *
  * @param sirala iki kalkışı karşılaştıran işlev; birleşen listeyi sıralamak için
  */
+/** Anahtarı aynı olanlardan ilki kalır; anahtar verilmezse liste olduğu gibi. */
+function tekille<K>(liste: K[], anahtar?: (k: K) => string): K[] {
+  if (!anahtar) return liste;
+  const gorulen = new Set<string>();
+  return liste.filter((k) => {
+    const a = anahtar(k);
+    if (gorulen.has(a)) return false;
+    gorulen.add(a);
+    return true;
+  });
+}
+
 export function yakinlariIndir<T extends Konumlu, K, R extends { gtfsId: string } = { gtfsId: string }>(
   yakinlar: Yakin<T, K, R>[],
   sirala: (a: K, b: K) => number,
   enFazlaKalkis = 3,
+  anahtar?: (k: K) => string,
 ): IndirilmisYakin<K, R>[] {
   const kume = new Map<string, { mesafe: number; durak: Konumlu; kalkislar: K[]; hatlar: Map<string, R> }>();
   const sira: string[] = [];
@@ -96,7 +109,11 @@ export function yakinlariIndir<T extends Konumlu, K, R extends { gtfsId: string 
       const { routes: _eski, ...durak } = k.durak as Konumlu & { routes?: unknown };
       return {
         mesafe: k.mesafe,
-        durak: { ...durak, kalkislar: k.kalkislar.sort(sirala).slice(0, enFazlaKalkis), routes: [...k.hatlar.values()] },
+        durak: {
+          ...durak,
+          kalkislar: tekille(k.kalkislar, anahtar).sort(sirala).slice(0, enFazlaKalkis),
+          routes: [...k.hatlar.values()],
+        },
       };
     });
 }

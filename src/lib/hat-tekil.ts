@@ -45,23 +45,28 @@ export function kardesKimlikleri(hat: TekillenecekHat, hepsi: TekillenecekHat[])
 
 type BirlesecekDesen<K> = { pattern: { code: string } | null; stoptimes: K[] | null };
 type BirlesecekKalkis = {
+  stop?: { gtfsId: string } | null;
   scheduledDeparture?: number | null;
   serviceDay?: number | null;
   trip?: { gtfsId: string } | null;
 };
 
 /**
- * Durağın desenlerinde aynı desen birden çok kez gelebiliyor: istasyonun iki peronu
- * aynı desenin üstündeyse ya da ring hattı (91E "Göztepe Mahallesi - Aksaray Ring")
- * durağa iki kez uğruyorsa. Ekranda aynı anahtarlı iki satır oluyor ve React uyarı
- * veriyordu. Aynı kodlu desenler tek satıra toplanır; kalkışları birleşir, aynı sefer
- * aynı saatte iki kez yazılmaz, sıralanır.
+ * Durağın desenlerinde aynı desen birden çok kez gelebiliyor. Aynı desen ve aynı peron
+ * tek satıra toplanır; kalkışları birleşir, aynı sefer aynı saatte iki kez yazılmaz,
+ * sıralanır.
+ *
+ * Farklı peronlar ayrı kalır: ring hattı (91E "Göztepe Mahallesi - Aksaray Ring")
+ * istasyonun bir peronundan gidişte, karşısındakinden dönüşte geçiyor. İkisini tek
+ * satırda birleştirmek iki ayrı yönün saatlerini karıştırıyordu (19:04 bu taraftan,
+ * 19:11 karşı taraftan).
  */
 export function desenleriBirlestir<K extends BirlesecekKalkis, D extends BirlesecekDesen<K>>(desenler: D[]): D[] {
   const sira: D[] = [];
   const kodla = new Map<string, D>();
   for (const d of desenler) {
-    const kod = d.pattern?.code;
+    const peron = (d.stoptimes ?? []).find((k) => k?.stop?.gtfsId)?.stop?.gtfsId ?? '';
+    const kod = d.pattern?.code ? `${d.pattern.code}|${peron}` : undefined;
     if (!kod) {
       sira.push(d);
       continue;

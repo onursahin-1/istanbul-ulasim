@@ -61,3 +61,16 @@ describe('desenleriBirlestir', () => {
     assert.equal(girdi[0].stoptimes.length, 1);
   });
 });
+
+describe('desenleriBirlestir peron', () => {
+  const k = (trip: string, saat: number, peron: string) => ({ trip: { gtfsId: trip }, serviceDay: 0, scheduledDeparture: saat, stop: { gtfsId: peron } });
+  it('aynı desen farklı perondan geçiyorsa (ring) ayrı satır kalır', () => {
+    const sonuc = desenleriBirlestir([
+      { pattern: { code: 'ring' }, stoptimes: [k('a', 600, 'p1')] },
+      { pattern: { code: 'ring' }, stoptimes: [k('b', 900, 'p2')] },
+      { pattern: { code: 'ring' }, stoptimes: [k('c', 1200, 'p1')] },
+    ]);
+    assert.equal(sonuc.length, 2);
+    assert.deepEqual(sonuc[0].stoptimes!.map((x) => x.trip.gtfsId), ['a', 'c']);
+  });
+});

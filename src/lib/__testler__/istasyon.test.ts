@@ -101,6 +101,21 @@ describe('yakinlariIndir', () => {
     assert.deepEqual(sonuc.map((s) => s.mesafe), [20, 500]);
   });
 
+  it('iki peron da listedeyse istasyonun aynı kalkışı bir kez sayılır', () => {
+    // Her peron istasyonun (bütün peronların) kalkışlarını getiriyor: aynı liste iki kez.
+    const ortak = [k(5), k(20), k(40)];
+    const sonuc = yakinlariIndir(
+      [
+        { mesafe: 10, durak: { ...d('ist:1', 'A', ANA), kalkislar: ortak } },
+        { mesafe: 30, durak: { ...d('ist:2', 'A', ANA), kalkislar: ortak } },
+      ],
+      sirala,
+      3,
+      (x) => String(x.an),
+    );
+    assert.deepEqual(sonuc[0].durak.kalkislar.map((x) => x.an), [5, 20, 40]);
+  });
+
   it('istasyonsuz durakları ayrı tutar', () => {
     const sonuc = yakinlariIndir([
       { mesafe: 10, durak: { ...d('ist:8', 'Çengelköy'), kalkislar: [] } },

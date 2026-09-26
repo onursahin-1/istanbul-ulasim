@@ -134,7 +134,10 @@ export type Kalkis = {
   realtime: boolean | null;
   serviceDay: number | null;
   headsign: string | null;
-  trip: { gtfsId: string; route: Hat } | null;
+  /** Kalkışın olduğu peron (istasyon sorgusunda hangi peron olduğu buradan anlaşılıyor). */
+  stop?: { gtfsId: string } | null;
+  /** Desenin yön adı: durak ekranındaki yön satırıyla aynı etiket için. */
+  trip: { gtfsId: string; route: Hat; pattern?: { code: string; headsign: string | null } | null } | null;
 };
 
 export type Durak = {
@@ -221,16 +224,30 @@ export async function yakinDuraklariGetir(lat: number, lon: number, sinyal?: Abo
   const veri = await sorgula<Cevap>(YAKIN_DURAKLAR, { lat, lon }, sinyal);
   const ham = (veri.nearest?.edges ?? [])
     .filter((e) => e.node.place?.__typename === 'Stop')
-    .map((e) => ({
-      mesafe: e.node.distance,
-      durak: {
-        ...(e.node.place as YakinDurak['durak']),
-        kalkislar: e.node.place?.kalkislar ?? [],
-        routes: e.node.place?.routes ?? [],
-      },
-    }));
-  // Aynı meydanın peronları tek satıra insin, kalkışları birleşsin.
-  const indirilmis = yakinlariIndir(ham, (a: Kalkis, b: Kalkis) => kalkisAni(a) - kalkisAni(b));
+    .map((e) => {
+      const yer = e.node.place as YakinDurak['durak'] & {
+        parentStation?: (Durak & { kalkislar?: Kalkis[] | null }) | null;
+      };
+      return {
+        mesafe: e.node.distance,
+        durak: {
+          ...yer,
+          // İstasyonun peronuysa istasyonun kalkışları: durak ekranı da istasyonu gösteriyor.
+          // Yalnız yakındaki peronun kalkışları alınınca yolun karşı tarafındaki otobüs
+          // listede yoktu ama durak ekranında vardı; dakikalar birbirini tutmuyordu.
+          kalkislar: yer.parentStation?.kalkislar ?? yer.kalkislar ?? [],
+          routes: yer.routes ?? [],
+        },
+      };
+    });
+  // Aynı meydanın peronları tek satıra insin, kalkışları birleşsin. İki peron da listede
+  // olunca istasyonun kalkışları iki kez gelir; aynı sefer aynı saatte bir kez sayılır.
+  const indirilmis = yakinlariIndir(
+    ham,
+    (a: Kalkis, b: Kalkis) => kalkisAni(a) - kalkisAni(b),
+    3,
+    (k: Kalkis) => `${k.trip?.gtfsId ?? ''}|${k.serviceDay ?? 0}|${k.scheduledDeparture ?? 0}`,
+  );
   // Minibüs ve dolmuş: OTP kalkışlarını vermiyor; hatlarını aynı adlı durağa katla, boş durakları gizle.
   return saatsizHatlariKatla(indirilmis, saatsizHatMi) as YakinDurak[];
 }
