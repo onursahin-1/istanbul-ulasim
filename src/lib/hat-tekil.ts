@@ -95,3 +95,13 @@ export function desenleriBirlestir<K extends BirlesecekKalkis, D extends Birlese
 function kalkisAnahtari(k: BirlesecekKalkis): string {
   return `${k.trip?.gtfsId ?? ''}|${k.serviceDay ?? 0}|${k.scheduledDeparture ?? 0}`;
 }
+
+// Hatlar listesinde bölümlerin sırası: metro ve tramvay önce, sonra Marmaray, füniküler ve
+// teleferik, vapur; otobüsler en sonda. Listede olmayan araç tipi otobüslerden de sonra.
+const MOD_SIRASI = ['SUBWAY', 'TRAM', 'RAIL', 'MONORAIL', 'FUNICULAR', 'CABLE_CAR', 'GONDOLA', 'FERRY', 'BUS', 'TROLLEYBUS', 'COACH'];
+
+/** Bölüm sırası (küçük önce). Eskiden (sıra + 99) % 100 hesabı metroyu en sona atıyordu. */
+export function modSirasi(mod?: string | null): number {
+  const i = MOD_SIRASI.indexOf((mod ?? '').toUpperCase());
+  return i === -1 ? MOD_SIRASI.length : i;
+}

@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HataKutusu, HatRozeti, Ikon, ROZET_SUTUNU, useStiller, Yukleniyor } from '@/components/ulasim';
 import { hatlariGetir, OtpHatasi, type HatOzeti } from '@/lib/otp';
-import { hatlariTekille } from '@/lib/hat-tekil';
+import { hatlariTekille, modSirasi } from '@/lib/hat-tekil';
 import { sadelestir } from '@/lib/poi';
 import { aracAdi, baslikYap, useTema, type Tema } from '@/lib/tema';
 
@@ -19,15 +19,13 @@ type Suzgec = { anahtar: string; ad: string; modlar: string[] | null };
 const SUZGECLER: Suzgec[] = [
   { anahtar: 'tumu', ad: 'Tümü', modlar: null },
   { anahtar: 'metro', ad: 'Metro', modlar: ['SUBWAY'] },
-  { anahtar: 'tren', ad: 'Marmaray', modlar: ['RAIL'] },
-  { anahtar: 'vapur', ad: 'Vapur', modlar: ['FERRY'] },
   { anahtar: 'tramvay', ad: 'Tramvay', modlar: ['TRAM'] },
+  { anahtar: 'tren', ad: 'Marmaray', modlar: ['RAIL'] },
   { anahtar: 'egimli', ad: 'Füniküler', modlar: ['FUNICULAR', 'CABLE_CAR', 'GONDOLA'] },
+  { anahtar: 'vapur', ad: 'Vapur', modlar: ['FERRY'] },
   { anahtar: 'otobus', ad: 'Otobüs', modlar: ['BUS', 'TROLLEYBUS', 'COACH'] },
 ];
 
-// Listede bölüm başlıklarının sırası: raylı sistemler önce, otobüsler sonda.
-const MOD_SIRASI = ['SUBWAY', 'RAIL', 'TRAM', 'FUNICULAR', 'CABLE_CAR', 'GONDOLA', 'FERRY', 'BUS'];
 
 type Satir = { tip: 'baslik'; anahtar: string; yazi: string } | { tip: 'hat'; anahtar: string; veri: HatOzeti };
 
@@ -81,9 +79,7 @@ export default function HatlarEkrani() {
 
     const liste: Satir[] = [];
     let sayac = 0;
-    const sirali = [...gruplar.entries()].sort(
-      (a, b) => (MOD_SIRASI.indexOf(a[0]) + 99) % 100 - ((MOD_SIRASI.indexOf(b[0]) + 99) % 100),
-    );
+    const sirali = [...gruplar.entries()].sort((a, b) => modSirasi(a[0]) - modSirasi(b[0]));
     for (const [mod, grup] of sirali) {
       if (sayac >= sinir) break;
       grup.sort((a, b) => (a.shortName ?? '').localeCompare(b.shortName ?? '', 'tr', { numeric: true }));

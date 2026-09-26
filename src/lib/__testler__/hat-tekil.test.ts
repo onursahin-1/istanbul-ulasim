@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { desenleriBirlestir, hatGrubu, hatlariTekille, kardesKimlikleri } from '../hat-tekil.ts';
+import { desenleriBirlestir, hatGrubu, hatlariTekille, kardesKimlikleri, modSirasi } from '../hat-tekil.ts';
 
 const iett = { name: 'İETT' };
 const T2a = { gtfsId: '1:23531', shortName: 'T2', longName: 'TAKSİM MEYDAN - BEYOĞLU TÜNEL', mode: 'TRAM', agency: iett };
@@ -72,5 +72,17 @@ describe('desenleriBirlestir peron', () => {
     ]);
     assert.equal(sonuc.length, 2);
     assert.deepEqual(sonuc[0].stoptimes!.map((x) => x.trip.gtfsId), ['a', 'c']);
+  });
+});
+
+describe('modSirasi', () => {
+  it('metro ve tramvay önce, otobüs sonda', () => {
+    const sirali = ['BUS', 'FERRY', 'RAIL', 'TRAM', 'FUNICULAR', 'SUBWAY'].sort((a, b) => modSirasi(a) - modSirasi(b));
+    assert.deepEqual(sirali, ['SUBWAY', 'TRAM', 'RAIL', 'FUNICULAR', 'FERRY', 'BUS']);
+  });
+
+  it('bilinmeyen tip en sona düşer, büyük-küçük harf fark etmez', () => {
+    assert.ok(modSirasi('subway') < modSirasi('BUS'));
+    assert.ok(modSirasi('UZAY_ASANSORU') > modSirasi('COACH'));
   });
 });
