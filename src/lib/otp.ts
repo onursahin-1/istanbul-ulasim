@@ -487,6 +487,36 @@ export function duyurulariGetir(): Promise<Duyuru[]> {
   return liste;
 }
 
+// Aynı hat kümesi 5 dakikada bir kereden sık bildirilmez (durak ekranı 30 sn'de bir yenileniyor).
+const ilgiSon = new Map<string, number>();
+const ILGI_ARALIGI = 5 * 60_000;
+
+/**
+ * Köprüye bu hatlarla ilgilendiğimizi bildirir: hat taraması onları öne alır, üstündeki
+ * otobüsler birkaç dakika içinde tanınıp canlı görünür. `kalici` favori durakların
+ * hatları için: köprü onları daha sık tarar. Sonuç beklenmez, hata yutulur.
+ */
+export function kopruyeIlgiBildir(hatlar: (string | null | undefined)[], kalici = false): void {
+  const liste = [...new Set(hatlar.flatMap((h) => (h ? [h.trim().toLocaleUpperCase('tr-TR')] : [])))]
+    .filter((h) => h.length > 0 && h.length <= 12)
+    .sort();
+  if (!liste.length) return;
+  const anahtar = `${kalici ? 'k' : 'i'}:${liste.join(',')}`;
+  const simdi = Date.now();
+  if (simdi - (ilgiSon.get(anahtar) ?? 0) < ILGI_ARALIGI) return;
+  ilgiSon.set(anahtar, simdi);
+  const iptal = new AbortController();
+  const zamanlayici = setTimeout(() => iptal.abort(), 5_000);
+  fetch(`${KOPRU_ADRESI}/ilgi`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hatlar: liste, kalici }),
+    signal: iptal.signal,
+  })
+    .catch(() => {})
+    .finally(() => clearTimeout(zamanlayici));
+}
+
 /** Durak ekranındaki bir satır: hat + yön + sıradaki kalkışlar. */
 export type DurakDeseni = {
   pattern: {

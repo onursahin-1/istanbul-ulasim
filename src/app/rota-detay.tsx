@@ -21,7 +21,7 @@ import { hemenBildir, izinIste, useHatirlaticilar } from '@/lib/bildirim';
 import { useKayitlar } from '@/lib/kayitlar';
 import { polylineCoz, type Nokta } from '@/lib/cografya';
 import { araclariYerlestir, kalanYaz, yaklasanOtobus, yasYaz, type YerlesikArac } from '@/lib/arac-konum';
-import { bacakDuraklari, hatKalkislariGetir, seferAraclariGetir, type Bacak } from '@/lib/otp';
+import { bacakDuraklari, hatKalkislariGetir, kopruyeIlgiBildir, seferAraclariGetir, type Bacak } from '@/lib/otp';
 import { guzergahGetir } from '@/lib/secim';
 import { seferBilgisi, sikliktanYazi, type SeferBilgisi } from '@/lib/sefer';
 import { aracAdi, baslikYap, haritaRengi, hatEtiketi, hatRengi, useTema, type Tema } from '@/lib/tema';
@@ -58,6 +58,11 @@ export default function RotaDetayEkrani() {
   const { sira, hedef } = useLocalSearchParams<{ sira: string; hedef?: string }>();
   const guzergah = guzergahGetir(Number(sira));
   const harita = useRef<MapView>(null);
+
+  // Yolculuktaki otobüs hatlarını köprü öncelikle tarasın: bineceğin otobüs canlı görünsün.
+  useEffect(() => {
+    kopruyeIlgiBildir((guzergah?.legs ?? []).filter((b) => b.transitLeg).map((b) => b.route?.shortName));
+  }, [guzergah]);
 
   const [takipAcik, setTakipAcik] = useState(false);
   // Canlı yol tarifi: hangi adımdayız (konum belirliyor) ve hangi adımın kartına bakılıyor.

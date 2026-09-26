@@ -24,6 +24,18 @@
 
 import { ArizaHatasi, hattakiAraclar, SinirHatasi } from './iett.mjs';
 
+// İlgi: uygulama baktığın durakların, yakınındaki durakların ve yolculuğundaki
+// otobüslerin hatlarını bildiriyor (POST /ilgi). Bu hatlar sıranın önüne geçiyor:
+// durak ekranını açtığında o hatlardaki otobüsler birkaç dakika içinde tanınır ve canlı
+// görünür. Favori durakların hatları kalıcı ilgi: puanları KALICI_CARPAN kat.
+/** Anlık ilginin geçerli olduğu süre. */
+export const ILGI_OMRU_MS = 45 * 60_000;
+/** Bundan kısa süre önce sorulmuş hat, ilgi olsa da yeniden sorulmaz. */
+export const ILGI_TAZELIK_MS = 10 * 60_000;
+/** Kalıcı ilgi (favori) bu kadar süre yenilenmezse düşer. */
+export const KALICI_OMRU_MS = 30 * 24 * 3_600_000;
+export const KALICI_CARPAN = 5;
+
 /** Bu kadar süre taramada görülmeyen aracın hat bilgisi unutulur. */
 export const HAT_OMRU_MS = 7 * 24 * 3_600_000;
 
@@ -61,6 +73,10 @@ export class Tarayici {
     /** hat kodu → { sonBakilan, aracSayisi, soruldu } */
     this.hatDurumu = new Map();
     this.hatlar = [];
+    /** hat → son ilgi anı (ms): uygulamanın o an baktığı hatlar */
+    this.ilgi = new Map();
+    /** hat → son bildirim anı (ms): favori durakların hatları */
+    this.kalici = new Map();
     this.calisiyor = false;
     this.sayac = { hatSoruldu: 0, sinir: 0, hata: 0 };
   }
@@ -74,8 +90,28 @@ export class Tarayici {
     }
   }
 
+  /**
+   * Uygulamanın bildirdiği hatlar. İETT listesinde olmayanlar (metro, minibüs) yok
+   * sayılır. Kaç hattın kabul edildiğini döner.
+   */
+  ilgiBildir(hatlar, kalici = false, simdi = Date.now()) {
+    const buyuk = new Map(this.hatlar.map((h) => [String(h).toLocaleUpperCase('tr-TR'), h]));
+    let kabul = 0;
+    for (const ham of Array.isArray(hatlar) ? hatlar.slice(0, 60) : []) {
+      const hat = buyuk.get(String(ham ?? '').trim().toLocaleUpperCase('tr-TR'));
+      if (!hat) continue;
+      this.ilgi.set(hat, simdi);
+      if (kalici) this.kalici.set(hat, simdi);
+      kabul++;
+    }
+    return kabul;
+  }
+
   /** Diskten okunan öğrenilmişleri geri yükler. */
-  yukle({ atama = {}, hatDurumu = {} } = {}, simdi = Date.now()) {
+  yukle({ atama = {}, hatDurumu = {}, kalici = {} } = {}, simdi = Date.now()) {
+    for (const [hat, an] of Object.entries(kalici)) {
+      if (Number.isFinite(an) && simdi - an <= KALICI_OMRU_MS) this.kalici.set(hat, an);
+    }
     for (const [kapi, k] of Object.entries(atama)) {
       if (k?.hat && simdi - k.an <= HAT_OMRU_MS) this.atama.set(kapi, k);
     }
@@ -91,6 +127,7 @@ export class Tarayici {
   /** Diske yazılacak özet. */
   disaAktar() {
     return {
+      kalici: Object.fromEntries(this.kalici),
       atama: Object.fromEntries(this.atama),
       hatDurumu: Object.fromEntries(
         [...this.hatDurumu].filter(([, d]) => d.soruldu).map(([h, d]) => [h, { sonBakilan: d.sonBakilan, aracSayisi: d.aracSayisi }]),
@@ -98,12 +135,27 @@ export class Tarayici {
     };
   }
 
-  sıradakiHat(simdi = Date.now()) {
+  sıradakiHat(simdi = Date.now(), yalnizIlgi = false) {
+    // 1) Anlık ilgi: yakın zamanda sorulmamış olanlardan en uzun süredir sorulmayan.
+    let ilgili = null;
+    for (const [hat, an] of this.ilgi) {
+      if (simdi - an > ILGI_OMRU_MS) {
+        this.ilgi.delete(hat);
+        continue;
+      }
+      const d = this.hatDurumu.get(hat);
+      if (!d || simdi - d.sonBakilan < ILGI_TAZELIK_MS) continue;
+      if (!ilgili || d.sonBakilan < this.hatDurumu.get(ilgili).sonBakilan) ilgili = hat;
+    }
+    if (ilgili || yalnizIlgi) return ilgili;
+
+    // 2) Genel sıra; favori durakların hatları daha sık.
     let enIyi = null;
     let enYuksek = -1;
     for (const hat of this.hatlar) {
       const d = this.hatDurumu.get(hat);
-      const puan = (simdi - d.sonBakilan) * (d.aracSayisi + 1);
+      const kaliciMi = simdi - (this.kalici.get(hat) ?? -Infinity) <= KALICI_OMRU_MS;
+      const puan = (simdi - d.sonBakilan) * (d.aracSayisi + 1) * (kaliciMi ? KALICI_CARPAN : 1);
       if (puan > enYuksek) {
         enYuksek = puan;
         enIyi = hat;
@@ -129,15 +181,12 @@ export class Tarayici {
     if (this.calisiyor || !Number.isFinite(this.aralikMs)) return;
     this.calisiyor = true;
     while (this.calisiyor) {
-      if (geceMi()) {
-        this.gecede = true;
-        await bekle(5 * 60_000);
-        continue;
-      }
-      this.gecede = false;
-      const hat = this.sıradakiHat();
+      // Gece genel tarama durur; yalnız uygulamanın o an baktığı hatlar sorulur.
+      const gece = geceMi();
+      this.gecede = gece;
+      const hat = this.sıradakiHat(Date.now(), gece);
       if (!hat) {
-        await bekle(5000);
+        await bekle(gece ? 60_000 : 5000);
         continue;
       }
       try {
@@ -190,6 +239,8 @@ export class Tarayici {
       hata: this.sayac.hata,
       taramaAraligiSn: Number.isFinite(this.aralikMs) ? Math.round(this.aralikMs / 1000) : null,
       geceBekliyor: !!this.gecede,
+      ilgiliHat: [...this.ilgi.values()].filter((an) => simdi - an <= ILGI_OMRU_MS).length,
+      kaliciHat: this.kalici.size,
     };
   }
 }

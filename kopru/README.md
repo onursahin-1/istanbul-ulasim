@@ -110,6 +110,13 @@ Bütçe ikiye bölünüyor:
   gündüz sırasında en sona düşüyordu. Tek bir düşük sayım da hattın önceliğini
   silmesin diye araç sayısı yumuşatılıyor.
 
+**İlgi önce.** Uygulama baktığın durağın, yakınındaki ilk dört durağın ve açtığın
+yolculuğun otobüs hatlarını bildiriyor (`POST /ilgi`). Bu hatlar sıranın önüne geçiyor
+(son 10 dakikada sorulmamışlarsa): durak ekranını açtığında o hatlardaki otobüsler birkaç
+dakika içinde tanınıp canlı görünüyor. Favori durakların hatları kalıcı ilgi: 30 gün
+boyunca genel sırada 5 kat öncelikli. Gece de ilgili hatlar sorulmaya devam ediyor.
+`/durum`'da `tarama.ilgiliHat` ve `tarama.kaliciHat`.
+
 784 hattın bir turu bu hızla ~16 saat. Bunu işe yarar kılan gözlem: **bir İETT otobüsü
 gün boyu, çoğu zaman günlerce aynı hatta çalışıyor.** Öğrenilen "araç → hat" bilgisi
 `ogrenilen.json`'a yazılıyor ve bir hafta tutuluyor; köprü her açılışta sıfırdan

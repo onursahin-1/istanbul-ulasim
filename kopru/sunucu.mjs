@@ -21,6 +21,7 @@
 //   /arac-konumlari        GTFS-RT VehiclePosition  → OTP VEHICLE_POSITIONS
 //   /sefer-guncellemeleri  GTFS-RT TripUpdate       → OTP STOP_TIME_UPDATER
 //   /duyurular             İETT hat duyuruları, JSON → uygulama
+//   POST /ilgi             uygulamanın baktığı hatlar; hat taraması onları öne alır
 //   /durum                 insan için JSON özet (varış doğruluğu ölçümü `kalite`de)
 //
 // Doğruluk ölçümü: kayit/kalite-YYYY-MM-DD.json, özet için `node kalite-rapor.mjs`.
@@ -271,6 +272,30 @@ async function duyurulariTazele() {
   }
 }
 
+/**
+ * Uygulamanın ilgilendiği hatlar: { hatlar: ["500T", "34G"], kalici: false }. Hat
+ * taraması bunları öne alıyor (tarama.mjs). Gövde küçük; büyüğü reddediliyor.
+ */
+function ilgiAl(istek, cevap) {
+  let govde = '';
+  istek.setEncoding('utf8');
+  istek.on('data', (parca) => {
+    govde += parca;
+    if (govde.length > 8_000) istek.destroy();
+  });
+  istek.on('end', () => {
+    let kabul = 0;
+    try {
+      const { hatlar, kalici } = JSON.parse(govde || '{}');
+      kabul = tarayici.ilgiBildir(hatlar, kalici === true);
+    } catch {
+      cevap.writeHead(400);
+      return cevap.end();
+    }
+    yanitla(cevap, Buffer.from(JSON.stringify({ kabul })), 'application/json; charset=utf-8');
+  });
+}
+
 function yanitla(cevap, govde, tur) {
   cevap.writeHead(200, { 'Content-Type': tur, 'Content-Length': govde.length, 'Cache-Control': 'no-store' });
   cevap.end(govde);
@@ -281,6 +306,7 @@ createServer((istek, cevap) => {
   const bayat = !sonBasari || Date.now() - sonBasari > BAYAT_MS;
   if (yol === '/arac-konumlari') return yanitla(cevap, bayat ? BOS_KONUM() : konumlar, 'application/x-protobuf');
   if (yol === '/sefer-guncellemeleri') return yanitla(cevap, bayat ? BOS_GECIKME() : gecikmeler, 'application/x-protobuf');
+  if (yol === '/ilgi' && istek.method === 'POST') return ilgiAl(istek, cevap);
   if (yol === '/duyurular') {
     return yanitla(cevap, Buffer.from(JSON.stringify(duyuruListesi)), 'application/json; charset=utf-8');
   }

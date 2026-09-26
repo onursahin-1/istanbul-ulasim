@@ -37,6 +37,7 @@ import {
   saatsizHatMi,
   type DurakSaatleri,
   type Hat,
+  kopruyeIlgiBildir,
 } from '@/lib/otp';
 import { baslikYap, hatEtiketi, hatRengi, useTema, yonYaz, type Tema } from '@/lib/tema';
 import { istanbulSaatiYaz, kacDakikaSonra, kalkisGosterimi, saniyedenSaat } from '@/lib/zaman';
@@ -87,6 +88,16 @@ export default function DurakEkrani() {
     return () => clearInterval(zamanlayici);
   }, [yukle]);
 
+  // Bu durağın otobüs hatlarını köprü öncelikle tarasın; favoriyse kalıcı olarak.
+  const favoriMi = favoriler.some((f) => f.gtfsId === id);
+  useEffect(() => {
+    if (!durak) return;
+    kopruyeIlgiBildir(
+      (durak.routes ?? []).map((r) => r.shortName),
+      favoriMi,
+    );
+  }, [durak, favoriMi]);
+
   // Saatsiz hatlar değişmiyor; durak bir kez geldiğinde bir kez sorulur.
   const durakKimligi = durak?.gtfsId;
   useEffect(() => {
@@ -102,7 +113,6 @@ export default function DurakEkrani() {
   }, [durakKimligi]);
 
   const ad = baslikYap(durak?.name);
-  const favoriMi = favoriler.some((f) => f.gtfsId === id);
 
   const hatlar = useMemo(() => {
     // Minibüs ve dolmuş çipleri hep "Minibüs" yazıyordu; onlar aşağıda güzergâhlarıyla ayrı listeleniyor.

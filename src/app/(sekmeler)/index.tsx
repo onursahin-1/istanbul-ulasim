@@ -21,7 +21,7 @@ import {
 import { kalkisCanli } from '@/lib/canli';
 import { useKayitlar, type YerTuru } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
-import { OtpHatasi, yakinDuraklariGetir, type Hat, type YakinDurak } from '@/lib/otp';
+import { kopruyeIlgiBildir, OtpHatasi, yakinDuraklariGetir, type Hat, type YakinDurak } from '@/lib/otp';
 import { baslikYap, hatEtiketi, useTema, yonYaz, type Tema } from '@/lib/tema';
 import { mesafeYaz } from '@/lib/zaman';
 import { siklikOzeti } from '@/lib/siklik';
@@ -70,7 +70,11 @@ export default function AnaEkran() {
 
   const duraklariYukle = useCallback(async () => {
     try {
-      setDuraklar(await yakinDuraklariGetir(latitude, longitude));
+      const liste = await yakinDuraklariGetir(latitude, longitude);
+      setDuraklar(liste);
+      // Yakındaki ilk durakların otobüs hatlarını köprü öncelikle tarasın: evden çıkarken
+      // bakılan durakta otobüsler canlı görünsün.
+      kopruyeIlgiBildir(liste.slice(0, 4).flatMap((y) => (y.durak.routes ?? []).map((r) => r.shortName)));
       setHata(null);
     } catch (e) {
       setHata(e instanceof OtpHatasi ? e.message : 'Yakındaki duraklar yüklenemedi.');
