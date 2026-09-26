@@ -198,6 +198,21 @@ alanında. Köprü yeniden başlarsa o günün sayımı sıfırdan başlar. Nab�
 olduğu için geçiş anı ±1 dakika içinde bilinir; ortalama bundan etkilenmez, tek tek
 örnekler etkilenir.
 
+### Öğrenilen yol süreleri
+
+İETT tarifesinde bir seferin yalnız ilk ve son durağının saati var; aradakilere süre eşit
+dilimlerle uyduruluyor (Köprü'deki 34G tarifede 3 dakika). Köprü bunun yerine otobüslerin
+gerçek süresini öğreniyor (`segment.mjs`): aynı otobüsün art arda iki gözlemi arasında
+geçtiği durakların geçiş anı mesafeye göre ara değerleniyor, ardışık iki geçişin farkı o
+durak çiftinin bir ölçümü. Durak çiftleri hattan bağımsız (Metrobüs yolunu 34, 34G, 34AS
+birlikte öğretiyor), saat dilimi (00–06, 06–10, 10–16, 16–20, 20–24) ve hafta içi/sonu
+ayrı. Bir dilimde en az 4 ölçüm olunca kullanılıyor; her gece eski ölçümlerin ağırlığı
+%15 azalıyor. Kayıt `kayit/segment-sureleri.json`, özet `/durum`'da `segment`.
+
+Şimdilik yalnız ölçülüyor: doğruluk raporunda (`node kalite-rapor.mjs`) "öğren." satırı,
+aynı tahminin öğrenilen sürelerle yapılmış hâli. Tarifeden belirgin biçimde iyi çıkarsa
+canlı akışa, sonra da rota motorunun tarifesine geçecek.
+
 ## Sınırlar
 
 - Yalnızca İETT otobüs ve minibüsleri. Metro, Marmaray, tramvay ve vapurda canlı veri

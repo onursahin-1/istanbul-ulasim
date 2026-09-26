@@ -4,7 +4,8 @@
 //   node kalite-rapor.mjs 2026-09-26   → o günün dosyası
 //
 // Sütunlar: hata = gerçek varış − tahmin (dakika). + : otobüs tahminden geç geldi.
-// "yeni" aracı iki durak arasına yerleştiren ölçüm, "eski" en yakın durağa göre olan.
+// "yeni" aracı iki durak arasına yerleştiren ölçüm, "eski" en yakın durağa göre olan,
+// "öğren." durak arası süreleri tarife yerine otobüslerin gerçek sürelerinden alan.
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -24,10 +25,10 @@ const dk = (sn) => (sn == null ? '   -' : `${sn >= 0 ? '+' : ''}${(sn / 60).toFi
 console.log(`\n${dosya} · ${r.baslangic} başladı · ${r.sayac.gozlem} gözlem\n`);
 console.log('Ufuk          yöntem  örnek   ortalama  ortanca  ort.|hata|  %10   %90   >2 dk');
 const erken = [];
-for (const [ufuk, { yeni, eski, bekleyen }] of Object.entries(r.varisHatasi)) {
+for (const [ufuk, { yeni, eski, ogrenilen, bekleyen }] of Object.entries(r.varisHatasi)) {
   // Bekleyen tahmin sonuçlananlar kadar ya da fazlaysa örnek çabuk gelen otobüslere kayık.
   if (bekleyen != null && bekleyen >= (yeni.n ?? 0)) erken.push(`${ufuk} (${yeni.n ?? 0} sonuçlandı, ${bekleyen} bekliyor)`);
-  for (const [ad, o] of [['yeni', yeni], ['eski', eski]]) {
+  for (const [ad, o] of [['yeni', yeni], ['eski', eski], ...(ogrenilen ? [['öğren.', ogrenilen]] : [])]) {
     if (!o.n) {
       console.log(`${ufuk.padEnd(13)} ${ad.padEnd(6)}  ${'0'.padStart(5)}`);
       continue;

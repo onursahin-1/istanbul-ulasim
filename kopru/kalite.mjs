@@ -10,7 +10,9 @@
 //                                       − : tahminden erken geldi)
 //
 // Aynı tahmin eski yöntemle de (en yakın durağın saatine göre gecikme) hesaplanıyor;
-// iki yöntem yan yana görünsün diye. Sonuç /durum'daki `kalite` alanında ve günlük
+// iki yöntem yan yana görünsün diye. Üçüncüsü öğrenilen yol süreleriyle (segment.mjs):
+// tarifedeki uydurma ara süreler yerine otobüslerin gerçekte harcadığı süre.
+// Canlı akışa öğrenilen süreler ancak bu ölçüm onları daha iyi bulursa geçecek. Sonuç /durum'daki `kalite` alanında ve günlük
 // dosyada (kayit/kalite-YYYY-MM-DD.json). Özet için: node kalite-rapor.mjs
 //
 // Bellekte yalnız özet (histogram) tutuluyor; araç başına en çok birkaç bekleyen tahmin.
@@ -66,8 +68,10 @@ export function ozetYaz(o) {
 }
 
 export class KaliteOlcer {
-  constructor(tarife) {
+  constructor(tarife, ogrenici = null) {
     this.tarife = tarife;
+    /** segment.mjs SegmentOgrenici: öğrenilen sürelerle üçüncü tahmin. */
+    this.ogrenici = ogrenici;
     /** kapiNo → { sefer, an, konum, bekleyen: [{ufuk, sira, tahmin, tahminEski, an}] } */
     this.araclar = new Map();
     this.sifirla();
@@ -78,6 +82,7 @@ export class KaliteOlcer {
     this.baslangic = new Date().toISOString();
     this.yeni = Object.fromEntries(UFUKLAR.map((u) => [u, bosOzet()]));
     this.eski = Object.fromEntries(UFUKLAR.map((u) => [u, bosOzet()]));
+    this.ogrenilen = Object.fromEntries(UFUKLAR.map((u) => [u, bosOzet()]));
     this.gecikme = { yeni: bosOzet(), eski: bosOzet() };
     this.sayac = { gozlem: 0, seferDegisti: 0, geriGitti: 0, zamanAsimi: 0 };
   }
@@ -124,6 +129,7 @@ export class KaliteOlcer {
           const gercek = k.an + oran * (an - k.an);
           ozeteEkle(this.yeni[b.ufuk], gercek - b.tahmin);
           ozeteEkle(this.eski[b.ufuk], gercek - b.tahminEski);
+          if (b.tahminOgr != null) ozeteEkle(this.ogrenilen[b.ufuk], gercek - b.tahminOgr);
           return false;
         });
       }
@@ -134,6 +140,7 @@ export class KaliteOlcer {
       });
 
       // Yeni tahminler: her ufukta aynı anda tek bekleyen.
+      let varislar = null;
       for (const ufuk of UFUKLAR) {
         if (k.bekleyen.some((b) => b.ufuk === ufuk)) continue;
         const hedef = this.ilerikiDurak(e, ufuk);
@@ -141,7 +148,10 @@ export class KaliteOlcer {
         // Gecikme sabit: hedefe planlanan süre kadar sonra varır.
         const sure = hedef.saniye - e.planlanan;
         const sureEski = hedef.saniye - e.yakinPlan;
-        k.bekleyen.push({ ufuk, sira: hedef.sira, tahmin: an + sure, tahminEski: an + sureEski, an });
+        // Öğrenilen sürelerle: sıradaki duraktan hedefe tek tek aralıkların toplamı.
+        varislar ??= this.ogrenici ? this.ogrenici.varislar(e) : [];
+        const tahminOgr = varislar.find((v) => v.sira === hedef.sira)?.an ?? null;
+        k.bekleyen.push({ ufuk, sira: hedef.sira, tahmin: an + sure, tahminEski: an + sureEski, tahminOgr, an });
       }
       k.an = an;
       k.konum = e.konum;
@@ -159,7 +169,12 @@ export class KaliteOlcer {
     for (const k of this.araclar.values()) for (const b of k.bekleyen) bekleyen[b.ufuk]++;
     const ufuklar = {};
     for (const u of UFUKLAR) {
-      ufuklar[`${u + 1}. durak`] = { yeni: ozetYaz(this.yeni[u]), eski: ozetYaz(this.eski[u]), bekleyen: bekleyen[u] };
+      ufuklar[`${u + 1}. durak`] = {
+        yeni: ozetYaz(this.yeni[u]),
+        eski: ozetYaz(this.eski[u]),
+        ogrenilen: ozetYaz(this.ogrenilen[u]),
+        bekleyen: bekleyen[u],
+      };
     }
     return {
       gun: this.gun,
@@ -187,12 +202,14 @@ export class KaliteOlcer {
     this.yeni = ham.yeni;
     this.eski = ham.eski;
     this.gecikme = ham.gecikme;
+    // Öğrenilen yöntem sonradan eklendi: eski dosyada yoksa sıfırdan.
+    if (UFUKLAR.every((u) => uygun(ham.ogrenilen?.[u]))) this.ogrenilen = ham.ogrenilen;
     this.sayac = { ...this.sayac, ...veri.sayac };
     return true;
   }
 
   /** Histogramlar dahil ham durum (günlük dosyaya). */
   disaAktar() {
-    return { ...this.rapor(), ham: { yeni: this.yeni, eski: this.eski, gecikme: this.gecikme } };
+    return { ...this.rapor(), ham: { yeni: this.yeni, eski: this.eski, ogrenilen: this.ogrenilen, gecikme: this.gecikme } };
   }
 }

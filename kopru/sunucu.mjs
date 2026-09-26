@@ -32,6 +32,7 @@ import { fileURLToPath } from 'node:url';
 
 import { butceyiBol, SaatlikButce } from './butce.mjs';
 import { KaliteOlcer } from './kalite.mjs';
+import { SegmentOgrenici } from './segment.mjs';
 import { duyurulariDuzenle, duyurulariEslestir } from './duyuru.mjs';
 import { sozlukKur } from './yazim.mjs';
 import { ArizaHatasi, duyurular as duyurulariIste, filoKonumlari, hatlar as hatlariIste, Kapi, SinirHatasi } from './iett.mjs';
@@ -79,7 +80,18 @@ tarayici.yukle(onceki);
 const hafiza = new SeferHafizasi();
 // Varış tahminlerinin gerçekle karşılaştırması. Günlük dosyası kayit/ klasöründe.
 const KAYIT_KLASORU = join(KLASOR, 'kayit');
-const kalite = new KaliteOlcer(tarife);
+// Otobüslerin durak arası gerçek yol süreleri (segment.mjs); diskten sürer.
+const SEGMENT_DOSYASI = join(KAYIT_KLASORU, 'segment-sureleri.json');
+const segment = new SegmentOgrenici(tarife);
+if (existsSync(SEGMENT_DOSYASI)) {
+  try {
+    segment.yukle(JSON.parse(readFileSync(SEGMENT_DOSYASI, 'utf8')));
+    console.log(`öğrenilen yol süreleri yüklendi: ${segment.ozet().kullanilir} durak arası kullanılabilir`);
+  } catch (e) {
+    console.error(`yol süreleri okunamadı: ${e.message}`);
+  }
+}
+const kalite = new KaliteOlcer(tarife, segment);
 const kaliteyiYaz = (veri = kalite.disaAktar()) => {
   if (!veri.gun) return;
   try {
@@ -127,6 +139,7 @@ const durum = {
   kapi: null,
   duyuru: null,
   kalite: null,
+  segment: null,
   hata: null,
 };
 
@@ -155,6 +168,12 @@ async function hatlariTazele() {
 function kaydet() {
   kaliteyiYaz();
   try {
+    mkdirSync(KAYIT_KLASORU, { recursive: true });
+    yaz(SEGMENT_DOSYASI, segment.disaAktar());
+  } catch (e) {
+    console.error(`yol süreleri yazılamadı: ${e.message}`);
+  }
+  try {
     yaz(OGRENILEN, {
       ...tarayici.disaAktar(),
       hatListesi,
@@ -178,6 +197,7 @@ function durumuTazele() {
   };
   durum.bayat = !sonBasari || Date.now() - sonBasari > BAYAT_MS;
   durum.kalite = kalite.rapor();
+  durum.segment = segment.ozet();
 }
 
 let arizaYazildi = false;
@@ -193,6 +213,7 @@ async function nabiz() {
     konumlar = konumAkisi(eslesenler, simdi);
     gecikmeler = gecikmeAkisi(eslesenler, simdi);
     sonBasari = simdi.getTime();
+    segment.gozlem(eslesenler, simdi);
     kalite.gozlem(eslesenler, simdi);
 
     durum.sonNabiz = simdi.toISOString();
