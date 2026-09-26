@@ -153,8 +153,14 @@ export class KaliteOlcer {
   }
 
   rapor() {
+    // Henüz sonuçlanmamış tahminler. Ölçüm yeniyken yalnız çabuk gelen otobüslerin
+    // tahmini sonuçlanmış oluyor; uzak ufuklarda sonuç erken gelmeye kayık görünür.
+    const bekleyen = Object.fromEntries(UFUKLAR.map((u) => [u, 0]));
+    for (const k of this.araclar.values()) for (const b of k.bekleyen) bekleyen[b.ufuk]++;
     const ufuklar = {};
-    for (const u of UFUKLAR) ufuklar[`${u + 1}. durak`] = { yeni: ozetYaz(this.yeni[u]), eski: ozetYaz(this.eski[u]) };
+    for (const u of UFUKLAR) {
+      ufuklar[`${u + 1}. durak`] = { yeni: ozetYaz(this.yeni[u]), eski: ozetYaz(this.eski[u]), bekleyen: bekleyen[u] };
+    }
     return {
       gun: this.gun,
       baslangic: this.baslangic,

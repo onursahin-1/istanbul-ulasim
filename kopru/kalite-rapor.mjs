@@ -23,7 +23,10 @@ const dk = (sn) => (sn == null ? '   -' : `${sn >= 0 ? '+' : ''}${(sn / 60).toFi
 
 console.log(`\n${dosya} · ${r.baslangic} başladı · ${r.sayac.gozlem} gözlem\n`);
 console.log('Ufuk          yöntem  örnek   ortalama  ortanca  ort.|hata|  %10   %90   >2 dk');
-for (const [ufuk, { yeni, eski }] of Object.entries(r.varisHatasi)) {
+const erken = [];
+for (const [ufuk, { yeni, eski, bekleyen }] of Object.entries(r.varisHatasi)) {
+  // Bekleyen tahmin sonuçlananlar kadar ya da fazlaysa örnek çabuk gelen otobüslere kayık.
+  if (bekleyen != null && bekleyen >= (yeni.n ?? 0)) erken.push(`${ufuk} (${yeni.n ?? 0} sonuçlandı, ${bekleyen} bekliyor)`);
   for (const [ad, o] of [['yeni', yeni], ['eski', eski]]) {
     if (!o.n) {
       console.log(`${ufuk.padEnd(13)} ${ad.padEnd(6)}  ${'0'.padStart(5)}`);
@@ -34,6 +37,12 @@ for (const [ufuk, { yeni, eski }] of Object.entries(r.varisHatasi)) {
         `${(o.ortalamaMutlakSn / 60).toFixed(1).padStart(5)}     ${dk(o.y10Sn)} ${dk(o.y90Sn)}  %${o.ikiDkUstuYuzde}`,
     );
   }
+}
+if (erken.length) {
+  console.log(
+    `\nDikkat: ${erken.join(', ')}. Ölçüm yeni başlamış; bu ufuklarda şimdilik yalnız çabuk gelen\n` +
+      'otobüslerin tahmini sonuçlandı, sonuç "erken"e kayık. Bir iki saat sonra yeniden bak.',
+  );
 }
 const g = r.gecikmeDagilimi;
 console.log(`\nYayımlanan gecikme: yeni ortanca ${dk(g.yeni.ortancaSn)} dk, eski ortanca ${dk(g.eski.ortancaSn)} dk`);
