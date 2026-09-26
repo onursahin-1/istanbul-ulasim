@@ -17,6 +17,7 @@ node metro-tarife-indir.mjs C:\otp\metro-tarife.json            # yalnız senin 
 python metro-tarife-uygula.py C:\otp\metro-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 node vapur-tarife-indir.mjs C:\otp\vapur-tarife.json            # yalnız senin bilgisayarında (<1 dk)
 python vapur-tarife-uygula.py C:\otp\vapur-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
+python erisim-isaretle.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip C:\otp\istanbul\istanbul-iett-gtfs.zip
 python cizgi-ekle.py C:\otp\osm-hatlar.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python hat-adi-duzelt.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python durak-birlestir.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
@@ -238,6 +239,42 @@ kuruyor (Turyol, Dentur, İDO'ya dokunmuyor):
 Ardından `durak-birlestir.py` (yeni iskeleler istasyonlara bağlansın) ve `siklik-cikar.py`
 yeniden çalıştırılmalı. Şehir Hatları tarifesini değiştirdikçe (yaz/kış) yeniden indirip
 uygulamak yeter; betik yeniden çalıştırılabilir.
+
+## 4e. Basamaksız (tekerlekli sandalye) arama
+
+```powershell
+python erisim-isaretle.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip C:\otp\istanbul\istanbul-iett-gtfs.zip
+```
+
+OTP tekerlekli sandalye aramasında varsayılan olarak **yalnız erişilebilir diye
+işaretli** sefer ve durakları kullanıyor. Beslemelerde bu bilgi yok (İETT'de alan hiç
+yok, raylıda çoğu "bilinmiyor"), o yüzden "Basamaksız güzergâh" açıkken hiç toplu taşıma
+bulunamıyor, Bağcılar'dan Taksim'e 15 km, 3 saatlik yürüyüş öneriliyordu.
+
+İki yarısı var:
+
+1. `C:\otp\istanbul\router-config.json`: bilinmeyen sefer ve duraklar yasak değil,
+   bedelli (biniş başına 5 dakikaya bedel); erişilemez diye işaretliler 1 saate bedel.
+   Merdiven yine en son çare. Bu dosya derlemede değil sunucu açılırken okunur.
+
+   ```json
+   "routingDefaults": {
+     "wheelchairAccessibility": {
+       "trip":     { "onlyConsiderAccessible": false, "unknownCost": 300, "inaccessibleCost": 3600 },
+       "stop":     { "onlyConsiderAccessible": false, "unknownCost": 300, "inaccessibleCost": 3600 },
+       "elevator": { "onlyConsiderAccessible": false, "unknownCost": 20,  "inaccessibleCost": 3600 },
+       "stairsReluctance": 100
+     }
+   }
+   ```
+
+2. `erisim-isaretle.py` bildiğimizi işaretliyor, bedeli yalnız bilinmeyenler ödesin:
+   metro (M1A–M11), Marmaray, T1/T4/T5/T6 tramvayları ve F1/F3/F4 füniküleri erişilebilir
+   (asansörlü istasyon, alçak taban ya da peron hizası); T2 ve T3 nostaljik tramvayları
+   erişilemez (basamaklı araç); F2 ve teleferikler bilinmiyor. Otobüs ve vapura
+   dokunulmuyor. Betik İETT'nin büyük dosyalarını belleğe almadan kopyalıyor.
+
+Eğim hesaba katılmıyor: OTP'ye yükseklik verisi verilmediği için yokuşlar düz sayılıyor.
 
 ## 5. Marmaray'ın kısa dönüş hattı
 
