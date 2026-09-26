@@ -15,6 +15,8 @@ python marmaray-duzelt.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python eksik-hatlar.py C:\otp\osm-hatlar.json C:\otp\istanbul
 node metro-tarife-indir.mjs C:\otp\metro-tarife.json            # yalnız senin bilgisayarında (~10 dk)
 python metro-tarife-uygula.py C:\otp\metro-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
+node vapur-tarife-indir.mjs C:\otp\vapur-tarife.json            # yalnız senin bilgisayarında (<1 dk)
+python vapur-tarife-uygula.py C:\otp\vapur-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python cizgi-ekle.py C:\otp\osm-hatlar.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python hat-adi-duzelt.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python durak-birlestir.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
@@ -199,6 +201,43 @@ Betik yeniden çalıştırılabilir ama eski yol sürelerini beslemeden okuduğu
 `eksik-hatlar.py`'den sonra çalıştırılmalı (o T5'i ve M7/M8/M9 sıklıklarını yaklaşık
 değerlerle yeniden kuruyor; bu betik gerçeğini koyuyor). Metro İstanbul tarifesini
 değiştirdikçe yeniden indirip uygulamak yeter.
+
+## 4d. Şehir Hatları'nın güncel vapur tarifesi
+
+```powershell
+node vapur-tarife-indir.mjs C:\otp\vapur-tarife.json
+python vapur-tarife-uygula.py C:\otp\vapur-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
+```
+
+Beslemedeki Şehir Hatları seferleri 2023'ün tarifesiydi; bir kısmı sıklıkla tanımlıydı
+("her 20 dakikada"), yeni hatlar (Bostancı–Moda–Kabataş, Maltepe–Adalar, Tuzla–Pendik–
+Büyükada, Sedef Adası, İstinye–Çubuklu arabalı vapuru…) hiç yoktu. Şehir Hatları'nın
+sitesi (`sehirhatlari.istanbul/tr/seferler/ic-hatlar`) her hattın tarifesini tablo olarak
+veriyor. İndirme betiği tabloları hücre hücre, yorumlamadan alıyor; site bulut ortamından
+erişilemiyor, bu bilgisayarda çalışmalı.
+
+Uygulama betiği Şehir Hatları'nın bütün eski hat ve seferlerini silip sitenin 31 hattını
+kuruyor (Turyol, Dentur, İDO'ya dokunmuyor):
+
+- Gün türü tablo başlığından ("Hafta içi", "Cumartesi Günleri", "Her gün"…), yıldızlı
+  dipnotlar saatin yanındaki yıldızla o sefere uygulanıyor ("* C.TESİ, PAZAR VE RESMİ TATİL
+  GÜNLERİ YAPILMAZ", "** Sadece Pazar… yapılır"). "Yolcu almaz" o iskelede binişi kapatıyor,
+  "…İskelesi'nde bitmektedir" seferi orada bitiriyor, "Eski/Yeni Kadıköy iskelesi" iskeleyi
+  seçiyor. Anlaşılmayan dipnot çıktıda **uyarı** olarak yazılıyor: site yeni bir kalıp
+  kullanmaya başlarsa oradan görünür.
+- Parantezli saat sütun sırasının dışında uğranan iskele (Bostancı hattında vapur önce
+  Karaköy'e, sonra Kabataş'a gidiyor); iskeleler saatine göre sıralanıyor.
+- Tek sütunlu tablolar (Kadıköy–Kabataş, Beykoz–Sarıyer…) yalnız kalkış veriyor; varış
+  öbür yönün kalkış iskelesi, yol süresi başka seferlerde görülen süreden, yoksa mesafeden.
+- Gece hattı ("Cuma'yı cumartesiye bağlayan geceler") cuma ve cumartesi servis gününe,
+  00:15 gibi saatler 24:15 olarak yazılıyor.
+- Beslemede olmayan iskeleler (Moda, Maltepe, Tuzla, Pendik, Sedef Adası, Büyükdere)
+  OpenStreetMap konumlarıyla ekleniyor. Eşleşmeyen iskele çıktıda yazılıyor.
+- Resmî tatiller ayrı işlenmiyor; o günler olağan gün türüyle çalışıyor.
+
+Ardından `durak-birlestir.py` (yeni iskeleler istasyonlara bağlansın) ve `siklik-cikar.py`
+yeniden çalıştırılmalı. Şehir Hatları tarifesini değiştirdikçe (yaz/kış) yeniden indirip
+uygulamak yeter; betik yeniden çalıştırılabilir.
 
 ## 5. Marmaray'ın kısa dönüş hattı
 
