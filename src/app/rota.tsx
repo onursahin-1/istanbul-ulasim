@@ -20,6 +20,7 @@ import {
 } from '@/components/ulasim';
 import { bacakCanli } from '@/lib/canli';
 import { OtpHatasi, rotaPlanlaYedekli, type Guzergah, type Konum, type RotaTercihi } from '@/lib/otp';
+import { rotalariSirala } from '@/lib/rota-secimi';
 import { rotaSecenekleriKaydet, useKayitlar } from '@/lib/kayitlar';
 import { guzergahlariSakla } from '@/lib/secim';
 import { ucretKisa, yolculukUcreti } from '@/lib/ucret';
@@ -50,9 +51,17 @@ const DAKIKALAR = [0, 15, 30, 45];
 const TERCIHLER: { anahtar: RotaTercihi; ad: string; kisa: string; aciklama: string; simge: IkonAdi }[] = [
   {
     anahtar: 'dengeli',
+    ad: 'Önerilen',
+    kisa: 'Önerilen',
+    aciklama:
+      'Süre, yürüme ve aktarma birlikte tartılır. Trafiğe takılmayan metro, Marmaray, tramvay ve vapur biraz öne alınır.',
+    simge: 'sparkles-outline',
+  },
+  {
+    anahtar: 'hizli',
     ad: 'En hızlı',
     kisa: 'En hızlı',
-    aciklama: 'Süre, yürüme ve aktarma arasında motorun kendi dengesi. Liste süreye göre sıralanır.',
+    aciklama: 'Yalnız varış süresine bakılır. Liste süreye göre sıralanır.',
     simge: 'flash-outline',
   },
   {
@@ -66,8 +75,15 @@ const TERCIHLER: { anahtar: RotaTercihi; ad: string; kisa: string; aciklama: str
     anahtar: 'azAktarma',
     ad: 'Az aktarma yapayım',
     kisa: 'Az aktarma',
-    aciklama: 'Her aktarma 20 dakikalık ceza sayılır ve liste aktarma sayısına göre sıralanır.',
+    aciklama: 'Her aktarma 15 dakikalık ceza sayılır ve liste aktarma sayısına göre sıralanır.',
     simge: 'git-compare-outline',
+  },
+  {
+    anahtar: 'rayli',
+    ad: 'Raylı sistem ve vapur',
+    kisa: 'Raylı öncelikli',
+    aciklama: 'Metro, Marmaray, tramvay ve vapur tercih edilir; otobüs ancak belirgin biçimde kısaysa seçilir.',
+    simge: 'subway-outline',
   },
 ];
 
@@ -180,9 +196,11 @@ export default function RotaEkrani() {
           const ipucu = rotaSecenekleri.erisilebilir
             ? ' Basamaksız güzergâh açık; kapatırsan daha çok seçenek çıkabilir.'
             : rotaSecenekleri.tercih !== 'dengeli'
-              ? ' Rota tercihini "Dengeli"ye almayı deneyebilirsin.'
+              ? ' Rota tercihini "Önerilen"e almayı deneyebilirsin.'
               : '';
           setBilgi(temel + ipucu);
+        } else if (sonuc.yurumeAsildi) {
+          setBilgi('20 dakikadan az yürümeli bir rota bulunamadı; en az yürüyenler gösteriliyor.');
         }
       } catch (e) {
         if ((e as Error).name === 'AbortError' || eski()) return;
@@ -202,18 +220,15 @@ export default function RotaEkrani() {
   const gruplar = useMemo(() => {
     if (!guzergahlar) return [];
     const liste = gruplandir(guzergahlar);
-    const sure = (x: Grup) => x.ana.g.duration ?? Infinity;
-    const erken = (x: Grup) => Date.parse(x.ana.g.start ?? '') || 0;
     // Sıralama ayrı bir seçim değil: seçilen tercihin karşılığı. "Az yürüme" diyen biri
-    // listenin de yürümeye göre sıralanmasını bekler.
-    const tercih = rotaSecenekleri.tercih;
-    if (tercih === 'azAktarma') liste.sort((a, b) => a.ana.g.numberOfTransfers - b.ana.g.numberOfTransfers || sure(a) - sure(b));
-    else if (tercih === 'azYurume') liste.sort((a, b) => (a.ana.g.walkTime ?? 0) - (b.ana.g.walkTime ?? 0) || sure(a) - sure(b));
-    else liste.sort((a, b) => sure(a) - sure(b) || erken(a) - erken(b));
-    return liste;
+    // listenin de yürümeye göre sıralanmasını bekler (rota-secimi.ts).
+    const sirali = rotalariSirala(
+      liste.map((x) => x.ana.g),
+      rotaSecenekleri.tercih,
+    );
+    return sirali.map((g) => liste.find((x) => x.ana.g === g)!);
   }, [guzergahlar, rotaSecenekleri.tercih]);
 
-  const enHizli = useMemo(() => Math.min(...(guzergahlar ?? []).map((g) => g.duration ?? Infinity)), [guzergahlar]);
 
   /** Başlangıç ya da varış alanına dokununca arama ekranı açılır; seçim buraya geri döner. */
   const yerSec = (alan: 'baslangic' | 'varis') =>
@@ -313,7 +328,7 @@ export default function RotaEkrani() {
         {bilgi && <Text style={s.bilgi}>{bilgi}</Text>}
         {gruplar.map(({ ana: { g, sira }, sonrakiler }, i) => {
           const ilkArac = g.legs.find((b) => b.transitLeg);
-          const oneri = i === 0 && rotaSecenekleri.tercih === 'dengeli' && g.duration === enHizli;
+          const oneri = i === 0 && rotaSecenekleri.tercih === 'dengeli';
           return (
             <Pressable key={sira} style={[s.kart, oneri && s.kartOneri]} onPress={() => detayaGit(sira)}>
               <View style={s.kartUst}>
@@ -554,7 +569,7 @@ function hatYazisi(bacak: Guzergah['legs'][number]): string {
 
 /** Tercih hapındaki etiket: seçili tercih ne ise onu yazar. */
 function tercihEtiketi(secenekler: { tercih: RotaTercihi; erisilebilir: boolean }): string {
-  const ad = TERCIHLER.find((x) => x.anahtar === secenekler.tercih)?.kisa ?? 'En hızlı';
+  const ad = TERCIHLER.find((x) => x.anahtar === secenekler.tercih)?.kisa ?? 'Önerilen';
   return secenekler.erisilebilir ? `${ad} · basamaksız` : ad;
 }
 

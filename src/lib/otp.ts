@@ -32,11 +32,12 @@ export const KOPRU_ADRESI = (
 export class OtpHatasi extends Error {}
 
 // Sorgu metinleri ayrı dosyada; oradan içe aktarılıp buradan yeniden dışa açılıyor.
-export { SORGULAR, VARSAYILAN_SECENEKLER, tercihleriYap } from './sorgular';
+export { SORGULAR, VARSAYILAN_SECENEKLER, secenekleriDuzelt, tercihleriYap } from './sorgular';
 // Bacak yardımcıları bağımlılıksız bir dosyada; çağrı yerleri değişmesin diye buradan da açılıyor.
 export { bacakDuraklari } from './bacak';
 export type { RotaSecenekleri, RotaTercihi } from './sorgular';
-import { SORGULAR as S, VARSAYILAN_SECENEKLER, tercihleriYap, type RotaSecenekleri } from './sorgular';
+import { SORGULAR as S, VARSAYILAN_SECENEKLER, aramalariYap, type RotaSecenekleri } from './sorgular';
+import { rotalariBirlestir, yurumeSiniri } from './rota-secimi';
 import type { HamArac } from './arac-konum';
 import type { Duyuru } from './duyuru';
 import { isletmeciAdi } from './hat-adi';
@@ -277,7 +278,12 @@ export async function hatKalkislariGetir(
 /** Aramanın zaman şartı: bu saatten sonra çık, ya da en geç bu saatte var. */
 export type RotaZamani = { tur: 'kalkis' | 'varis'; an: string };
 
-export type RotaSonucu = { guzergahlar: Guzergah[]; hatalar: { code: string; description: string }[] };
+export type RotaSonucu = {
+  guzergahlar: Guzergah[];
+  hatalar: { code: string; description: string }[];
+  /** Hiçbir rota 20 dakikadan az yürütmüyor; en az yürüyenler gösteriliyor. */
+  yurumeAsildi?: boolean;
+};
 
 export async function rotaPlanla(
   nereden: Konum,
@@ -293,22 +299,33 @@ export async function rotaPlanla(
     } | null;
   };
   const yer = (k: Konum) => ({ label: k.ad, location: { coordinate: { latitude: k.lat, longitude: k.lon } } });
-  const veri = await sorgula<Cevap>(
-    ROTA_PLANLA,
-    {
-      nereden: yer(nereden),
-      nereye: yer(nereye),
-      zaman: zaman.tur === 'varis' ? { latestArrival: zaman.an } : { earliestDeparture: zaman.an },
-      tercihler: tercihleriYap(secenekler),
-    },
-    sinyal,
+  // Tercihe göre bir ya da iki arama (bkz. aramalariYap); sonuçlar birleşiyor.
+  const cevaplar = await Promise.all(
+    aramalariYap(secenekler).map((arama) =>
+      sorgula<Cevap>(
+        ROTA_PLANLA,
+        {
+          nereden: yer(nereden),
+          nereye: yer(nereye),
+          zaman: zaman.tur === 'varis' ? { latestArrival: zaman.an } : { earliestDeparture: zaman.an },
+          tercihler: arama.tercihler,
+          // OTP 2.10 `modes: null` gelince çöküyor ("modesArgs is null"); yoksa hiç gönderilmez.
+          ...(arama.modlar ? { modlar: arama.modlar } : {}),
+        },
+        sinyal,
+      ),
+    ),
   );
-  const guzergahlar = (veri.planConnection?.edges ?? []).flatMap((e) => (e ? [e.node] : []));
+  const hepsi = rotalariBirlestir(
+    cevaplar.map((c) => (c.planConnection?.edges ?? []).flatMap((e) => (e ? [e.node] : []))),
+  );
+  const { rotalar: guzergahlar, asildi } = yurumeSiniri(hepsi);
   // Varışa göre aramada OTP en geç çıkanı başa koyuyor; liste her zaman kalkışa göre okunsun.
   if (zaman.tur === 'varis') guzergahlar.sort((a, b) => (a.start ?? '').localeCompare(b.start ?? ''));
   const sonuc: RotaSonucu = {
     guzergahlar,
-    hatalar: veri.planConnection?.routingErrors ?? [],
+    hatalar: cevaplar.find((c) => c.planConnection?.routingErrors?.length)?.planConnection?.routingErrors ?? [],
+    ...(asildi ? { yurumeAsildi: true } : {}),
   };
   if (sonuc.guzergahlar.length) void onbellegeYaz(rotaAnahtari(nereden, nereye, secenekler, zaman.tur), sonuc);
   return sonuc;

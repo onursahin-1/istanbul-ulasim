@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState } from 'react';
 
 import type { Konum, RotaSecenekleri } from './otp';
-import { VARSAYILAN_SECENEKLER } from './otp';
+import { secenekleriDuzelt, VARSAYILAN_SECENEKLER } from './otp';
 import type { UcretTuru } from './ucret';
 
 export type YerTuru = 'ev' | 'is';
@@ -109,7 +109,7 @@ export function useKayitlar() {
     setFavoriler(await oku<FavoriDurak[]>(FAVORI_ANAHTARI, []));
     setAramalar(await oku<SonArama[]>(ARAMA_ANAHTARI, []));
     setUcretTuru(await oku<UcretTuru>(UCRET_ANAHTARI, 'tam'));
-    setRotaSecenekleri(await oku<RotaSecenekleri>(ROTA_ANAHTARI, VARSAYILAN_SECENEKLER));
+    setRotaSecenekleri(secenekleriDuzelt(await oku<RotaSecenekleri>(ROTA_ANAHTARI, VARSAYILAN_SECENEKLER)));
     setEkranAcik(await oku<boolean>(EKRAN_ANAHTARI, true));
     setYuklendi(true);
   }, []);

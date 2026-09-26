@@ -126,6 +126,7 @@ query RotaPlanla(
   $nereye: PlanLabeledLocationInput!
   $zaman: PlanDateTimeInput!
   $tercihler: PlanPreferencesInput
+  $modlar: PlanModesInput
 ) {
   planConnection(
     origin: $nereden
@@ -133,6 +134,7 @@ query RotaPlanla(
     # { earliestDeparture } ya da { latestArrival }: "9:00'da orada olmalıyım" aramaları için.
     dateTime: $zaman
     preferences: $tercihler
+    modes: $modlar
     first: 12
   ) {
     routingErrors { code description }
@@ -216,17 +218,59 @@ query SunucuBilgisi {
   feeds { feedId agencies { name } }
 }`;
 
-/** Kullanıcının rota arama tercihi. */
-export type RotaTercihi = 'dengeli' | 'azYurume' | 'azAktarma';
+/**
+ * Kullanıcının rota arama tercihi.
+ *   dengeli   Önerilen: süre, yürüme, aktarma dengesi; raylı sistem ve vapur hafif öncelikli
+ *   hizli     En hızlı: yalnız süre
+ *   azYurume  Az yürüme
+ *   azAktarma Az aktarma
+ *   rayli     Raylı sistem ve vapur: otobüs ancak başka yol yoksa
+ */
+export type RotaTercihi = 'dengeli' | 'hizli' | 'azYurume' | 'azAktarma' | 'rayli';
+
+export const ROTA_TERCIHLERI: RotaTercihi[] = ['dengeli', 'hizli', 'azYurume', 'azAktarma', 'rayli'];
 
 export type RotaSecenekleri = { tercih: RotaTercihi; erisilebilir: boolean };
 
 export const VARSAYILAN_SECENEKLER: RotaSecenekleri = { tercih: 'dengeli', erisilebilir: false };
 
+/** Diskten okunan tercih bilinmiyorsa (eski sürüm, bozuk kayıt) varsayılana döner. */
+export function secenekleriDuzelt(ham: Partial<RotaSecenekleri> | null | undefined): RotaSecenekleri {
+  const tercih = ROTA_TERCIHLERI.includes(ham?.tercih as RotaTercihi) ? (ham!.tercih as RotaTercihi) : 'dengeli';
+  return { tercih, erisilebilir: !!ham?.erisilebilir };
+}
+
+/**
+ * Bir rotada toplam yürüyüşün üst sınırı (saniye). Bunu aşan rotalar listelenmez;
+ * hiçbir rota sınırın altında kalmazsa en az yürüyenler bir notla gösterilir.
+ */
+export const EN_COK_YURUME_SN = 20 * 60;
+
 // OTP'nin varsayılanları: yürüme isteksizliği 2.0, aktarma bedeli 0.
 // Aşağıdaki değerler bu varsayılanların üzerine biniyor.
 const YURUME_ISTEKSIZLIGI = 5.0;
-const AKTARMA_BEDELI = 1200; // saniye cinsinden ceza: bir aktarma 20 dakikaya bedel sayılır
+const AKTARMA_BEDELI = 900; // saniye cinsinden ceza: bir aktarma 15 dakikaya bedel sayılır
+
+/**
+ * Otobüsün isteksizliği (1 = diğer araçlarla eşit). Tarife otobüsün trafiğe takıldığını
+ * bilmiyor; aynı süreli iki rotadan metrolusu gerçekte daha güvenilir. Önerilen aramada
+ * hafif (1,3), "raylı sistem" tercihinde güçlü (3) bir kayırma.
+ */
+const OTOBUS_HAFIF = 1.3;
+const OTOBUS_GUCLU = 3.0;
+const TUM_KIPLER = ['BUS', 'TROLLEYBUS', 'COACH', 'RAIL', 'SUBWAY', 'TRAM', 'MONORAIL', 'FERRY', 'FUNICULAR', 'GONDOLA', 'CABLE_CAR'];
+
+/** Otobüsü `isteksizlik` kadar pahalı sayan araç kipleri (öbür kipler 1). */
+function otobusIsteksiz(isteksizlik: number): Record<string, unknown> {
+  return {
+    transit: {
+      transit: TUM_KIPLER.map((mode) => ({
+        mode,
+        cost: { reluctance: ['BUS', 'TROLLEYBUS', 'COACH'].includes(mode) ? isteksizlik : 1 },
+      })),
+    },
+  };
+}
 
 /**
  * Seçenekleri OTP'nin `PlanPreferencesInput` yapısına çevirir.
@@ -244,6 +288,32 @@ export function tercihleriYap(secenekler: RotaSecenekleri): Record<string, unkno
     tercihler.accessibility = { wheelchair: { enabled: true } };
   }
   return Object.keys(tercihler).length ? tercihler : null;
+}
+
+/** Bir OTP araması: tercihler ve araç kipleri (null = sunucu varsayılanı). */
+export type RotaAramasi = { tercihler: Record<string, unknown> | null; modlar: Record<string, unknown> | null };
+
+/**
+ * Bir tercih için yapılacak aramalar. Önerilen aramada iki arama birleşiyor: raylıyı
+ * hafif kayıran ve kayırmayan. OTP tek aramada 12 rota veriyor ama çoğu aynı hattın
+ * sonraki seferleri; iki arama farklı araç karışımlarını birlikte getiriyor.
+ */
+export function aramalariYap(secenekler: RotaSecenekleri): RotaAramasi[] {
+  const tercihler = tercihleriYap(secenekler);
+  switch (secenekler.tercih) {
+    case 'dengeli':
+      return [
+        { tercihler, modlar: otobusIsteksiz(OTOBUS_HAFIF) },
+        { tercihler, modlar: null },
+      ];
+    case 'rayli':
+      return [
+        { tercihler, modlar: otobusIsteksiz(OTOBUS_GUCLU) },
+        { tercihler, modlar: otobusIsteksiz(OTOBUS_HAFIF) },
+      ];
+    default:
+      return [{ tercihler, modlar: null }];
+  }
 }
 
 // Sorgu metinleri, geliştirme sırasında şemaya karşı doğrulanabilsin diye dışa açılır.

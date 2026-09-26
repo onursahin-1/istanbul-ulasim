@@ -15,7 +15,7 @@ import { join } from 'node:path';
 
 import { buildSchema, parse, validate } from 'graphql';
 
-import { SORGULAR, tercihleriYap, type RotaTercihi } from '../src/lib/sorgular.ts';
+import { aramalariYap, ROTA_TERCIHLERI, SORGULAR } from '../src/lib/sorgular.ts';
 
 const SEMA_YOLU = 'org/opentripplanner/apis/gtfs/schema.graphqls';
 
@@ -65,34 +65,40 @@ function tercihleriDogrula(sema: ReturnType<typeof buildSchema>): number {
         .map(([k, v]) => `${k}: ${yazdir(v)}`)
         .join(', ')} }`;
     }
+    // Sayılabilir değerler (araç kipleri: BUS, RAIL) GraphQL'de tırnaksız yazılır.
+    if (typeof d === 'string' && /^[A-Z_]+$/.test(d)) return d;
     return JSON.stringify(d);
   };
 
-  const tercihler: RotaTercihi[] = ['dengeli', 'azYurume', 'azAktarma'];
   let hatali = 0;
-  for (const tercih of tercihler) {
+  for (const tercih of ROTA_TERCIHLERI) {
     for (const erisilebilir of [false, true]) {
-      const nesne = tercihleriYap({ tercih, erisilebilir });
-      const ad = `tercih:${tercih}${erisilebilir ? ' + erişilebilir' : ''}`;
-      if (!nesne) {
-        console.log(`✓ ${ad} (tercih gönderilmiyor)`);
-        continue;
-      }
-      const sorgu = `query Tercih {
+      for (const [i, arama] of aramalariYap({
+        tercih,
+        erisilebilir,
+      }).entries()) {
+        const ad = `tercih:${tercih}${erisilebilir ? ' + erişilebilir' : ''} #${i + 1}`;
+        if (!arama.tercihler && !arama.modlar) {
+          console.log(`✓ ${ad} (tercih gönderilmiyor)`);
+          continue;
+        }
+        const sorgu = `query Tercih {
   planConnection(
     origin: { location: { coordinate: { latitude: 41.0, longitude: 29.0 } } }
     destination: { location: { coordinate: { latitude: 41.1, longitude: 29.1 } } }
-    preferences: ${yazdir(nesne)}
+    ${arama.tercihler ? `preferences: ${yazdir(arama.tercihler)}` : ''}
+    ${arama.modlar ? `modes: ${yazdir(arama.modlar)}` : ''}
   ) { edges { node { duration } } }
 }`;
-      const hatalar = validate(sema, parse(sorgu));
-      if (hatalar.length === 0) {
-        console.log(`✓ ${ad}`);
-        continue;
+        const hatalar = validate(sema, parse(sorgu));
+        if (hatalar.length === 0) {
+          console.log(`✓ ${ad}`);
+          continue;
+        }
+        hatali += 1;
+        console.log(`✗ ${ad}`);
+        for (const h of hatalar) console.log(`    ${h.message}`);
       }
-      hatali += 1;
-      console.log(`✗ ${ad}`);
-      for (const h of hatalar) console.log(`    ${h.message}`);
     }
   }
   return hatali;
