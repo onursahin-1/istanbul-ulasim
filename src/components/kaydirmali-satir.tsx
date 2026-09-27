@@ -102,7 +102,10 @@ export function KaydirmaliSatir({ children, onSil, silEtiketi = 'Sil' }: Ozellik
   const onStil = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
   const kokStil = useAnimatedStyle(() => (yukseklik.value >= 0 ? { height: yukseklik.value } : {}));
   // Kırmızı alan satırın açılan kısmını doldurur; tam kaydırmada yazı parmağı izler.
+  // Kapalıyken genişlik 0 ama içindeki simge ve yazı 84 pt; kırpılmazsa satırın sağ ucundan
+  // taşıp görünüyordu. Kırpılıyor, açılırken de yavaşça beliriyor.
   const eylemStil = useAnimatedStyle(() => ({ width: Math.max(0, -x.value) }));
+  const icerikStil = useAnimatedStyle(() => ({ opacity: Math.min(1, Math.max(0, -x.value - 12) / (DUGME - 24)) }));
   const yaziStil = useAnimatedStyle(() => ({
     alignItems: -x.value > genislik.value * TAM_ORAN ? 'flex-start' : 'center',
   }));
@@ -121,7 +124,7 @@ export function KaydirmaliSatir({ children, onSil, silEtiketi = 'Sil' }: Ozellik
     >
       <Animated.View style={[stiller.eylem, eylemStil]}>
         <Pressable style={stiller.eylemDugme} onPress={kaydirVeSil} accessibilityRole="button" accessibilityLabel={silEtiketi}>
-          <Animated.View style={[stiller.eylemIc, yaziStil]}>
+          <Animated.View style={[stiller.eylemIc, yaziStil, icerikStil]}>
             <View style={stiller.eylemYazi}>
               <Ikon ad="trash" boyut={18} renkKodu="#fff" />
               <Text style={stiller.eylemMetin}>Sil</Text>
@@ -142,7 +145,7 @@ export function KaydirmaliSatir({ children, onSil, silEtiketi = 'Sil' }: Ozellik
 
 const stiller = StyleSheet.create({
   kok: { overflow: 'hidden' },
-  eylem: { position: 'absolute', top: 0, bottom: 0, right: 0, backgroundColor: SIL_KIRMIZI },
+  eylem: { position: 'absolute', top: 0, bottom: 0, right: 0, overflow: 'hidden', backgroundColor: SIL_KIRMIZI },
   eylemDugme: { flex: 1 },
   eylemIc: { flex: 1, justifyContent: 'center' },
   eylemYazi: { width: DUGME, alignItems: 'center', justifyContent: 'center', gap: 2 },
