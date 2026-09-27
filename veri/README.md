@@ -5,7 +5,13 @@ girmiyor (büyükler), betikler giriyor.
 
 ## Çalıştırma sırası
 
-Betiklerin çoğu zip'i **yerinde** değiştiriyor ve sıraya bağlı. Baştan kurarken:
+**Tek komutla:** `.\yenile.ps1` aşağıdaki adımların hepsini sırayla çalıştırıyor (önce eski
+zip'leri `C:\otp\yedekler\yenile-…` klasörüne yedekliyor, bir adım hata verirse duruyor).
+`-Derle` sonunda OTP grafiğini de derliyor (çalışan OTP'yi önce kapat); `-EskiTarife` metro
+ve vapur tarifelerini yeniden indirmeden son indirileni kullanıyor. İETT tarifesi, mevsim ya da
+bir işletme değişikliği olunca, `ozel-gunler.json` güncellenince bunu çalıştırmak yeter.
+
+Betiklerin çoğu zip'i **yerinde** değiştiriyor ve sıraya bağlı. Elle baştan kurarken:
 
 ```powershell
 node hazirla-gtfs.mjs C:\otp\istanbul                                        # 1
@@ -17,6 +23,8 @@ node metro-tarife-indir.mjs C:\otp\metro-tarife.json            # yalnız senin 
 python metro-tarife-uygula.py C:\otp\metro-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 node vapur-tarife-indir.mjs C:\otp\vapur-tarife.json            # yalnız senin bilgisayarında (<1 dk)
 python vapur-tarife-uygula.py C:\otp\vapur-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
+node ozel-vapur-indir.mjs C:\otp\ozel-vapur-tarife.json       # yalnız senin bilgisayarında (<1 dk)
+python ozel-vapur-uygula.py C:\otp\ozel-vapur-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python erisim-isaretle.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip C:\otp\istanbul\istanbul-iett-gtfs.zip
 python ozel-gun-takvimi.py ..\assets\veri\ozel-gunler.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip C:\otp\istanbul\istanbul-iett-gtfs.zip
 python cizgi-ekle.py C:\otp\osm-hatlar.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
@@ -241,6 +249,39 @@ Ardından `durak-birlestir.py` (yeni iskeleler istasyonlara bağlansın) ve `sik
 yeniden çalıştırılmalı. Şehir Hatları tarifesini değiştirdikçe (yaz/kış) yeniden indirip
 uygulamak yeter; betik yeniden çalıştırılabilir.
 
+### Turyol ve Dentur Avrasya
+
+```powershell
+node ozel-vapur-indir.mjs C:\otp\ozel-vapur-tarife.json
+python ozel-vapur-uygula.py C:\otp\ozel-vapur-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
+```
+
+Beslemedeki iki özel işletmecinin seferleri İBB'nin eski verisindendi: Dentur'un
+"Üsküdar–Kabataş" seferleri Beşiktaş'a gidiyordu, kalkmış hatlar (Eminönü–Bebek, Avcılar–
+Adalar, Kabataş–Kadıköy, Turyol'un Beşiktaş–Kadıköy'ü) duruyordu. İndirme betiği iki
+sitenin tarifesini okuyor (bu bilgisayarda çalışmalı), uygulama betiği iki işletmecinin
+bütün eski hat ve seferlerini silip yenilerini kuruyor (Şehir Hatları'na ve İDO'ya
+dokunmuyor):
+
+- **Turyol** (`turyol.com/Home/Tarifeler`) yalnız "şu iskeleden şu iskeleye kalkış
+  saatleri" veriyor. Seferler betikteki güzergâhlar üzerinde kuruluyor (Üsküdar–Karaköy–
+  Eminönü, Kadıköy Yeni–Karaköy–Eminönü, Eminönü–Karaköy–Kadıköy–Adalar…): bir iskelenin
+  kalkışı, önceki iskeleden kalkan vapurun beklenen varışına en yakın saatle eşleniyor
+  (Karaköy 07:15 → Eminönü 07:25 → Kadıköy). Kalkışı olmayan iskelelerin saati yol
+  süresinden; satılmayan biniş/iniş (Eminönü'nden Karaköy'e bilet yok) GTFS'te kapalı.
+  Turyol yeni bir iskele çifti eklerse ve güzergâhlara oturmazsa çıktıda uyarı çıkar,
+  sefer doğrudan sefer olarak eklenir; `TURYOL_GUZERGAH`'a eklemek gerekir.
+- **Dentur** (`denturavrasya.com/tr-TR/hatlarimiz/…`): her hat sayfasındaki tarife elle
+  yazılmış bir HTML parçası ve sayfaların biçimi farklı (kalkış tablosu, saat listesi,
+  iskele sütunlu Adalar tablosu, alt alta Yalova seferi). Biçim değişirse indirme betiği
+  o hattı boş bulup **durur**. "Arası sürekli sefer" aralıkları 10 dakikada bir sayılıyor
+  (site sıklık vermiyor). Yalova grafiğin dışında: Yalova–Adalar seferinin İstanbul kısmı
+  alınıyor.
+- Aynı saatlerle birden çok gün türünde çalışan seferler tek sefer (birleşik gün maskesi).
+
+Ardından `durak-birlestir.py` ve `siklik-cikar.py` (yenile.ps1 zaten sırayla yapıyor).
+Yaz/kış tarifesi değişince yeniden indirip uygulamak yeter.
+
 ## 4e. Basamaksız (tekerlekli sandalye) arama
 
 ```powershell
@@ -313,15 +354,22 @@ python marmaray-duzelt.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 ```
 
 İBB verisinde Marmaray üç hat olarak duruyor: tam hat (Halkalı–Gebze, 43 istasyon,
-15 dakikada bir), kısa dönüş (8 dakikada bir) ve Halkalı–Bahçeşehir banliyösü.
-Sıklıkların ikisi de TCDD'nin yayımladığı değerlerle uyuşuyor; kusur kapsamda:
-kısa dönüş hattı veride yalnızca tünelin yedi istasyonunu (Zeytinburnu–Söğütlüçeşme)
-kapsıyor, gerçekte **Ataköy–Pendik** arasında çalışıyor.
+15 dakikada bir), kısa dönüş (8 dakikada bir) ve Halkalı–Bahçeşehir banliyösü. İki
+kusur düzeltiliyor:
 
-Bu yüzden Bakırköy'de ya da Maltepe'de uygulama 15 dakikada bir tren gösteriyordu;
-gerçekte iki hat üst üste binip 5-6 dakikaya iniyor. Betik kısa dönüş seferlerini tam
-hattın kendi istasyon sırası ve kendi geçiş süreleriyle iki uçtan uzatıyor — saatler
-uydurulmuyor, tam hattın seferinden alınıyor. Sonuç: 7 → 25 istasyon.
+- **Kapsam:** kısa dönüş hattı veride yalnızca tünelin yedi istasyonunu (Zeytinburnu–
+  Söğütlüçeşme) kapsıyor, gerçekte **Ataköy–Pendik** arasında çalışıyor. Betik seferleri
+  tam hattın kendi istasyon sırası ve geçiş süreleriyle iki uçtan uzatıyor — saatler
+  uydurulmuyor, tam hattın seferinden alınıyor. Sonuç: 7 → 25 istasyon.
+- **Sıklık:** TCDD'nin günlük tren saatleri sayfası "Gebze–Halkalı 15 dk, Ataköy–Pendik
+  8 dk" diyor; aynı sayfadaki günlük sefer sayıları (Gebze-Halkalı-Gebze 148, Pendik-
+  Ataköy-Pendik 139) ise kısa dönüş trenlerinin de ~15 dakikada bir kalktığını gösteriyor
+  (8 dakikada bir olsa ~270 sefer olurdu). "8 dk", Ataköy–Pendik arasında iki hattın
+  birlikte verdiği aralık. Betik kısa dönüşü 15 dakikaya çekiyor ve uzun trenlerin
+  arasına yerleştiriyor (Sirkeci'de 7,5 dakika arayla). Veride 8 dakikalık sıklık
+  Ataköy–Pendik arasında treni olduğundan iki kat sık gösteriyordu.
+
+İstasyon saatleri yayımlanmadığı için Marmaray saatleri hâlâ yaklaşık (sıklıktan).
 
 ## 6. Hat çizgileri — OSM'den ray geometrisi
 

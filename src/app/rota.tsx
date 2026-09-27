@@ -424,8 +424,8 @@ export default function RotaEkrani() {
         })}
         {guzergahlar && guzergahlar.length > 0 && (
           <Text style={s.not}>
-            Otobüs, Metrobüs, minibüs, metro, Marmaray, tramvay, füniküler ve vapur dahildir. Marmaray ile Turyol,
-            Dentur ve İDO vapurlarının saatleri İBB'nin eski verisinden geldiği için yaklaşıktır.
+            Otobüs, Metrobüs, minibüs, metro, Marmaray, tramvay, füniküler ve vapur dahildir. Marmaray'ın ve İDO
+            vapurlarının saatleri yaklaşıktır.
           </Text>
         )}
       </ScrollView>

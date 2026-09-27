@@ -161,9 +161,9 @@ export default function AyarlarEkrani() {
         ))}
         <Text style={s.aciklama}>
           Otobüs ve Metrobüs tarifesi İETT'nin güncel verisinden geliyor. Metro, tramvay, füniküler ve teleferik
-          saatleri Metro İstanbul'un, Şehir Hatları vapurları Şehir Hatları'nın güncel tarifesinden. Marmaray ile
-          Turyol, Dentur ve İDO vapurlarının saatleri İBB'nin artık güncellemediği veriden geldiği için güncel döneme
-          kaydırıldı; bunlar yaklaşıktır.
+          saatleri Metro İstanbul'un, vapurlar Şehir Hatları'nın, Turyol'un ve Dentur'un kendi güncel tarifesinden.
+          Marmaray'ın saatleri TCDD'nin yayımladığı sıklıktan kuruluyor, İDO'nunkiler İBB'nin artık güncellemediği
+          veriden geliyor; bu ikisi yaklaşıktır.
         </Text>
       </View>
 

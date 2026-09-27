@@ -1,17 +1,22 @@
-# Marmaray'ın kısa dönüş hattını gerçek kapsamına genişletir.
+# Marmaray'ın kısa dönüş hattını gerçek kapsamına ve sıklığına getirir.
 #
 # Sorun: İBB verisinde Marmaray üç hat olarak duruyor —
 #   Marmaray   Halkalı–Gebze, 43 istasyon, 15 dakikada bir
 #   Marmaray1  Zeytinburnu–Söğütlüçeşme, 7 istasyon, 8 dakikada bir
 #   Marmaray2  Halkalı–Bahçeşehir banliyösü
 #
-# 15 ve 8 dakikalık sıklıkların ikisi de doğru (TCDD'nin yayımladığı değerler), ama
-# kısa dönüş hattı gerçekte **Ataköy–Pendik** arasında çalışıyor, tünelin yedi
-# istasyonu arasında değil. Bu yüzden Bakırköy'de ya da Maltepe'de uygulama 15
-# dakikada bir tren gösteriyor; gerçekte iki hat üst üste binip 5-6 dakikaya iniyor.
+# 1) Kapsam: kısa dönüş hattı gerçekte **Ataköy–Pendik** arasında çalışıyor, tünelin yedi
+#    istasyonu arasında değil. Seferler tam hattın kendi istasyon sırası ve geçiş süreleriyle
+#    iki uçtan uzatılıyor; saatler uydurulmuyor, tam hattın seferinden alınıyor.
 #
-# Çözüm: Marmaray1'in seferlerini tam hattın kendi istasyon sırası ve kendi geçiş
-# süreleriyle iki uçtan uzatmak. Saatler uydurulmuyor, tam hattın seferinden alınıyor.
+# 2) Sıklık: TCDD'nin günlük tren saatleri sayfası "Gebze–Halkalı 15 dk, Ataköy–Pendik 8 dk"
+#    diyor ama aynı sayfada günlük sefer sayıları da var: Gebze-Halkalı-Gebze 148, Pendik-
+#    Ataköy-Pendik 139. 148 sefer iki yönde 15 dakikada bir ~18,5 saat demek; 139 da aynı
+#    hesapla kısa dönüş trenlerinin de ~15 dakikada bir kalktığını gösteriyor (8 dakikada bir
+#    olsa günde ~270 sefer olurdu). "8 dk", Ataköy–Pendik arasında iki hattın birlikte verdiği
+#    aralık: kısa dönüş trenleri uzun trenlerin arasına, yarım aralık kaydırılarak giriyor.
+#    İBB verisindeki 480 sn bu yüzden 900 sn'ye çekiliyor ve başlangıç saati, ortak bir
+#    istasyonda (Sirkeci) uzun trenlerle yarım aralık fark olacak biçimde kaydırılıyor.
 #
 # Kullanım:
 #   python marmaray-duzelt.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
@@ -23,6 +28,9 @@ KISA_HAT = 'MARMARAY1'
 # Kısa dönüş hattının gerçek uçları.
 BATI_UC = 'Ataköy'
 DOGU_UC = 'Pendik'
+# Kısa dönüş trenlerinin kendi sıklığı ve uzun trenlerle hizalandığı istasyon (bkz. 2).
+KISA_SIKLIK = 900
+ORTAK_ISTASYON = 'Sirkeci'
 
 
 def sn(t):
@@ -56,6 +64,53 @@ def zip_yaz(yol, tablolar, alanlar):
             w.writerows(satirlar)
             z.writestr(ad, tampon.getvalue())
     shutil.move(gecici, yol)
+
+
+def siklik_duzelt(tablolar, tamSeferler, kisaSeferler, saatler, durakAd, adlar):
+    """Kısa dönüş trenlerini 15 dakikaya çekip uzun trenlerin arasına yerleştirir (bkz. 2)."""
+    siklik = tablolar.get('frequencies.txt')
+    if not siklik:
+        return
+    satirlar = collections.defaultdict(list)
+    for f in siklik:
+        satirlar[f['trip_id']].append(f)
+
+    def yon_ve_faz(sefer, satir):
+        """(doğuya mı, ORTAK_ISTASYON'dan geçişin aralığa göre fazı sn) ya da None."""
+        liste = saatler.get(sefer['trip_id'], [])
+        ad = [durakAd.get(r['stop_id'], '') for r in liste]
+        if len(liste) < 2 or ORTAK_ISTASYON not in ad or ad[0] not in adlar or ad[-1] not in adlar:
+            return None
+        dogu = adlar.index(ad[0]) < adlar.index(ad[-1])
+        fark = sn(liste[ad.index(ORTAK_ISTASYON)]['departure_time']) - sn(liste[0]['departure_time'])
+        return dogu, (sn(satir['start_time']) + fark) % KISA_SIKLIK
+
+    uzunFaz = {}
+    for t in tamSeferler:
+        for f in satirlar.get(t['trip_id'], []):
+            if int(f['headway_secs']) != KISA_SIKLIK:
+                continue
+            sonuc = yon_ve_faz(t, f)
+            if sonuc:
+                uzunFaz.setdefault(sonuc[0], sonuc[1])
+
+    for t in kisaSeferler:
+        for f in satirlar.get(t['trip_id'], []):
+            sonuc = yon_ve_faz(t, f)
+            if not sonuc or sonuc[0] not in uzunFaz:
+                continue
+            hedef = (uzunFaz[sonuc[0]] + KISA_SIKLIK // 2) % KISA_SIKLIK
+            kaydir = (hedef - sonuc[1]) % KISA_SIKLIK
+            if kaydir > KISA_SIKLIK // 2:
+                kaydir -= KISA_SIKLIK
+            eski = f"{f['start_time'][:5]}–{f['end_time'][:5]} / {int(f['headway_secs']) // 60} dk"
+            kaydir = round((sn(f['start_time']) + kaydir) / 60) * 60 - sn(f['start_time'])  # tam dakikaya
+            f['start_time'] = saat(max(0, sn(f['start_time']) + kaydir))
+            f['end_time'] = saat(sn(f['end_time']) + kaydir)
+            f['headway_secs'] = str(KISA_SIKLIK)
+            print(f"  {t['trip_id']} ({'doğuya' if sonuc[0] else 'batıya'}): {eski} → "
+                  f"{f['start_time'][:5]}–{f['end_time'][:5]} / {KISA_SIKLIK // 60} dk "
+                  f"({ORTAK_ISTASYON}'de uzun trenlerle {KISA_SIKLIK // 120} dk arayla)")
 
 
 def main(zip_yolu):
@@ -183,9 +238,11 @@ def main(zip_yolu):
         yeniSaatler.extend(saatler.get(t['trip_id'], []))
     tablolar['stop_times.txt'] = yeniSaatler
 
+    siklik_duzelt(tablolar, rotaSefer[tam['route_id']], rotaSefer[kisa['route_id']], saatler, durakAd, adlar)
+
     zip_yaz(zip_yolu, tablolar, alanlar)
     print(f'\n{uzatilan} sefer uzatıldı, {yeniDurak} sefer-durak satırı eklendi.')
-    print(f'{KISA_HAT} artık {BATI_UC}–{DOGU_UC} arasında çalışıyor.')
+    print(f'{KISA_HAT} artık {BATI_UC}–{DOGU_UC} arasında, {KISA_SIKLIK // 60} dakikada bir çalışıyor.')
 
 
 main(sys.argv[1] if len(sys.argv) > 1 else r'C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip')
