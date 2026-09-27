@@ -422,11 +422,47 @@ export function konumAkisi(eslesenler, simdi = new Date()) {
   return FeedMessage.encode(FeedMessage.create({ header: baslik(simdi), entity })).finish();
 }
 
+/** Öğrenilen varışlarla en çok kaç durak ileriye yazılır; ötesine OTP son gecikmeyi yayar. */
+export const ILERI_DURAK = 40;
+
 /**
- * Sefer güncellemeleri akışı: aracın bulunduğu duraktaki gecikme.
- * OTP bu gecikmeyi seferin geri kalanına kendisi yayıyor, o yüzden tek durak yeterli.
+ * Bir aracın sefer güncellemesindeki durak satırları.
+ *
+ * Varsayılan (sabit gecikme): yalnız sıradaki durak ve gecikmesi; OTP bu gecikmeyi
+ * seferin geri kalanına kendisi yayıyor. İETT tarifesinde ara duraklara süre eşit
+ * dağıtıldığı için bu, trafikli caddede fazla iyimser, boş yolda fazla kötümser.
+ *
+ * `varislar` verilirse (segment.mjs: öğrenilen yol süreleriyle her durağa tahmini varış),
+ * sıradaki duraktan itibaren her durağa mutlak varış anı yazılıyor. Öğrenilmemiş aralıklarda
+ * varislar zaten tarifedeki süreyi kullanıyor. Anlar azalmayacak şekilde düzeltiliyor
+ * (OTP azalan saatleri reddediyor).
  */
-export function gecikmeAkisi(eslesenler, simdi = new Date()) {
+export function durakGuncellemeleri(e, varislar = null) {
+  const ss = TripUpdate.StopTimeUpdate.ScheduleRelationship.SCHEDULED;
+  if (varislar?.length && varislar.some((v) => v.ogrenilen)) {
+    let onceki = -Infinity;
+    return varislar.slice(0, ILERI_DURAK).map((v) => {
+      const an = Math.max(Math.round(v.an), onceki);
+      onceki = an;
+      return { stopSequence: v.sira, arrival: { time: an }, departure: { time: an }, scheduleRelationship: ss };
+    });
+  }
+  return [
+    {
+      stopSequence: e.sira,
+      stopId: e.durakId,
+      arrival: { delay: e.gecikme },
+      departure: { delay: e.gecikme },
+      scheduleRelationship: ss,
+    },
+  ];
+}
+
+/**
+ * Sefer güncellemeleri akışı.
+ * @param varisBul (e) → segment.varislar(e); null ise sabit gecikme (bkz. durakGuncellemeleri).
+ */
+export function gecikmeAkisi(eslesenler, simdi = new Date(), varisBul = null) {
   // Aynı sefere birden çok araç düşerse en ileri olanı alıyoruz: tarifeyi o belirler.
   const enIyi = new Map();
   for (const e of eslesenler) {
@@ -439,15 +475,7 @@ export function gecikmeAkisi(eslesenler, simdi = new Date()) {
     tripUpdate: TripUpdate.create({
       trip: seferTanimi(e),
       vehicle: { id: e.kapiNo, label: e.kapiNo },
-      stopTimeUpdate: [
-        {
-          stopSequence: e.sira,
-          stopId: e.durakId,
-          arrival: { delay: e.gecikme },
-          departure: { delay: e.gecikme },
-          scheduleRelationship: TripUpdate.StopTimeUpdate.ScheduleRelationship.SCHEDULED,
-        },
-      ],
+      stopTimeUpdate: durakGuncellemeleri(e, varisBul ? varisBul(e) : null),
       timestamp: e.damga,
     }),
   }));

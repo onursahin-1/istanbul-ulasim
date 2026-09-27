@@ -16,6 +16,7 @@
 //   BUTCE        İBB'ye saatte en fazla istek (80; İBB'nin sınırı 100)
 //   NABIZ        filo konumu tazeleme aralığı, saniye (120)
 //   OGRENILEN    öğrenilenlerin dosyası (kopru\ogrenilen.json)
+//   TAHMIN       varış tahmini: ogrenilen | sabit (boş: ölçüme göre kendiliğinden; /durum'da `tahmin`)
 //
 // Uç noktalar:
 //   /arac-konumlari        GTFS-RT VehiclePosition  → OTP VEHICLE_POSITIONS
@@ -93,6 +94,14 @@ if (existsSync(SEGMENT_DOSYASI)) {
   }
 }
 const kalite = new KaliteOlcer(tarife, segment);
+
+/** Canlı akışa hangi varış tahmini: TAHMIN ortam değişkeni ya da ölçüme göre kendiliğinden. */
+function tahminKarari() {
+  const elle = (process.env.TAHMIN ?? '').toLowerCase();
+  if (elle === 'ogrenilen') return { ogrenilen: true, neden: 'TAHMIN=ogrenilen (elle)' };
+  if (elle === 'sabit') return { ogrenilen: false, neden: 'TAHMIN=sabit (elle)' };
+  return kalite.karar();
+}
 const kaliteyiYaz = (veri = kalite.disaAktar()) => {
   if (!veri.gun) return;
   try {
@@ -141,6 +150,8 @@ const durum = {
   duyuru: null,
   kalite: null,
   segment: null,
+  /** Canlı akıştaki varış tahmini yöntemi ve nedeni. */
+  tahmin: null,
   hata: null,
 };
 
@@ -212,7 +223,11 @@ async function nabiz() {
     const { eslesenler, sayac } = araclariEslestir(tarife, araclar, hafiza, tarayici, simdi, iz);
 
     konumlar = konumAkisi(eslesenler, simdi);
-    gecikmeler = gecikmeAkisi(eslesenler, simdi);
+    // Varış tahmini: öğrenilen yol süreleri, ölçüm onları sabit gecikmeden iyi bulduysa
+    // (kalite.mjs, yontemKarari). TAHMIN=ogrenilen|sabit ile elle de seçilebilir.
+    const karar = tahminKarari();
+    gecikmeler = gecikmeAkisi(eslesenler, simdi, karar.ogrenilen ? (e) => segment.varislar(e) : null);
+    durum.tahmin = karar;
     sonBasari = simdi.getTime();
     segment.gozlem(eslesenler, simdi);
     kalite.gozlem(eslesenler, simdi);

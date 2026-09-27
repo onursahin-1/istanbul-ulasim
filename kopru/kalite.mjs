@@ -67,6 +67,36 @@ export function ozetYaz(o) {
   };
 }
 
+/** Öğrenilen yöntemin karşılaştırıldığı ufuk: 4 durak sonrası (UFUKLAR[1]). */
+const KARAR_UFKU = 3;
+/** Karar için bu ufukta en az bu kadar sonuçlanmış tahmin. */
+export const KARAR_EN_AZ = 30;
+
+/**
+ * Canlı akışa hangi tahmin girsin: öğrenilen yol süreleri ancak ölçümde sabit gecikmeden
+ * daha iyiyse. İki ufka bakılıyor: 4 durak sonrası belirgin iyi (ortalama mutlak hata
+ * küçük), 1 durak sonrası belirgin kötü değil (en çok %10 ve 15 sn kötü).
+ *
+ * @returns {{ ogrenilen: boolean, neden: string }}
+ */
+export function yontemKarari(yeni, ogrenilen, yakinYeni, yakinOgrenilen) {
+  if (!ogrenilen?.n || ogrenilen.n < KARAR_EN_AZ) {
+    return { ogrenilen: false, neden: `ölçüm az (${ogrenilen?.n ?? 0}/${KARAR_EN_AZ})` };
+  }
+  const ort = (o) => o.mutlak / o.n;
+  const uzakO = ort(ogrenilen);
+  const uzakY = ort(yeni);
+  if (uzakO >= uzakY) return { ogrenilen: false, neden: `4 durakta öğrenilen ${Math.round(uzakO)} sn, sabit ${Math.round(uzakY)} sn` };
+  if (yakinOgrenilen?.n && yakinYeni?.n) {
+    const yO = ort(yakinOgrenilen);
+    const yY = ort(yakinYeni);
+    if (yO > yY * 1.1 && yO - yY > 15) {
+      return { ogrenilen: false, neden: `1 durakta öğrenilen ${Math.round(yO)} sn, sabit ${Math.round(yY)} sn` };
+    }
+  }
+  return { ogrenilen: true, neden: `4 durakta öğrenilen ${Math.round(uzakO)} sn, sabit ${Math.round(uzakY)} sn` };
+}
+
 export class KaliteOlcer {
   constructor(tarife, ogrenici = null) {
     this.tarife = tarife;
@@ -78,6 +108,8 @@ export class KaliteOlcer {
   }
 
   sifirla(gun = null) {
+    // Gün dönünce yeni günün ölçümü yetene kadar dünün kararı geçerli.
+    if (this.yeni) this.oncekiKarar = this.karar();
     this.gun = gun;
     this.baslangic = new Date().toISOString();
     this.yeni = Object.fromEntries(UFUKLAR.map((u) => [u, bosOzet()]));
@@ -162,6 +194,13 @@ export class KaliteOlcer {
     for (const [kapi, k] of this.araclar) if (!gorulen.has(kapi) && k.an < sinir) this.araclar.delete(kapi);
   }
 
+  /** Canlı akışa öğrenilen sürelerle mi yazılsın (bkz. yontemKarari). */
+  karar() {
+    const bugun = yontemKarari(this.yeni[KARAR_UFKU], this.ogrenilen[KARAR_UFKU], this.yeni[0], this.ogrenilen[0]);
+    if (bugun.ogrenilen || (this.ogrenilen[KARAR_UFKU]?.n ?? 0) >= KARAR_EN_AZ || !this.oncekiKarar) return bugun;
+    return { ...this.oncekiKarar, neden: `dünkü ölçüme göre (${this.oncekiKarar.neden})` };
+  }
+
   rapor() {
     // Henüz sonuçlanmamış tahminler. Ölçüm yeniyken yalnız çabuk gelen otobüslerin
     // tahmini sonuçlanmış oluyor; uzak ufuklarda sonuç erken gelmeye kayık görünür.
@@ -183,6 +222,8 @@ export class KaliteOlcer {
       // hata = gerçek varış − tahmin. + : tahminden geç geldi, − : erken geldi.
       varisHatasi: ufuklar,
       gecikmeDagilimi: { yeni: ozetYaz(this.gecikme.yeni), eski: ozetYaz(this.gecikme.eski) },
+      // Canlı akışa hangi yöntem giriyor (sunucu.mjs, TAHMIN boşken).
+      karar: this.karar(),
     };
   }
 
