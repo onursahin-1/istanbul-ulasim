@@ -18,6 +18,7 @@ python metro-tarife-uygula.py C:\otp\metro-tarife.json C:\otp\istanbul\istanbul-
 node vapur-tarife-indir.mjs C:\otp\vapur-tarife.json            # yalnız senin bilgisayarında (<1 dk)
 python vapur-tarife-uygula.py C:\otp\vapur-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python erisim-isaretle.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip C:\otp\istanbul\istanbul-iett-gtfs.zip
+python ozel-gun-takvimi.py ..\assets\veri\ozel-gunler.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip C:\otp\istanbul\istanbul-iett-gtfs.zip
 python cizgi-ekle.py C:\otp\osm-hatlar.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python hat-adi-duzelt.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python durak-birlestir.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
@@ -275,6 +276,35 @@ bulunamıyor, Bağcılar'dan Taksim'e 15 km, 3 saatlik yürüyüş öneriliyordu
    dokunulmuyor. Betik İETT'nin büyük dosyalarını belleğe almadan kopyalıyor.
 
 Eğim hesaba katılmıyor: OTP'ye yükseklik verisi verilmediği için yokuşlar düz sayılıyor.
+
+## 4f. Resmî tatiller ve bayramlar
+
+```powershell
+python ozel-gun-takvimi.py ..\assets\veri\ozel-gunler.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip C:\otp\istanbul\istanbul-iett-gtfs.zip
+```
+
+Beslemelerde tatil yok; 29 Ekim olağan bir perşembe gibi görünüyordu. Tatil günleri
+`assets/veri/ozel-gunler.json`'da; betik her tatili o gün uygulanan tarifeye (pazar ya da
+cumartesi) çeviriyor: tatilin hafta gününde çalışıp hedef günde çalışmayan servisler o gün
+çıkarılıyor, hedef günde çalışanlar ekleniyor (`calendar_dates.txt`). Yeniden
+çalıştırılabilir; İETT'nin büyük dosyaları belleğe alınmadan kopyalanıyor.
+
+Aynı dosyayı uygulama da okuyor: o gün aranan rotada ücretsiz hatlar 0 ₺ görünüyor ve
+listenin üstünde bir not çıkıyor. Kurallar (2026'daki duyurulara göre):
+
+- **Tarife:** millî bayramlarda ve bayramın ilk gününde pazar, bayramın öbür günlerinde
+  cumartesi (İETT 2026 Kurban Bayramı duyurusu). Şehir Hatları'nın tablolarında zaten
+  "Pazar ve Resmî Tatil Günleri" yazıyor.
+- **İBB hatları** (İETT, Metro İstanbul, Şehir Hatları): dinî ve millî bayramlarda
+  kişiselleştirilmiş İstanbulkart'la ücretsiz; Adalar'daki İETT hatları, T2, Tünel,
+  SG-1/SG-2 ve 139/139A hariç. 1 Ocak, 1 Mayıs ve 15 Temmuz'da ücretli.
+- **TCDD** (Marmaray, T6, M11): Cumhurbaşkanı kararıyla millî bayramlarda, 1 Mayıs'ta,
+  15 Temmuz'da ve bayramlarda ücretsiz.
+- Minibüs, dolmuş, Turyol, Dentur, İDO ücretli.
+
+Bu kararlar her yıl ayrıca duyuruluyor; İETT her tatil için hangi tarifeyi uygulayacağını
+da duyuruyor. Duyuru farklıysa dosyadaki o günü düzeltip betiği yeniden çalıştır, sonra OTP
+grafiğini derle ve uygulamayı yenile. Arife günleri (öğleden sonra yarım gün) işlenmiyor.
 
 ## 5. Marmaray'ın kısa dönüş hattı
 

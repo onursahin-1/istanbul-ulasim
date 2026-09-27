@@ -213,3 +213,39 @@ describe('gösterim', () => {
     assert.equal(ucretKisa(yolculukUcreti([yuru], 'tam')), 'Ücretsiz');
   });
 });
+
+describe('yolculukUcreti: özel günler', () => {
+  const gunler = [
+    { tarih: '2026-10-29', ad: 'Cumhuriyet Bayramı', tarife: 'pazar' as const, ucretsiz: { ibb: true, tcdd: true } },
+  ];
+  const bayramda = '2026-10-29T10:00:00+03:00';
+
+  it('İBB ve TCDD hatları ücretsiz, kişiselleştirilmiş kart notu', () => {
+    const u = yolculukUcreti(
+      [bacak({ saat: bayramda, isletmeci: 'IETT' }), yuru, bacak({ saat: bayramda, kod: 'Marmaray', mod: 'RAIL', isletmeci: 'TCDD' })],
+      'tam',
+      gunler,
+    );
+    assert.equal(u.toplam, 0);
+    assert.equal(u.ucretsizGun, 'Cumhuriyet Bayramı');
+    assert.equal(u.kisiselKart, true);
+    assert.equal(ucretKisa(u), 'Ücretsiz');
+    assert.equal(u.bacaklar[0]?.aciklama, 'Ücretsiz · Cumhuriyet Bayramı');
+  });
+
+  it('ücretsiz bacak aktarma sırasını ilerletmez: sonraki minibüs ilk biniş sayılır', () => {
+    const u = yolculukUcreti(
+      [bacak({ saat: bayramda, isletmeci: 'IETT' }), bacak({ saat: bayramda, kod: 'X', isletmeci: 'Minibus' })],
+      'tam',
+      gunler,
+    );
+    assert.equal(u.bacaklar[1]?.etiket, 'İlk biniş');
+    assert.equal(u.toplam, 4620);
+  });
+
+  it('olağan günde değişen bir şey yok', () => {
+    const u = yolculukUcreti([bacak({ isletmeci: 'IETT' })], 'tam', gunler);
+    assert.equal(u.toplam, 4620);
+    assert.equal(u.ucretsizGun, null);
+  });
+});

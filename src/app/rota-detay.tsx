@@ -32,6 +32,7 @@ import { bacakDuraklari, hatKalkislariGetir, kopruyeIlgiBildir, seferAraclariGet
 import { guzergahGetir } from '@/lib/secim';
 import { seferBilgisi, sikliktanYazi, type SeferBilgisi } from '@/lib/sefer';
 import { aracAdi, baslikYap, haritaRengi, hatEtiketi, hatRengi, useTema, type Tema } from '@/lib/tema';
+import { OZEL_GUNLER } from '@/lib/ozel-gun-verisi';
 import { TARIFE_TARIHI, UCRET_ADLARI, ucretKisa, ucretYaz, yolculukUcreti } from '@/lib/ucret';
 import {
   adimlariKur,
@@ -115,7 +116,7 @@ export default function RotaDetayEkrani() {
     [durum, adimlar],
   );
 
-  const ucret = useMemo(() => yolculukUcreti(bacaklar, ucretTuru), [bacaklar, ucretTuru]);
+  const ucret = useMemo(() => yolculukUcreti(bacaklar, ucretTuru, OZEL_GUNLER), [bacaklar, ucretTuru]);
   // Yürüme bacaklarının adım adım tarifi; toplu taşıma bacaklarında boş kalır.
   const yolTarifleri = useMemo(() => bacaklar.map((b) => (b.transitLeg ? [] : adimlariYaz(b.steps))), [bacaklar]);
 
@@ -757,7 +758,7 @@ export default function RotaDetayEkrani() {
                 </View>
               </View>
 
-              {ucret.toplam > 0 && (
+              {(ucret.toplam > 0 || ucret.ucretsizGun) && (
                 <View style={s.ucretKutusu}>
                   <View style={s.ucretUst}>
                     <Text style={s.ucretBaslik}>İstanbulkart ücreti</Text>
@@ -899,6 +900,13 @@ function OtobusKutusu({
 /** Ücret kutusunun altındaki açıklama: tarife, tahmin payı ve gece tarifesi uyarısı. */
 function ucretNotu(ucret: ReturnType<typeof yolculukUcreti>, tur: keyof typeof UCRET_ADLARI): string {
   const parcalar = [`${UCRET_ADLARI[tur]} · ${TARIFE_TARIHI} tarifesi`];
+  if (ucret.ucretsizGun) {
+    parcalar.push(
+      ucret.kisiselKart
+        ? `${ucret.ucretsizGun}: İBB hatları kişiselleştirilmiş İstanbulkart'la ücretsiz`
+        : `${ucret.ucretsizGun}: ücretsiz`,
+    );
+  }
   if (ucret.geceTarifesi) parcalar.push('Gece tarifesi (çift ücret) uygulandı');
   if (ucret.yeniYolculuk > 0) parcalar.push('120 dakikalık aktarma süresi dolduğu için ücret yeniden başladı');
   if (ucret.yaklasik) parcalar.push('Vapur ücreti hatta göre değişir; tutar yaklaşıktır');

@@ -1,0 +1,19 @@
+{
+  "aciklama": "Resmî tatiller ve bayramlar. tarife: o gün hangi günün tarifesi uygulanır (İETT'nin duyurularına göre: millî bayramlarda ve bayramın ilk gününde pazar, bayramın öbür günlerinde cumartesi). ucretsiz.ibb: İETT, Metro İstanbul ve Şehir Hatları kişiselleştirilmiş İstanbulkart'la ücretsiz (İBB Meclisi kararı: dinî ve millî bayramlar). ucretsiz.tcdd: Marmaray, T6 ve M11 Cumhurbaşkanı kararıyla ücretsiz. Her yıl ayrıca duyuruluyor; duyuru çıkınca bu dosya güncellenmeli (veri/README.md, 4f).",
+  "guncellendi": "2026-09-27",
+  "gunler": [
+    { "tarih": "2026-10-29", "ad": "Cumhuriyet Bayramı", "tarife": "pazar", "ucretsiz": { "ibb": true, "tcdd": true } },
+    { "tarih": "2027-01-01", "ad": "Yılbaşı", "tarife": "pazar", "ucretsiz": { "ibb": false, "tcdd": false } },
+    { "tarih": "2027-03-09", "ad": "Ramazan Bayramı 1. gün", "tarife": "pazar", "ucretsiz": { "ibb": true, "tcdd": true } },
+    { "tarih": "2027-03-10", "ad": "Ramazan Bayramı 2. gün", "tarife": "cumartesi", "ucretsiz": { "ibb": true, "tcdd": true } },
+    { "tarih": "2027-03-11", "ad": "Ramazan Bayramı 3. gün", "tarife": "cumartesi", "ucretsiz": { "ibb": true, "tcdd": true } },
+    { "tarih": "2027-04-23", "ad": "Ulusal Egemenlik ve Çocuk Bayramı", "tarife": "pazar", "ucretsiz": { "ibb": true, "tcdd": true } },
+    { "tarih": "2027-05-01", "ad": "Emek ve Dayanışma Günü", "tarife": "pazar", "ucretsiz": { "ibb": false, "tcdd": true } },
+    { "tarih": "2027-05-16", "ad": "Kurban Bayramı 1. gün", "tarife": "pazar", "ucretsiz": { "ibb": true, "tcdd": true } },
+    { "tarih": "2027-05-17", "ad": "Kurban Bayramı 2. gün", "tarife": "cumartesi", "ucretsiz": { "ibb": true, "tcdd": true } },
+    { "tarih": "2027-05-18", "ad": "Kurban Bayramı 3. gün", "tarife": "cumartesi", "ucretsiz": { "ibb": true, "tcdd": true } },
+    { "tarih": "2027-05-19", "ad": "Kurban Bayramı 4. gün · 19 Mayıs", "tarife": "cumartesi", "ucretsiz": { "ibb": true, "tcdd": true } },
+    { "tarih": "2027-07-15", "ad": "Demokrasi ve Millî Birlik Günü", "tarife": "pazar", "ucretsiz": { "ibb": false, "tcdd": true } },
+    { "tarih": "2027-08-30", "ad": "Zafer Bayramı", "tarife": "pazar", "ucretsiz": { "ibb": true, "tcdd": true } }
+  ]
+}

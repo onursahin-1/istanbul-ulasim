@@ -15,6 +15,7 @@
 // ondalık yuvarlama hatası birikmez.
 
 import { bacakDuraklari } from './bacak';
+import { hatUcretsizMi, ozelGunBul, type OzelGun } from './ozel-gunler';
 import { metrobusMu } from './metin';
 import { vapurUcreti } from './vapur';
 import type { Bacak } from './otp';
@@ -143,6 +144,10 @@ export type YolculukUcreti = {
   geceTarifesi: boolean;
   /** Aktarma penceresi dolduğu için ücretin baştan başladığı biniş sayısı. */
   yeniYolculuk: number;
+  /** Yolculuk ücretsiz bir özel güne denk geliyorsa o günün adı; en az bir bacak ücretsiz. */
+  ucretsizGun: string | null;
+  /** Ücretsizlik İBB hatlarından geliyorsa kişiselleştirilmiş İstanbulkart gerekir. */
+  kisiselKart: boolean;
 };
 
 /** Bacağın hangi tarifeye girdiğini belirler. */
@@ -160,8 +165,10 @@ function tarifeSec(bacak: Bacak): 'metrobus' | 'marmaray' | 'm11' | 'vapur' | 'n
  * Bir güzergâhın İstanbulkart ücretini hesaplar.
  * Yürüme bacakları atlanır, toplu taşıma bacakları sırayla ücretlendirilir.
  */
-export function yolculukUcreti(bacaklar: Bacak[], tur: UcretTuru): YolculukUcreti {
+export function yolculukUcreti(bacaklar: Bacak[], tur: UcretTuru, ozelGunler: OzelGun[] = []): YolculukUcreti {
   const sonuc: (BacakUcreti | null)[] = [];
+  let ucretsizGun: string | null = null;
+  let kisiselKart = false;
   let toplam = 0;
   let sira = 0;
   let pencereBasi: number | null = null;
@@ -177,6 +184,16 @@ export function yolculukUcreti(bacaklar: Bacak[], tur: UcretTuru): YolculukUcret
 
     const binisIso = bacak.start.estimated?.time ?? bacak.start.scheduledTime;
     const binisAn = Date.parse(binisIso ?? '');
+
+    // Bayram ve millî bayramlarda ücretsiz hatlar: biniş sayılmaz, aktarma merdivenine girmez.
+    const gun = ozelGunBul(ozelGunler, binisAn);
+    const ucretsiz = hatUcretsizMi(bacak.route, gun);
+    if (gun && ucretsiz) {
+      ucretsizGun = gun.ad;
+      kisiselKart = kisiselKart || ucretsiz === 'ibb';
+      sonuc.push({ tutar: 0, sira, etiket: 'Ücretsiz', yaklasik: false, aciklama: `Ücretsiz · ${gun.ad}` });
+      continue;
+    }
 
     // Aktarma penceresi dolduysa merdiven baştan başlar.
     if (pencereBasi != null && !Number.isNaN(binisAn) && binisAn - pencereBasi > AKTARMA_PENCERESI_DK * 60_000) {
@@ -244,7 +261,7 @@ export function yolculukUcreti(bacaklar: Bacak[], tur: UcretTuru): YolculukUcret
     sira += 1;
   }
 
-  return { toplam, bacaklar: sonuc, yaklasik, geceTarifesi: gece, yeniYolculuk };
+  return { toplam, bacaklar: sonuc, yaklasik, geceTarifesi: gece, yeniYolculuk, ucretsizGun, kisiselKart };
 }
 
 // ---------- gösterim ----------

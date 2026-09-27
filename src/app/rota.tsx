@@ -24,6 +24,8 @@ import { OtpHatasi, rotaPlanlaYedekli, type Guzergah, type Konum, type RotaTerci
 import { rayliMi, rotalariSirala } from '@/lib/rota-secimi';
 import { rotaSecenekleriKaydet, useKayitlar } from '@/lib/kayitlar';
 import { guzergahlariSakla } from '@/lib/secim';
+import { ozelGunBul, ozelGunNotu } from '@/lib/ozel-gunler';
+import { OZEL_GUNLER } from '@/lib/ozel-gun-verisi';
 import { ucretKisa, yolculukUcreti } from '@/lib/ucret';
 import { baslikYap, hatEtiketi, useTema, type Tema } from '@/lib/tema';
 import {
@@ -148,6 +150,11 @@ export default function RotaEkrani() {
   const [cevrimdisi, setCevrimdisi] = useState<number | null>(null);
   const [aramaSaati, setAramaSaati] = useState(istanbulSaat());
   const [zaman, setZaman] = useState<ZamanSecimi>(null);
+  // Aranan gün bayram ya da resmî tatilse: hangi tarife, neler ücretsiz.
+  const ozelGun = ozelGunBul(
+    OZEL_GUNLER,
+    zaman ? Date.parse(istanbulZamanYap(zaman.gun, zaman.saat, zaman.dakika)) : Date.now(),
+  );
   const [zamanAcik, setZamanAcik] = useState(false);
   const [taslak, setTaslak] = useState<{ tur: ZamanTuru; gun: number; saat: number; dakika: number }>({
     tur: 'kalkis',
@@ -257,7 +264,7 @@ export default function RotaEkrani() {
     const tablo: Record<number, string> = {};
     for (const { ana, sonrakiler } of gruplar) {
       for (const { g, sira } of [ana, ...sonrakiler]) {
-        tablo[sira] = ucretKisa(yolculukUcreti(g.legs, ucretTuru));
+        tablo[sira] = ucretKisa(yolculukUcreti(g.legs, ucretTuru, OZEL_GUNLER));
       }
     }
     return tablo;
@@ -337,6 +344,12 @@ export default function RotaEkrani() {
         {hata && <HataKutusu mesaj={hata} tekrarDene={() => ara()} />}
         {!hata && !guzergahlar && <Yukleniyor metin="En uygun rotalar hesaplanıyor…" />}
         {bilgi && <Text style={s.bilgi}>{bilgi}</Text>}
+        {ozelGun && (
+          <View style={s.ozelGun} accessible accessibilityLabel={ozelGunNotu(ozelGun)}>
+            <Ikon ad="flag-outline" boyut={16} renkKodu={tema.vurgu} />
+            <Text style={s.ozelGunYazi}>{ozelGunNotu(ozelGun)}</Text>
+          </View>
+        )}
         {gruplar.map(({ ana: { g, sira }, sonrakiler }, i) => {
           const ilkArac = g.legs.find((b) => b.transitLeg);
           const oneri = i === 0 && rotaSecenekleri.tercih === 'dengeli';
@@ -411,8 +424,8 @@ export default function RotaEkrani() {
         })}
         {guzergahlar && guzergahlar.length > 0 && (
           <Text style={s.not}>
-            Otobüs, Metrobüs, minibüs, metro, Marmaray, tramvay, füniküler ve vapur dahildir. Raylı sistem ve vapur
-            saatleri İBB'nin eski verisinden geldiği için yaklaşıktır.
+            Otobüs, Metrobüs, minibüs, metro, Marmaray, tramvay, füniküler ve vapur dahildir. Marmaray ile Turyol,
+            Dentur ve İDO vapurlarının saatleri İBB'nin eski verisinden geldiği için yaklaşıktır.
           </Text>
         )}
       </ScrollView>
@@ -646,6 +659,16 @@ const stiller = (t: Tema) =>
   filtreYazi: { fontSize: 12.5, fontWeight: '600', color: t.soluk },
   sonuclar: { padding: 12, gap: 10 },
   bilgi: { color: t.soluk, textAlign: 'center', padding: 20, lineHeight: 20 },
+  ozelGun: {
+    flexDirection: 'row',
+    gap: 9,
+    marginHorizontal: 14,
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: t.vurguAcik,
+  },
+  ozelGunYazi: { flex: 1, fontSize: 12.5, lineHeight: 18, color: t.yazi },
   kart: { backgroundColor: t.yuzey, borderRadius: 16, padding: 14, gap: 10, borderWidth: 1, borderColor: t.cizgi },
   kartOneri: { borderColor: t.vurgu, borderWidth: 2 },
   kartUst: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
