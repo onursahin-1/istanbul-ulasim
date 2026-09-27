@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Linking,
   Pressable,
   RefreshControl,
@@ -21,7 +22,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Ikon, useStiller } from '@/components/ulasim';
 import { hatirlaticiIptal, hatirlaticiSaati, hepsiniIptal, izinIste, useHatirlaticilar } from '@/lib/bildirim';
-import { ekranAcikKaydet, sesliTarifKaydet, ucretTuruKaydet, useKayitlar } from '@/lib/kayitlar';
+import { ekranAcikKaydet, sesCinsiyetiKaydet, sesliTarifKaydet, ucretTuruKaydet, useKayitlar } from '@/lib/kayitlar';
+import { konus, secilenSes, sesleriTazele } from '@/lib/konusma';
+import { sesAdi, sesKalitesi, type SesBilgisi, type SesCinsiyeti } from '@/lib/ses-secimi';
 import { TARIFE_TARIHI, UCRET_ACIKLAMALARI, UCRET_ADLARI, type UcretTuru } from '@/lib/ucret';
 import { OTP_ADRESI, sunucuBilgisiGetir, type SunucuBilgisi } from '@/lib/otp';
 import { poiBilgisi } from '@/lib/poi';
@@ -47,7 +50,28 @@ export default function AyarlarEkrani() {
   const [yenileniyor, setYenileniyor] = useState(false);
   const [sonYenileme, setSonYenileme] = useState<Date | null>(null);
   const { hatirlaticilar, izin, yenile: hatirlaticilariYenile } = useHatirlaticilar();
-  const { ucretTuru, ekranAcik, sesliTarif } = useKayitlar();
+  const { ucretTuru, ekranAcik, sesliTarif, sesCinsiyeti } = useKayitlar();
+  const [kullanilanSes, setKullanilanSes] = useState<{ ses: SesBilgisi; uydu: boolean } | null | undefined>(undefined);
+
+  // Hangi sesin kullanılacağı. Kullanıcı iOS ayarlarından yeni ses indirip dönünce tazelenir.
+  useEffect(() => {
+    let iptal = false;
+    const bak = () =>
+      secilenSes(sesCinsiyeti).then((s) => {
+        if (!iptal) setKullanilanSes(s);
+      });
+    bak();
+    const abone = AppState.addEventListener('change', (d) => {
+      if (d === 'active') {
+        sesleriTazele();
+        bak();
+      }
+    });
+    return () => {
+      iptal = true;
+      abone.remove();
+    };
+  }, [sesCinsiyeti]);
 
   const yukle = useCallback(async () => {
     setSunucuHatasi(null);
@@ -264,6 +288,48 @@ export default function AyarlarEkrani() {
           Yürürken dönüşleri ("80 metre sonra sağa dön"), araçta ineceğin durağı iki ve bir durak kala söyler.
           Yolculuk ekranındaki hoparlör düğmesiyle de açıp kapatabilirsin. Telefon sessizdeyken duyulmayabilir.
         </Text>
+        <View style={[s.satir, { marginTop: 6 }]}>
+          <View style={[s.haplar, { flex: 1 }]}>
+            {(
+              [
+                ['kadin', 'Kadın sesi'],
+                ['erkek', 'Erkek sesi'],
+              ] as [SesCinsiyeti, string][]
+            ).map(([c, ad]) => (
+              <Pressable
+                key={c}
+                style={[s.hap, sesCinsiyeti === c && s.hapSecili]}
+                onPress={() => sesCinsiyetiKaydet(c)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: sesCinsiyeti === c }}
+              >
+                <Text style={[s.hapYazi, sesCinsiyeti === c && { color: tema.vurgu }]}>{ad}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Pressable
+            style={s.dinle}
+            onPress={() => konus('200 metre sonra sağa dön, Bağdat Caddesi. Sonra 89T otobüsüne bin.', sesCinsiyeti, true)}
+            accessibilityRole="button"
+            accessibilityLabel="Sesi dinle"
+          >
+            <Ikon ad="play" boyut={14} renkKodu={tema.vurgu} />
+            <Text style={s.dugmeYazi}>Dinle</Text>
+          </Pressable>
+        </View>
+        {kullanilanSes !== undefined && (
+          <Text style={s.aciklama}>
+            {kullanilanSes
+              ? `Kullanılan ses: ${sesAdi(kullanilanSes.ses)}.` +
+                (kullanilanSes.uydu
+                  ? ''
+                  : ` Telefonunda ${sesCinsiyeti === 'erkek' ? 'erkek' : 'kadın'} Türkçe ses yüklü değil; varsa aşağıdaki yerden indirilince kendiliğinden kullanılır.`) +
+                (sesKalitesi(kullanilanSes.ses) < 2
+                  ? ' Daha net bir ses için iPhone Ayarlar › Erişilebilirlik › Seslendirilen İçerik › Sesler › Türkçe bölümünden sesin "Gelişmiş" sürümünü indir.'
+                  : '')
+              : 'Telefonunda Türkçe ses bulunamadı; sistemin varsayılan sesi kullanılır. iPhone Ayarlar › Erişilebilirlik › Seslendirilen İçerik › Sesler › Türkçe bölümünden ses indirebilirsin.'}
+          </Text>
+        )}
       </View>
 
       <Text style={s.bolumBaslik}>GÖRÜNÜM</Text>
@@ -339,6 +405,16 @@ const stiller = (t: Tema) =>
     aciklama: { fontSize: 12, color: t.soluk, lineHeight: 18 },
     hataYazi: { fontSize: 12.5, color: t.hata, lineHeight: 18 },
     dugme: { flexDirection: 'row', alignItems: 'center', gap: 7, alignSelf: 'flex-start', paddingTop: 4 },
+    dinle: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      height: 34,
+      paddingHorizontal: 12,
+      borderRadius: 17,
+      borderWidth: 1,
+      borderColor: t.vurgu,
+    },
     dugmeYazi: { fontSize: 13.5, fontWeight: '700', color: t.vurgu },
     hatirlatici: {
       flexDirection: 'row',

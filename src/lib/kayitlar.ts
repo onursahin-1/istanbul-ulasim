@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import type { Konum, RotaSecenekleri } from './otp';
 import { secenekleriDuzelt, VARSAYILAN_SECENEKLER } from './otp';
+import type { SesCinsiyeti } from './ses-secimi';
 import type { UcretTuru } from './ucret';
 
 export type YerTuru = 'ev' | 'is';
@@ -19,6 +20,7 @@ const UCRET_ANAHTARI = 'ucret-turu-v1';
 const ROTA_ANAHTARI = 'rota-secenekleri-v1';
 const EKRAN_ANAHTARI = 'yolculukta-ekran-acik-v1';
 const SES_ANAHTARI = 'yolculukta-sesli-tarif-v1';
+const SES_CINSIYETI_ANAHTARI = 'sesli-tarif-cinsiyet-v1';
 const ARAMA_SINIRI = 12;
 
 type Yerler = Partial<Record<YerTuru, Konum>>;
@@ -96,6 +98,12 @@ export async function sesliTarifKaydet(acik: boolean): Promise<void> {
   haberVer();
 }
 
+/** Sesli tarifin sesi: kadın ya da erkek (varsayılan: kadın). */
+export async function sesCinsiyetiKaydet(cinsiyet: SesCinsiyeti): Promise<void> {
+  await yaz(SES_CINSIYETI_ANAHTARI, cinsiyet);
+  haberVer();
+}
+
 export async function ucretTuruKaydet(tur: UcretTuru): Promise<void> {
   await yaz(UCRET_ANAHTARI, tur);
   haberVer();
@@ -109,6 +117,7 @@ export function useKayitlar() {
   const [rotaSecenekleri, setRotaSecenekleri] = useState<RotaSecenekleri>(VARSAYILAN_SECENEKLER);
   const [ekranAcik, setEkranAcik] = useState(true);
   const [sesliTarif, setSesliTarif] = useState(true);
+  const [sesCinsiyeti, setSesCinsiyeti] = useState<SesCinsiyeti>('kadin');
   // İlk okuma bitene kadar değerler varsayılan; buna göre iş başlatan ekranlar (rota araması) bekler.
   const [yuklendi, setYuklendi] = useState(false);
 
@@ -120,6 +129,7 @@ export function useKayitlar() {
     setRotaSecenekleri(secenekleriDuzelt(await oku<RotaSecenekleri>(ROTA_ANAHTARI, VARSAYILAN_SECENEKLER)));
     setEkranAcik(await oku<boolean>(EKRAN_ANAHTARI, true));
     setSesliTarif(await oku<boolean>(SES_ANAHTARI, true));
+    setSesCinsiyeti((await oku<SesCinsiyeti>(SES_CINSIYETI_ANAHTARI, 'kadin')) === 'erkek' ? 'erkek' : 'kadin');
     setYuklendi(true);
   }, []);
 
@@ -131,5 +141,5 @@ export function useKayitlar() {
     };
   }, [yukle]);
 
-  return { yerler, favoriler, aramalar, ucretTuru, rotaSecenekleri, ekranAcik, sesliTarif, yuklendi };
+  return { yerler, favoriler, aramalar, ucretTuru, rotaSecenekleri, ekranAcik, sesliTarif, sesCinsiyeti, yuklendi };
 }

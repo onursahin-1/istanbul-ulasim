@@ -9,7 +9,6 @@
 // Tasarım: C:\otp\Claude outputs\canli-yol-tarifi-maket.html
 
 import * as Haptics from 'expo-haptics';
-import * as Speech from 'expo-speech';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Modal,
@@ -30,7 +29,9 @@ import { kalanYaz, yasYaz } from '@/lib/arac-konum';
 import { bacakCanli } from '@/lib/canli';
 import { mesafeMetre, type Nokta } from '@/lib/cografya';
 import type { Bacak } from '@/lib/otp';
+import { konus, sus } from '@/lib/konusma';
 import type { SeferBilgisi } from '@/lib/sefer';
+import type { SesCinsiyeti } from '@/lib/ses-secimi';
 import { sesliDuyurular, type SesGirdisi } from '@/lib/sesli-tarif';
 import { baslikYap, hatRengi, useTema, type Tema } from '@/lib/tema';
 import {
@@ -207,13 +208,13 @@ export function KonumSeridi({
  * (src/lib/sesli-tarif.ts) ve Türkçe okur. Dönüş "şimdi"si, inilecek durak gibi
  * öncelikli cümleler o an okunanı keser. Kapatılınca ya da ekrandan çıkılınca susar.
  */
-export function useSesliTarif(v: YolTarifiVerisi | null, acik: boolean) {
+export function useSesliTarif(v: YolTarifiVerisi | null, acik: boolean, cinsiyet: SesCinsiyeti) {
   const soylenen = useRef(new Set<string>());
 
-  useEffect(() => () => void Speech.stop(), []);
+  useEffect(() => () => sus(), []);
   const takipte = !!v;
   useEffect(() => {
-    if (!acik || !takipte) Speech.stop();
+    if (!acik || !takipte) sus();
     // Yolculuk bitince yeniden başlarsa en baştan söylesin.
     if (!takipte) soylenen.current.clear();
   }, [acik, takipte]);
@@ -246,8 +247,11 @@ export function useSesliTarif(v: YolTarifiVerisi | null, acik: boolean) {
     for (const anahtar of unut) soylenen.current.delete(anahtar);
     if (!soyle.length) return;
     for (const d of soyle) soylenen.current.add(d.anahtar);
-    if (soyle.some((d) => d.oncelikli)) Speech.stop();
-    Speech.speak(soyle.map((d) => d.metin).join(' '), { language: 'tr-TR' });
+    konus(
+      soyle.map((d) => d.metin).join(' '),
+      cinsiyet,
+      soyle.some((d) => d.oncelikli),
+    );
   }, [durum, konum, acik]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 

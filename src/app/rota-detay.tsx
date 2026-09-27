@@ -84,7 +84,7 @@ export default function RotaDetayEkrani() {
   const [seferler, setSeferler] = useState<Record<number, SeferBilgisi>>({});
   const [hatirlatAcik, setHatirlatAcik] = useState(false);
   const { hatirlaticilar, yenile: hatirlaticilariYenile } = useHatirlaticilar();
-  const { ucretTuru, ekranAcik, sesliTarif } = useKayitlar();
+  const { ucretTuru, ekranAcik, sesliTarif, sesCinsiyeti } = useKayitlar();
   const aboneligi = useRef<Location.LocationSubscription | null>(null);
   const simulasyon = useRef<ReturnType<typeof setInterval> | null>(null);
   const uyarilanlar = useRef(new Set<string>());
@@ -447,7 +447,7 @@ export default function RotaDetayEkrani() {
     : null;
 
   // Yürürken dönüşleri, araçta inilecek durağı sesli söyler (yalnız yolculuk takip edilirken).
-  useSesliTarif(takipAcik ? yolTarifi : null, sesliTarif);
+  useSesliTarif(takipAcik ? yolTarifi : null, sesliTarif, sesCinsiyeti);
 
   if (!guzergah) {
     return (
