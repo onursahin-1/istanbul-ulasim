@@ -4,10 +4,16 @@
 // Hizmetleri Müdürlüğü'nün 20.07.2026'dan geçerli tarifesi, "Şehir İçi Vapurları"
 // bölümü — 17 hat.
 //
-// Önemli ayrım: bu tarife yalnızca **Şehir Hatları** için geçerli. Turyol, Dentur
-// Avrasya ve İDO aynı iskeleler arasında çalışıyor ama kendi fiyatlarını uyguluyor ve
-// o fiyatlar yayımlanmıyor. Onlarda Şehir Hatları fiyatını tahmin olarak kullanıp
-// tutarı "yaklaşık" işaretliyoruz — yanlış rakamı kesinmiş gibi göstermektense.
+// Bu İstanbulkart tarifesi işletmeciye göre değil geçişe göre: şehir içi hatlarda
+// Turyol ve Dentur Avrasya da aynı tutarı alıyor. Kanıt: tarifede yalnız Dentur'un
+// işlettiği geçişler var (Üsküdar–Kabataş, Üsküdar–Beşiktaş) ve Dentur'un sitesindeki
+// fiyatlar tarifeyle kuruşu kuruşuna aynı (51,81 / 25,08 ve 50,15 / 24,43 ₺). Bu üç
+// işletmecide tarifedeki geçiş kesin sayılıyor.
+//
+// Adalar ayrı: Turyol'un Adalar seferleri kendi biletiyle (sitesinde "Tam: 230 TL",
+// öğrenci fiyatı yok), İstanbulkart tarifesine ve aktarma indirimine girmiyor. Dentur'un
+// Adalar fiyatı yayımlanmıyor; orada ve İDO'da Şehir Hatları fiyatı tahmin olarak
+// kullanılıp tutar "yaklaşık" işaretleniyor.
 //
 // Bağımlılıksız: React Native'e dokunmuyor, testlerden çağrılabiliyor.
 
@@ -66,6 +72,9 @@ type Fiyat = [number, number];
 
 const CIFT_FIYATLARI: Record<string, Fiyat> = {
   'eminonu|uskudar': [5852, 2844],
+  // Tarifede "Üsküdar–Karaköy–Eminönü" tek hat, tek fiyat; Kadıköy hattında olduğu gibi
+  // ara iskele de aynı tutarda.
+  'karakoy|uskudar': [5852, 2844],
   'ortakoy|uskudar': [5181, 2508],
   'kadikoy|ortakoy': [7107, 3427],
   'kadikoy|uskudar': [6270, 3094],
@@ -91,13 +100,25 @@ const CIFT_FIYATLARI: Record<string, Fiyat> = {
 /** Adalar hatları ayrı tarifeden; ilk biniş ve aktarma aynı tutar. */
 const ADALAR: Fiyat = [15123, 7564];
 
+/** Turyol'un Adalar bileti (turyol.com tarife sayfası, 27.09.2026); İstanbulkart dışı. */
+const TURYOL_ADALAR = 23000;
+
 /** Tarifede bulunmayan hatlar için temsilî değer (Üsküdar–Eminönü). */
 const TEMSILI: Fiyat = [5852, 2844];
 
-/** İstanbulkart tarifesi yalnızca Şehir Hatları için yayımlanıyor. */
 export function sehirHatlariMi(isletmeci?: string | null): boolean {
   const d = sade(isletmeci);
   return d.includes('sehirhatlari') || d.includes('sehirhatlar');
+}
+
+export type Isletmeci = 'sehirhatlari' | 'turyol' | 'dentur' | 'diger';
+
+export function isletmeciTuru(isletmeci?: string | null): Isletmeci {
+  const d = sade(isletmeci);
+  if (sehirHatlariMi(isletmeci)) return 'sehirhatlari';
+  if (d.includes('turyol')) return 'turyol';
+  if (d.includes('dentur')) return 'dentur';
+  return 'diger';
 }
 
 export type VapurUcreti = {
@@ -108,6 +129,8 @@ export type VapurUcreti = {
   yaklasik: boolean;
   /** Kullanıcıya gösterilecek kısa gerekçe. */
   aciklama: string;
+  /** İstanbulkart tarifesinden mi (aktarma indirimi ve gece tarifesi yalnız onda). */
+  istanbulkart: boolean;
 };
 
 /**
@@ -120,14 +143,27 @@ export type VapurUcreti = {
 export function vapurUcreti(binis?: string | null, inis?: string | null, isletmeci?: string | null): VapurUcreti {
   const a = iskeleAnahtari(binis);
   const b = iskeleAnahtari(inis);
-  const ozel = !sehirHatlariMi(isletmeci);
+  const tur = isletmeciTuru(isletmeci);
+  // Şehir içi İstanbulkart tarifesi bu üçünde kesin (bkz. baştaki açıklama).
+  const tarifeli = tur !== 'diger';
 
   if (a === 'adalar' || b === 'adalar') {
+    if (tur === 'turyol') {
+      return {
+        tam: TURYOL_ADALAR,
+        ogrenci: TURYOL_ADALAR,
+        yaklasik: false,
+        aciklama: 'Adalar vapuru · Turyol bileti',
+        istanbulkart: false,
+      };
+    }
+    const kesin = tur === 'sehirhatlari';
     return {
       tam: ADALAR[0],
       ogrenci: ADALAR[1],
-      yaklasik: ozel,
-      aciklama: ozel ? 'Adalar vapuru · özel işletmeci, tutar yaklaşık' : 'Adalar vapuru',
+      yaklasik: !kesin,
+      aciklama: kesin ? 'Adalar vapuru' : 'Adalar vapuru · işletmeci fiyat yayımlamıyor, tutar yaklaşık',
+      istanbulkart: true,
     };
   }
 
@@ -140,13 +176,15 @@ export function vapurUcreti(binis?: string | null, inis?: string | null, isletme
       ogrenci: TEMSILI[1],
       yaklasik: true,
       aciklama: 'Vapur · bu hat tarifede yok, tutar yaklaşık',
+      istanbulkart: true,
     };
   }
 
   return {
     tam: fiyat[0],
     ogrenci: fiyat[1],
-    yaklasik: ozel,
-    aciklama: ozel ? 'Vapur · özel işletmeci, tutar yaklaşık' : 'Vapur',
+    yaklasik: !tarifeli,
+    aciklama: tarifeli ? 'Vapur' : 'Vapur · özel işletmeci, tutar yaklaşık',
+    istanbulkart: true,
   };
 }

@@ -96,11 +96,38 @@ describe('vapurUcreti', () => {
     assert.ok(vapurUcreti('Kabataş', 'Heybeliada', SEHIR).tam > vapurUcreti('Kadıköy', 'Karaköy', SEHIR).tam * 2);
   });
 
-  it('özel işletmeciyi yaklaşık işaretler', () => {
+  it('Turyol ve Dentur şehir hatlarında tarife kesin', () => {
     const t = vapurUcreti('KARAKÖY', 'KADIKÖY (METRO)', 'Turyol');
-    assert.equal(t.tam, 6521, 'aynı geçişin Şehir Hatları fiyatı tahmin olarak kullanılır');
-    assert.equal(t.yaklasik, true);
-    assert.match(t.aciklama, /özel işletmeci/);
+    assert.equal(t.tam, 6521);
+    assert.equal(t.yaklasik, false);
+    assert.equal(t.istanbulkart, true);
+    // Dentur'un sitesindeki fiyatlar (27.09.2026) tarifeyle aynı olmalı.
+    const d1 = vapurUcreti('Üsküdar Dentur', 'Kabataş Dentur', 'Dentur Avrasya');
+    assert.deepEqual([d1.tam, d1.ogrenci, d1.yaklasik], [5181, 2508, false]);
+    const d2 = vapurUcreti('Üsküdar Dentur', 'Beşiktaş Dentur', 'Dentur Avrasya');
+    assert.deepEqual([d2.tam, d2.ogrenci, d2.yaklasik], [5015, 2443, false]);
+  });
+
+  it('Üsküdar–Karaköy, Üsküdar–Eminönü hattının fiyatında', () => {
+    assert.equal(vapurUcreti('Üsküdar Turyol', 'Karaköy Turyol', 'Turyol').tam, 5852);
+    assert.equal(vapurUcreti('KARAKÖY', 'ÜSKÜDAR', SEHIR).tam, 5852);
+  });
+
+  it('Turyol Adalar kendi biletiyle, İstanbulkart dışı', () => {
+    const u = vapurUcreti('Karaköy Turyol', 'Büyükada Turyol', 'Turyol');
+    assert.equal(u.tam, 23000);
+    assert.equal(u.yaklasik, false);
+    assert.equal(u.istanbulkart, false);
+  });
+
+  it('fiyat yayımlamayan işletmeciyi yaklaşık işaretler', () => {
+    const d = vapurUcreti('Kabataş Dentur', 'Büyükada ŞH.', 'Dentur Avrasya');
+    assert.equal(d.tam, 15123);
+    assert.equal(d.yaklasik, true);
+    const i = vapurUcreti('Beşiktaş İDO', 'Kadıköy İDO', 'IDO');
+    assert.equal(i.tam, 6521, 'aynı geçişin tarife fiyatı tahmin olarak kullanılır');
+    assert.equal(i.yaklasik, true);
+    assert.match(i.aciklama, /özel işletmeci/);
   });
 
   it('tarifede olmayan hatta temsilî değere düşer ve işaretler', () => {

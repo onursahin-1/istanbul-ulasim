@@ -211,6 +211,7 @@ export function yolculukUcreti(bacaklar: Bacak[], tur: UcretTuru, ozelGunler: Oz
     let taban: number;
     let aciklama: string;
     let bacakYaklasik = false;
+    let kendiBileti = false;
 
     if (tarife === 'metrobus') {
       taban = kademeBul(METROBUS, durakSayisi, tur);
@@ -227,24 +228,32 @@ export function yolculukUcreti(bacaklar: Bacak[], tur: UcretTuru, ozelGunler: Oz
     } else if (tarife === 'vapur') {
       // Vapurda mesafe kademesi yok; her hattın kendi fiyatı var (vapur.ts).
       const v = vapurUcreti(bacak.from.name, bacak.to.name, bacak.route?.agency?.name);
-      taban =
-        tur === 'ogrenci'
-          ? v.ogrenci
-          : tur === 'tam'
-            ? v.tam
-            : Math.round((v.tam * ILK_BINIS[tur]) / ILK_BINIS.tam);
+      if (!v.istanbulkart) {
+        // İşletmecinin kendi bileti (Turyol Adalar): indirimli tür yayımlanmıyor, aktarma
+        // indirimi ve gece tarifesi yok.
+        taban = tur === 'ogrenci' ? v.ogrenci : v.tam;
+        bacakYaklasik = v.yaklasik || tur !== 'tam';
+        kendiBileti = true;
+      } else {
+        taban =
+          tur === 'ogrenci'
+            ? v.ogrenci
+            : tur === 'tam'
+              ? v.tam
+              : Math.round((v.tam * ILK_BINIS[tur]) / ILK_BINIS.tam);
+        bacakYaklasik = v.yaklasik || tur === 'indirimli' || tur === 'ogrenci30';
+      }
       aciklama = v.aciklama;
-      bacakYaklasik = v.yaklasik || tur === 'indirimli' || tur === 'ogrenci30';
     } else {
       taban = sira === 0 ? ILK_BINIS[tur] : aktarmaBedeli(tur, sira);
       aciklama = sira === 0 ? 'İlk biniş' : `${sira}. aktarma`;
     }
 
     // Mesafeli hatlarda gerekçe iki parçalı: kademe + varsa aktarma indirimi.
-    if (tarife !== 'normal' && sira > 0) aciklama += ` · ${sira}. aktarma indirimi`;
+    if (tarife !== 'normal' && sira > 0 && !kendiBileti) aciklama += ` · ${sira}. aktarma indirimi`;
 
-    let tutar = tarife === 'normal' ? taban : Math.max(0, taban - indirim);
-    if (geceMi(binisIso)) {
+    let tutar = kendiBileti ? taban : tarife === 'normal' ? taban : Math.max(0, taban - indirim);
+    if (geceMi(binisIso) && !kendiBileti) {
       tutar *= 2;
       gece = true;
     }
@@ -254,11 +263,12 @@ export function yolculukUcreti(bacaklar: Bacak[], tur: UcretTuru, ozelGunler: Oz
     sonuc.push({
       tutar,
       sira,
-      etiket: sira === 0 ? 'İlk biniş' : `${sira}. aktarma`,
+      etiket: kendiBileti ? 'Ayrı bilet' : sira === 0 ? 'İlk biniş' : `${sira}. aktarma`,
       yaklasik: bacakYaklasik,
       aciklama,
     });
-    sira += 1;
+    // İstanbulkart dışı bilet aktarma merdivenine girmez.
+    if (!kendiBileti) sira += 1;
   }
 
   return { toplam, bacaklar: sonuc, yaklasik, geceTarifesi: gece, yeniYolculuk, ucretsizGun, kisiselKart };

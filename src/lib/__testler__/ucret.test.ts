@@ -174,14 +174,28 @@ describe('vapur', () => {
     assert.equal(ucretKisa(u), '65,21 ₺', 'kesin tutarda ≈ işareti olmamalı');
   });
 
-  it('özel işletmeciyi yaklaşık işaretler', () => {
+  it('Turyol şehir hattında tarife kesin', () => {
     const u = yolculukUcreti(
-      [vapur({ kod: 'K.KOY_KDK', binis: 'KARAKÖY', varis: 'KADIKÖY (METRO)', isletmeci: 'Turyol' })],
+      [vapur({ kod: 'KRK-KDK', binis: 'KARAKÖY', varis: 'KADIKÖY (METRO)', isletmeci: 'Turyol' })],
       'tam',
     );
     assert.equal(u.toplam, 6521);
-    assert.equal(u.yaklasik, true);
-    assert.equal(ucretKisa(u).startsWith('≈'), true);
+    assert.equal(u.yaklasik, false);
+  });
+
+  it('Turyol Adalar bileti aktarma merdivenine girmez', () => {
+    const u = yolculukUcreti(
+      [
+        vapur({ kod: 'EMN-ADALAR', binis: 'Karaköy Turyol', varis: 'Büyükada Turyol', isletmeci: 'Turyol' }),
+        bacak({ kod: 'M4', mod: 'SUBWAY', saat: '2026-09-22T09:25:00+03:00' }),
+      ],
+      'tam',
+    );
+    assert.equal(u.bacaklar[0]?.tutar, 23000);
+    assert.equal(u.bacaklar[0]?.etiket, 'Ayrı bilet');
+    assert.equal(u.bacaklar[1]?.etiket, 'İlk biniş', 'sonraki İstanbulkart binişi ilk biniş sayılır');
+    const ogr = yolculukUcreti([vapur({ binis: 'Karaköy Turyol', varis: 'Büyükada Turyol', isletmeci: 'Turyol' })], 'ogrenci');
+    assert.equal(ogr.yaklasik, true, 'öğrenci fiyatı yayımlanmıyor');
   });
 
   it('tanınmayan iskelede yaklaşık kalır', () => {
