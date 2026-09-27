@@ -8,6 +8,8 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   Animated,
+  Image,
+  type ImageSourcePropType,
   Pressable,
   StyleSheet,
   Text,
@@ -62,6 +64,26 @@ export type RozetHatti = {
   agency?: { name: string } | null;
 };
 
+/**
+ * Marmaray ve Metrobüs rozetinde simge yerine işletmecinin logosu. Logo dosyaları
+ * assets/images/hat altında; oran = genişlik / yükseklik. Marmaray logosunun yalnız
+ * simge kısmı kullanılıyor (yazısı rozet boyunda okunmuyor), koyu temada da görünsün
+ * diye beyaz zeminde.
+ */
+type HatLogosu = { kaynak: ImageSourcePropType; oran: number; zemin: string | null };
+
+const LOGOLAR: Record<'marmaray' | 'metrobus', HatLogosu> = {
+  marmaray: { kaynak: require('@/assets/images/hat/marmaray.png'), oran: 1.8, zemin: '#ffffff' },
+  metrobus: { kaynak: require('@/assets/images/hat/metrobus.png'), oran: 1.2, zemin: null },
+};
+
+export function hatLogosu(kisaAd?: string | null): HatLogosu | null {
+  const ad = kisaAd?.trim() ?? '';
+  if (/^marmaray\s*\d*$/i.test(ad)) return LOGOLAR.marmaray;
+  if (metrobusMu(ad)) return LOGOLAR.metrobus;
+  return null;
+}
+
 export function HatRozeti({ hat, kucuk = false }: { hat?: RozetHatti | string | null; kucuk?: boolean }) {
   const tema = useTema();
   // Metro, tramvay, füniküler, teleferik: resmî rozet gibi hat renginde daire, içinde kod.
@@ -91,8 +113,32 @@ export function HatRozeti({ hat, kucuk = false }: { hat?: RozetHatti | string | 
   const isletmeci = typeof hat === 'string' ? null : hat?.agency?.name;
   const { rozet } = hatEtiketi(kisaAd, tur, isletmeci);
   const renkler = rozetRenkleri(hat, tema);
-  const simge = tur && tur.toUpperCase() !== 'BUS' ? aracSimgesi(tur) : metrobusMu(kisaAd) ? 'bus' : 'bus';
+  const logo = hatLogosu(kisaAd);
   const boy = kucuk ? 22 : 26;
+  // Marmaray ve Metrobüs: yalnız logo, yanında yazı yok (hat kodu yolculuk ayrıntısında görünüyor).
+  if (logo) {
+    // Metro dairesiyle aynı yükseklik: yan yana rozetler hizalı dursun.
+    const yukseklik = kucuk ? 24 : 30;
+    const en = Math.round(yukseklik * logo.oran);
+    const pay = logo.zemin ? 4 : 0;
+    return (
+      <View
+        style={[
+          stil.logoRozet,
+          { width: en, height: yukseklik, borderRadius: kucuk ? 6 : 7, backgroundColor: logo.zemin ?? 'transparent' },
+        ]}
+        accessibilityLabel={kisaAd ?? undefined}
+      >
+        <Image
+          source={logo.kaynak}
+          style={{ width: en - pay, height: yukseklik - pay }}
+          resizeMode="contain"
+          accessibilityIgnoresInvertColors
+        />
+      </View>
+    );
+  }
+  const simge = tur && tur.toUpperCase() !== 'BUS' ? aracSimgesi(tur) : 'bus';
   return (
     <View style={[stil.rozet, { backgroundColor: renkler.zemin, height: boy, borderRadius: kucuk ? 7 : 8 }]}>
       <View style={[stil.rozetKutu, { backgroundColor: renkler.kutu, width: boy, height: boy }]}>
@@ -452,6 +498,7 @@ const stil = StyleSheet.create({
   cevrimdisiDene: { fontSize: 13, fontWeight: '600' },
   rozet: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', overflow: 'hidden' },
   rozetKutu: { alignItems: 'center', justifyContent: 'center' },
+  logoRozet: { alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start', overflow: 'hidden' },
   daire: { alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start' },
   daireYazi: { fontWeight: '800', letterSpacing: -0.3, includeFontPadding: false },
   rozetYazi: { fontWeight: '700', fontSize: 12.5, paddingHorizontal: 8, maxWidth: 110 },
