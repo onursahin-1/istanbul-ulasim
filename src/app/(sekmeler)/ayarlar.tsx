@@ -23,8 +23,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ikon, useStiller } from '@/components/ulasim';
 import { hatirlaticiIptal, hatirlaticiSaati, hepsiniIptal, izinIste, useHatirlaticilar } from '@/lib/bildirim';
 import { ekranAcikKaydet, sesCinsiyetiKaydet, sesliTarifKaydet, ucretTuruKaydet, useKayitlar } from '@/lib/kayitlar';
-import { konus, secilenSes, sesleriTazele } from '@/lib/konusma';
-import { sesAdi, sesKalitesi, type SesBilgisi, type SesCinsiyeti } from '@/lib/ses-secimi';
+import { konus, secilenSes, sesleriGetir, sesleriTazele } from '@/lib/konusma';
+import { cinsiyetSecenekleri, sesAdi, sesKalitesi, type SesBilgisi, type SesCinsiyeti } from '@/lib/ses-secimi';
 import { TARIFE_TARIHI, UCRET_ACIKLAMALARI, UCRET_ADLARI, type UcretTuru } from '@/lib/ucret';
 import { OTP_ADRESI, sunucuBilgisiGetir, type SunucuBilgisi } from '@/lib/otp';
 import { poiBilgisi } from '@/lib/poi';
@@ -52,14 +52,20 @@ export default function AyarlarEkrani() {
   const { hatirlaticilar, izin, yenile: hatirlaticilariYenile } = useHatirlaticilar();
   const { ucretTuru, ekranAcik, sesliTarif, sesCinsiyeti } = useKayitlar();
   const [kullanilanSes, setKullanilanSes] = useState<{ ses: SesBilgisi; uydu: boolean } | null | undefined>(undefined);
+  // Telefonda Türkçe ses hangi cinsiyetlerde var; ikisi de yoksa seçim gösterilmez (iPhone'da yalnız Yelda).
+  const [cinsiyetler, setCinsiyetler] = useState<SesCinsiyeti[]>([]);
 
   // Hangi sesin kullanılacağı. Kullanıcı iOS ayarlarından yeni ses indirip dönünce tazelenir.
   useEffect(() => {
     let iptal = false;
-    const bak = () =>
-      secilenSes(sesCinsiyeti).then((s) => {
+    const bak = () => {
+      sesleriGetir().then((v) => {
+        if (!iptal) setCinsiyetler(cinsiyetSecenekleri(v));
+      });
+      return secilenSes(sesCinsiyeti).then((s) => {
         if (!iptal) setKullanilanSes(s);
       });
+    };
     bak();
     const abone = AppState.addEventListener('change', (d) => {
       if (d === 'active') {
@@ -133,7 +139,8 @@ export default function AyarlarEkrani() {
         {sunucuHatasi && <Text style={s.hataYazi}>{sunucuHatasi}</Text>}
         {!sunucuHatasi && (
           <Text style={s.aciklama}>
-            Rota motoru şu an bilgisayarında çalışıyor; uygulama yalnızca aynı ağdayken rota bulabilir.
+            Rota motoru bilgisayarında çalışıyor. Evin dışından bağlanmak için telefonda ve bilgisayarda Tailscale
+            açık olmalı, uygulama "npm run uzaktan" ile başlatılmalı.
           </Text>
         )}
       </View>
@@ -290,7 +297,7 @@ export default function AyarlarEkrani() {
         </Text>
         <View style={[s.satir, { marginTop: 6 }]}>
           <View style={[s.haplar, { flex: 1 }]}>
-            {(
+            {cinsiyetler.length > 1 && (
               [
                 ['kadin', 'Kadın sesi'],
                 ['erkek', 'Erkek sesi'],
@@ -321,9 +328,9 @@ export default function AyarlarEkrani() {
           <Text style={s.aciklama}>
             {kullanilanSes
               ? `Kullanılan ses: ${sesAdi(kullanilanSes.ses)}.` +
-                (kullanilanSes.uydu
+                (cinsiyetler.length > 1
                   ? ''
-                  : ` Telefonunda ${sesCinsiyeti === 'erkek' ? 'erkek' : 'kadın'} Türkçe ses yüklü değil; varsa aşağıdaki yerden indirilince kendiliğinden kullanılır.`) +
+                  : ' iPhone\'da Türkçe için tek ses var (kadın); erkek ses seçeneği bu yüzden yok.') +
                 (sesKalitesi(kullanilanSes.ses) < 2
                   ? ' Daha net bir ses için iPhone Ayarlar › Erişilebilirlik › Seslendirilen İçerik › Sesler › Türkçe bölümünden sesin "Gelişmiş" sürümünü indir.'
                   : '')

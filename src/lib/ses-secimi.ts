@@ -53,6 +53,15 @@ export function sesSec(sesler: SesBilgisi[], cinsiyet: SesCinsiyeti): { ses: Ses
   return { ses: turkce[0], uydu: false };
 }
 
+/**
+ * Telefonda hangi cinsiyetlerde Türkçe ses var. iPhone'da Türkçe için yalnız Yelda
+ * (kadın) olduğundan çoğu zaman ['kadin']: o zaman ayarlarda seçim gösterilmez.
+ */
+export function cinsiyetSecenekleri(sesler: SesBilgisi[]): SesCinsiyeti[] {
+  const var_ = new Set(sesler.filter(turkceMi).map(sesCinsiyeti).filter((c): c is SesCinsiyeti => c !== null));
+  return (['kadin', 'erkek'] as SesCinsiyeti[]).filter((c) => var_.has(c));
+}
+
 /** Ekranda gösterilecek ad: "Yelda (gelişmiş)". */
 export function sesAdi(ses: SesBilgisi): string {
   const k = sesKalitesi(ses);

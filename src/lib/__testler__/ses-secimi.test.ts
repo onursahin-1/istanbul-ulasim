@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { sesAdi, sesCinsiyeti, sesSec, soylenecekMetin, type SesBilgisi } from '../ses-secimi.ts';
+import { cinsiyetSecenekleri, sesAdi, sesCinsiyeti, sesSec, soylenecekMetin, type SesBilgisi } from '../ses-secimi.ts';
 
 const ses = (identifier: string, name: string, language = 'tr-TR', quality = 'Default'): SesBilgisi => ({
   identifier,
@@ -62,5 +62,17 @@ describe('soylenecekMetin', () => {
 
   it('tire ve bölü işaretini duraklamaya çevirir', () => {
     assert.equal(soylenecekMetin('Veysel Karani – Akşemsettin / Fatih'), 'Veysel Karani, Akşemsettin, Fatih');
+  });
+});
+
+describe('cinsiyetSecenekleri', () => {
+  it('iPhone gibi yalnız Yelda varsa yalnız kadın', () => {
+    assert.deepEqual(cinsiyetSecenekleri([yeldaKucuk, yeldaGelismis, ingilizce]), ['kadin']);
+  });
+  it('iki cinsiyet de varsa ikisi', () => {
+    assert.deepEqual(cinsiyetSecenekleri([cem, yeldaKucuk]), ['kadin', 'erkek']);
+  });
+  it('İngilizce erkek ses Türkçe seçeneği saymaz', () => {
+    assert.deepEqual(cinsiyetSecenekleri([yeldaKucuk, ses('com.apple.eloquence.en-US.Reed', 'Reed', 'en-US')]), ['kadin']);
   });
 });
