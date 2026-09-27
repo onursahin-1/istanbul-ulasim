@@ -8,10 +8,15 @@
 // Kalkışlar birleştiriliyor: Üsküdar'a bakan yolcu Marmaray, M5 ve vapuru tek listede
 // görüyor — zaten aynı meydandalar.
 //
+// İstisna yakın durak listesi ve yönlü otobüs durakları: İETT'nin istasyonları çoğunlukla
+// yolun iki yakasındaki iki yön durağını birleştiriyor ("Göztepe Meydanı", Aksaray yönü ve
+// İkitelli yönü). Yakınımdakiler listesinde bunlar tek satır olunca hangi yakaya
+// geçeceğin belli olmuyordu; orada her yön kendi satırında, kendi konumuyla duruyor.
+//
 // Bağımlılıksız: React Native'e dokunmuyor, testlerden çağrılabiliyor.
 
 import { mesafeMetre } from './cografya';
-import { trKucuk } from './metin';
+import { trKucuk, yonAdi } from './metin';
 
 export type Konumlu = {
   gtfsId: string;
@@ -31,6 +36,24 @@ export function temsilci<T extends Konumlu>(durak: Ebeveynli<T>): Konumlu {
   if (ana && ana.gtfsId && ana.name) return ana;
   const { parentStation: _atilan, ...kendisi } = durak;
   return kendisi as Konumlu;
+}
+
+/**
+ * Yakın durak listesinde durağın hangi satıra gideceği.
+ *
+ * Yönlü durak (İETT, açıklaması "direction: …") kendi satırında kalır; aynı istasyonda
+ * aynı yöne bakan ikinci bir durak varsa onunla birleşir (anahtar istasyon + yön), satırı
+ * en yakın olanı temsil eder. Yönsüz peronlar (metro, vapur) eskisi gibi istasyona iner.
+ */
+export function yakinTemsilcisi<T extends Konumlu>(durak: Ebeveynli<T>): { anahtar: string; durak: Konumlu; yonlu: boolean } {
+  const yon = yonAdi(durak.desc);
+  if (!yon) {
+    const t = temsilci(durak);
+    return { anahtar: t.gtfsId, durak: t, yonlu: false };
+  }
+  const { parentStation: ana, ...kendisi } = durak;
+  const kok = ana?.gtfsId || durak.gtfsId;
+  return { anahtar: `${kok}|${trKucuk(yon)}`, durak: kendisi as Konumlu, yonlu: true };
 }
 
 /**
@@ -66,7 +89,8 @@ export type IndirilmisYakin<K, R> = { mesafe: number; durak: Konumlu & { kalkisl
 /**
  * Yakın durak listesini istasyon düzeyine indirir: aynı istasyonun peronları
  * birleşir, mesafe en yakın perondan alınır, kalkışlar birleştirilip sıralanır,
- * peronlardan geçen hatlar tekilleştirilerek toplanır.
+ * peronlardan geçen hatlar tekilleştirilerek toplanır. Yönlü otobüs durakları
+ * birleşmez, her yön ayrı satır (bkz. yakinTemsilcisi).
  *
  * @param sirala iki kalkışı karşılaştıran işlev; birleşen listeyi sıralamak için
  */
@@ -91,13 +115,15 @@ export function yakinlariIndir<T extends Konumlu, K, R extends { gtfsId: string 
   const kume = new Map<string, { mesafe: number; durak: Konumlu; kalkislar: K[]; hatlar: Map<string, R> }>();
   const sira: string[] = [];
   for (const y of yakinlar) {
-    const t = temsilci(y.durak);
-    let k = kume.get(t.gtfsId);
+    const { anahtar: a, durak: t } = yakinTemsilcisi(y.durak);
+    let k = kume.get(a);
     if (!k) {
-      sira.push(t.gtfsId);
+      sira.push(a);
       k = { mesafe: y.mesafe, durak: t, kalkislar: [], hatlar: new Map() };
-      kume.set(t.gtfsId, k);
+      kume.set(a, k);
     }
+    // Aynı yöndeki iki duraktan satırı yakın olan temsil eder (liste sırası garanti değil).
+    if (y.mesafe < k.mesafe && t.gtfsId !== k.durak.gtfsId && yonAdi(t.desc)) k.durak = t;
     k.mesafe = Math.min(k.mesafe, y.mesafe);
     k.kalkislar.push(...(y.durak.kalkislar ?? []));
     for (const h of y.durak.routes ?? []) if (h?.gtfsId && !k.hatlar.has(h.gtfsId)) k.hatlar.set(h.gtfsId, h);

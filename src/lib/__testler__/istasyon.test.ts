@@ -116,6 +116,36 @@ describe('yakinlariIndir', () => {
     assert.deepEqual(sonuc[0].durak.kalkislar.map((x) => x.an), [5, 20, 40]);
   });
 
+  it('yönlü otobüs duraklarını istasyona indirmez, her yön kendi satırında', () => {
+    const GOZTEPE = { gtfsId: 'ist:ana-579100', name: 'GÖZTEPE MEYDANI' };
+    const yonlu = (id: string, yon: string, lat: number) => ({
+      ...d(id, 'GÖZTEPE MEYDANI', GOZTEPE),
+      desc: `direction: ${yon}`,
+      lat,
+    });
+    const sonuc = yakinlariIndir([
+      { mesafe: 40, durak: { ...yonlu('ist:579100', 'AKSARAY', 41.05431), kalkislar: [k(10)] } },
+      { mesafe: 70, durak: { ...yonlu('ist:579099', 'İKİTELLİ', 41.05460), kalkislar: [k(5)] } },
+    ], sirala);
+    assert.deepEqual(sonuc.map((s) => s.durak.gtfsId), ['ist:579100', 'ist:579099']);
+    assert.deepEqual(sonuc.map((s) => s.durak.desc), ['direction: AKSARAY', 'direction: İKİTELLİ']);
+    assert.deepEqual(sonuc.map((s) => s.durak.lat), [41.05431, 41.0546]);
+    assert.deepEqual(sonuc.map((s) => s.durak.kalkislar.map((x) => x.an)), [[10], [5]]);
+    assert.ok(!('parentStation' in sonuc[0].durak));
+  });
+
+  it('aynı istasyonda aynı yöne bakan iki durak birleşir, yakın olan temsil eder', () => {
+    const yonlu = (id: string) => ({ ...d(id, 'X', ANA), desc: 'direction: KADIKÖY' });
+    const sonuc = yakinlariIndir([
+      { mesafe: 90, durak: { ...yonlu('ist:1'), kalkislar: [k(30)] } },
+      { mesafe: 20, durak: { ...yonlu('ist:2'), kalkislar: [k(10)] } },
+    ], sirala);
+    assert.equal(sonuc.length, 1);
+    assert.equal(sonuc[0].durak.gtfsId, 'ist:2');
+    assert.equal(sonuc[0].mesafe, 20);
+    assert.deepEqual(sonuc[0].durak.kalkislar.map((x) => x.an), [10, 30]);
+  });
+
   it('istasyonsuz durakları ayrı tutar', () => {
     const sonuc = yakinlariIndir([
       { mesafe: 10, durak: { ...d('ist:8', 'Çengelköy'), kalkislar: [] } },

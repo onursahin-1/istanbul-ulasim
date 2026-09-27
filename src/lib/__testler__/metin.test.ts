@@ -50,6 +50,32 @@ describe('baslikYap', () => {
     assert.equal(baslikYap('VE SONRASI'), 'Ve Sonrası');
   });
 
+  it('okul kısaltmalarını açar', () => {
+    assert.equal(baslikYap('MALAZGİRT İ.Ö.O'), 'Malazgirt İlköğretim Okulu');
+    assert.equal(baslikYap('AMBARLI İ.Ö.O.'), 'Ambarlı İlköğretim Okulu');
+    assert.equal(baslikYap('KOCASİNAN İÖO'), 'Kocasinan İlköğretim Okulu');
+    assert.equal(baslikYap('A.DUDULLU İ.Ö.OKL.'), 'A. Dudullu İlköğretim Okulu');
+    assert.equal(baslikYap('CEVATPAŞA İ.Ö. OKULU'), 'Cevatpaşa İlköğretim Okulu');
+    assert.equal(baslikYap('KÜÇÜKKÖY İ.H.L.'), 'Küçükköy İmam Hatip Lisesi');
+    assert.equal(baslikYap('Kabataş ŞH.'), 'Kabataş Şehir Hatları');
+  });
+
+  it('baş harf kısaltmalarını büyük bırakır', () => {
+    assert.equal(baslikYap('İ.Ü. CERRAHPAŞA'), 'İ.Ü. Cerrahpaşa');
+    assert.equal(baslikYap('M.Ü. GÖZTEPE'), 'M.Ü. Göztepe');
+    assert.equal(baslikYap('F.S.MEHMET İÖO'), 'F.S. Mehmet İlköğretim Okulu');
+  });
+
+  it('noktadan sonra kelimeyi büyütüp boşluk bırakır', () => {
+    assert.equal(baslikYap('4.LEVENT'), '4. Levent');
+    assert.equal(baslikYap('DR.SADIK AHMET'), 'Dr. Sadık Ahmet');
+    assert.equal(baslikYap('PROF.DR.CEMİL TAŞCIOĞLU'), 'Prof. Dr. Cemil Taşcıoğlu');
+    assert.equal(baslikYap('DR.C.FEVZİYE'), 'Dr. C. Fevziye');
+    assert.equal(baslikYap('SAN.SİT.'), 'San. Sit.');
+    assert.equal(baslikYap('MALAZGİRT CAD.'), 'Malazgirt Cad.');
+    assert.equal(baslikYap('K.HANE BLD.SARAYI'), 'Kağıthane Bld. Sarayı');
+  });
+
   it('boş girdide boş döner', () => {
     assert.equal(baslikYap(''), '');
     assert.equal(baslikYap(null), '');
@@ -62,8 +88,9 @@ describe('yonYaz', () => {
     assert.equal(yonYaz('direction: AVCILAR METROBÜS'), 'Avcılar Metrobüs yönü');
   });
 
-  it('önek yoksa da çalışır', () => {
-    assert.equal(yonYaz('ZİNCİRLİKUYU'), 'Zincirlikuyu yönü');
+  it('önek yoksa yön saymaz (vapur beslemesinde açıklama durağın başka adı)', () => {
+    assert.equal(yonYaz('Karaköy ŞH.'), '');
+    assert.equal(yonYaz('Dentur Bebek'), '');
   });
 
   it('boş açıklamada boş döner', () => {

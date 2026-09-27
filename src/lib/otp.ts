@@ -43,6 +43,7 @@ import type { Duyuru } from './duyuru';
 import { isletmeciAdi } from './hat-adi';
 import { desenleriBirlestir, kardesKimlikleri } from './hat-tekil';
 import { aramayiIndir, ayniAdliSaatsizHatlar, saatsizHatlariKatla, yakinlariIndir, type Ebeveynli } from './istasyon';
+import { yonAdi } from './metin';
 import { gunuKaydir } from './onbellek';
 import { onbellegeYaz, onbellektenOku } from './onbellek-depo';
 
@@ -232,10 +233,10 @@ export async function yakinDuraklariGetir(lat: number, lon: number, sinyal?: Abo
         mesafe: e.node.distance,
         durak: {
           ...yer,
-          // İstasyonun peronuysa istasyonun kalkışları: durak ekranı da istasyonu gösteriyor.
-          // Yalnız yakındaki peronun kalkışları alınınca yolun karşı tarafındaki otobüs
-          // listede yoktu ama durak ekranında vardı; dakikalar birbirini tutmuyordu.
-          kalkislar: yer.parentStation?.kalkislar ?? yer.kalkislar ?? [],
+          // Yönsüz peron (metro, vapur) istasyona iniyor, kalkışları da istasyonun: durak
+          // ekranı istasyonu açıyor, dakikalar tutsun. Yönlü otobüs durağı kendi satırında
+          // ve kendi ekranını açıyor; kalkışları yalnız o yönün (yakinTemsilcisi).
+          kalkislar: (yonAdi(yer.desc) ? yer.kalkislar : yer.parentStation?.kalkislar ?? yer.kalkislar) ?? [],
           routes: yer.routes ?? [],
         },
       };
