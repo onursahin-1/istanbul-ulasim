@@ -5,10 +5,13 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { bildirimleriHazirla } from '@/lib/bildirim';
+import { temaTercihiniYukle } from '@/lib/kayitlar';
 import { useTema } from '@/lib/tema';
 
 // Bildirimin uygulama açıkken de banner olarak görünmesi için tek seferlik kurulum.
 bildirimleriHazirla();
+// Ayarlar › Görünüm'deki tercih (Sistem / Açık / Koyu); ilk ekran çizilmeden uygulanır.
+temaTercihiniYukle();
 
 export default function KokDuzen() {
   const tema = useTema();
@@ -16,7 +19,7 @@ export default function KokDuzen() {
     // Alt yaprağın sürüklemesi gesture handler ile çalışıyor; kök bununla sarılı olmalı.
     <GestureHandlerRootView style={stiller.kok}>
       <SafeAreaProvider>
-        {/* Durum çubuğu da sistem temasını izler: koyu temada saat ve simgeler beyaz olur. */}
+        {/* Durum çubuğu da temayı izler: koyu temada saat ve simgeler beyaz olur. */}
         <StatusBar style={tema.koyu ? 'light' : 'dark'} />
         <Stack
           screenOptions={{

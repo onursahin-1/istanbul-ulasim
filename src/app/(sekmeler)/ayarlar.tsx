@@ -20,9 +20,17 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Ikon, useStiller } from '@/components/ulasim';
+import { Ikon, type IkonAdi, useStiller } from '@/components/ulasim';
 import { hatirlaticiIptal, hatirlaticiSaati, hepsiniIptal, izinIste, useHatirlaticilar } from '@/lib/bildirim';
-import { ekranAcikKaydet, sesCinsiyetiKaydet, sesliTarifKaydet, ucretTuruKaydet, useKayitlar } from '@/lib/kayitlar';
+import {
+  ekranAcikKaydet,
+  sesCinsiyetiKaydet,
+  sesliTarifKaydet,
+  temaTercihiKaydet,
+  ucretTuruKaydet,
+  useKayitlar,
+  type TemaTercihi,
+} from '@/lib/kayitlar';
 import { konus, secilenSes, sesleriGetir, sesleriTazele } from '@/lib/konusma';
 import { cinsiyetSecenekleri, sesAdi, sesKalitesi, type SesBilgisi, type SesCinsiyeti } from '@/lib/ses-secimi';
 import { TARIFE_TARIHI, UCRET_ACIKLAMALARI, UCRET_ADLARI, type UcretTuru } from '@/lib/ucret';
@@ -50,7 +58,7 @@ export default function AyarlarEkrani() {
   const [yenileniyor, setYenileniyor] = useState(false);
   const [sonYenileme, setSonYenileme] = useState<Date | null>(null);
   const { hatirlaticilar, izin, yenile: hatirlaticilariYenile } = useHatirlaticilar();
-  const { ucretTuru, ekranAcik, sesliTarif, sesCinsiyeti } = useKayitlar();
+  const { ucretTuru, ekranAcik, sesliTarif, sesCinsiyeti, temaTercihi } = useKayitlar();
   const [kullanilanSes, setKullanilanSes] = useState<{ ses: SesBilgisi; uydu: boolean } | null | undefined>(undefined);
   // Telefonda Türkçe ses hangi cinsiyetlerde var; ikisi de yoksa seçim gösterilmez (iPhone'da yalnız Yelda).
   const [cinsiyetler, setCinsiyetler] = useState<SesCinsiyeti[]>([]);
@@ -341,12 +349,24 @@ export default function AyarlarEkrani() {
 
       <Text style={s.bolumBaslik}>GÖRÜNÜM</Text>
       <View style={s.kutu}>
-        <View style={s.satir}>
-          <Ikon ad={tema.koyu ? 'moon' : 'sunny'} boyut={17} renkKodu={tema.vurgu} />
-          <Text style={s.satirBaslik}>{tema.koyu ? 'Koyu tema' : 'Açık tema'}</Text>
+        <View style={s.haplar}>
+          {TEMA_SECENEKLERI.map(([t, ad, ikon]) => (
+            <Pressable
+              key={t}
+              style={[s.hap, s.hapIkonlu, temaTercihi === t && s.hapSecili]}
+              onPress={() => temaTercihiKaydet(t)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: temaTercihi === t }}
+            >
+              <Ikon ad={ikon} boyut={15} renkKodu={temaTercihi === t ? tema.vurgu : tema.yazi} />
+              <Text style={[s.hapYazi, temaTercihi === t && { color: tema.vurgu }]}>{ad}</Text>
+            </Pressable>
+          ))}
         </View>
         <Text style={s.aciklama}>
-          Tema telefonun sistem ayarını izler. Değiştirmek için Ayarlar → Ekran ve Parlaklık'ı kullan.
+          {temaTercihi === 'sistem'
+            ? `Telefonun açık/koyu ayarını izler; şu an ${tema.koyu ? 'koyu' : 'açık'}.`
+            : `Telefonun ayarından bağımsız olarak her zaman ${temaTercihi === 'koyu' ? 'koyu' : 'açık'}.`}
         </Text>
       </View>
 
@@ -379,6 +399,12 @@ export default function AyarlarEkrani() {
     </ScrollView>
   );
 }
+
+const TEMA_SECENEKLERI: [TemaTercihi, string, IkonAdi][] = [
+  ['sistem', 'Sistem', 'phone-portrait-outline'],
+  ['acik', 'Açık', 'sunny-outline'],
+  ['koyu', 'Koyu', 'moon-outline'],
+];
 
 const stiller = (t: Tema) =>
   StyleSheet.create({
@@ -443,5 +469,6 @@ const stiller = (t: Tema) =>
       borderColor: t.cizgi,
     },
     hapSecili: { backgroundColor: t.vurguAcik, borderColor: t.vurgu },
+    hapIkonlu: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     hapYazi: { fontSize: 13.5, fontWeight: '700', color: t.yazi },
   });

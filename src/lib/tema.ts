@@ -1,8 +1,8 @@
 // Uygulamanın renkleri ve metin yardımcıları.
 //
-// Tema telefonun sistem ayarını izler: iPhone karanlık moda geçince uygulama da geçer,
-// ekranda ayrı bir düğme yoktur. Katman ileride "Sistem / Açık / Koyu" seçeneği
-// eklenebilecek biçimde kuruldu; şimdilik yalnızca sistem okunuyor.
+// Tema useColorScheme'den okunur. Ayarlar › Görünüm'deki tercih (Sistem / Açık / Koyu)
+// Appearance.setColorScheme ile uygulanıyor (kayitlar.ts); "Sistem"de iPhone karanlık moda
+// geçince uygulama da geçer.
 //
 // Renk kuralları:
 //  - Harita çizgisi hattın resmî rengini kullanır (üstünde yazı yok, okunurluk sorunu yok).

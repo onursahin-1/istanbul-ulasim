@@ -2,6 +2,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState } from 'react';
+import { Appearance } from 'react-native';
 
 import type { Konum, RotaSecenekleri } from './otp';
 import { secenekleriDuzelt, VARSAYILAN_SECENEKLER } from './otp';
@@ -10,6 +11,8 @@ import type { UcretTuru } from './ucret';
 
 export type YerTuru = 'ev' | 'is';
 export type FavoriDurak = { gtfsId: string; ad: string };
+/** Görünüm: telefonun ayarını izle ya da her zaman açık/koyu. */
+export type TemaTercihi = 'sistem' | 'acik' | 'koyu';
 /** Kullanıcının daha önce hedef olarak seçtiği yer. Kayıtlı sekmesinde listelenir. */
 export type SonArama = { ad: string; lat: number; lon: number; alt?: string; zaman: number };
 
@@ -21,6 +24,7 @@ const ROTA_ANAHTARI = 'rota-secenekleri-v1';
 const EKRAN_ANAHTARI = 'yolculukta-ekran-acik-v1';
 const SES_ANAHTARI = 'yolculukta-sesli-tarif-v1';
 const SES_CINSIYETI_ANAHTARI = 'sesli-tarif-cinsiyet-v1';
+const TEMA_ANAHTARI = 'tema-tercihi-v1';
 const ARAMA_SINIRI = 12;
 
 type Yerler = Partial<Record<YerTuru, Konum>>;
@@ -104,6 +108,28 @@ export async function sesCinsiyetiKaydet(cinsiyet: SesCinsiyeti): Promise<void> 
   haberVer();
 }
 
+const temaGecerli = (t: unknown): TemaTercihi => (t === 'acik' || t === 'koyu' ? t : 'sistem');
+
+/**
+ * Tercihi uygulamanın görünümüne uygular. React Native'in Appearance ayarı bütün
+ * useColorScheme okumalarını (useTema, sekme çubuğu) ve iOS'un kendi parçalarını (saat
+ * çarkı, uyarı pencereleri, klavye) birlikte çevirir; 'unspecified' telefonun ayarına döner.
+ */
+function temaUygula(tercih: TemaTercihi): void {
+  Appearance.setColorScheme(tercih === 'acik' ? 'light' : tercih === 'koyu' ? 'dark' : 'unspecified');
+}
+
+/** Açılışta bir kez: kayıtlı tercihi okuyup uygular. */
+export async function temaTercihiniYukle(): Promise<void> {
+  temaUygula(temaGecerli(await oku<TemaTercihi>(TEMA_ANAHTARI, 'sistem')));
+}
+
+export async function temaTercihiKaydet(tercih: TemaTercihi): Promise<void> {
+  temaUygula(tercih);
+  await yaz(TEMA_ANAHTARI, tercih);
+  haberVer();
+}
+
 export async function ucretTuruKaydet(tur: UcretTuru): Promise<void> {
   await yaz(UCRET_ANAHTARI, tur);
   haberVer();
@@ -118,6 +144,7 @@ export function useKayitlar() {
   const [ekranAcik, setEkranAcik] = useState(true);
   const [sesliTarif, setSesliTarif] = useState(true);
   const [sesCinsiyeti, setSesCinsiyeti] = useState<SesCinsiyeti>('kadin');
+  const [temaTercihi, setTemaTercihi] = useState<TemaTercihi>('sistem');
   // İlk okuma bitene kadar değerler varsayılan; buna göre iş başlatan ekranlar (rota araması) bekler.
   const [yuklendi, setYuklendi] = useState(false);
 
@@ -130,6 +157,7 @@ export function useKayitlar() {
     setEkranAcik(await oku<boolean>(EKRAN_ANAHTARI, true));
     setSesliTarif(await oku<boolean>(SES_ANAHTARI, true));
     setSesCinsiyeti((await oku<SesCinsiyeti>(SES_CINSIYETI_ANAHTARI, 'kadin')) === 'erkek' ? 'erkek' : 'kadin');
+    setTemaTercihi(temaGecerli(await oku<TemaTercihi>(TEMA_ANAHTARI, 'sistem')));
     setYuklendi(true);
   }, []);
 
@@ -141,5 +169,16 @@ export function useKayitlar() {
     };
   }, [yukle]);
 
-  return { yerler, favoriler, aramalar, ucretTuru, rotaSecenekleri, ekranAcik, sesliTarif, sesCinsiyeti, yuklendi };
+  return {
+    yerler,
+    favoriler,
+    aramalar,
+    ucretTuru,
+    rotaSecenekleri,
+    ekranAcik,
+    sesliTarif,
+    sesCinsiyeti,
+    temaTercihi,
+    yuklendi,
+  };
 }
