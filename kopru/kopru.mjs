@@ -11,7 +11,7 @@
 
 import GtfsRealtimeBindings from 'gtfs-realtime-bindings';
 
-import { enYakinDurak, gununServisleri, seferBul, seferDuraklari } from './tarife.mjs';
+import { enYakinDurak, hizmetGunleri, seferBul, seferDuraklari } from './tarife.mjs';
 import { koridoraGoreSuz, yonluAdaylar } from './yon.mjs';
 
 /**
@@ -144,8 +144,8 @@ export class SeferHafizasi {
     return this.kayit.get(kapiNo) ?? null;
   }
 
-  koy(kapiNo, rotaIdx, seferIdx, sira, an) {
-    this.kayit.set(kapiNo, { rota: rotaIdx, sefer: seferIdx, sira, an });
+  koy(kapiNo, rotaIdx, seferIdx, sira, an, gun = null) {
+    this.kayit.set(kapiNo, { rota: rotaIdx, sefer: seferIdx, sira, an, gun });
   }
 
   unut(kapiNo) {
@@ -176,7 +176,8 @@ export class SeferHafizasi {
  * @returns {{eslesenler: object[], sayac: object}}
  */
 export function araclariEslestir(tarife, araclar, hafiza, tarayici, simdi = new Date(), iz = null) {
-  const aktif = gununServisleri(tarife, simdi);
+  // Dün, bugün, yarın: gece yarısını aşan seferler önceki günün servisinde (bkz. hizmetGunleri).
+  const aktif = hizmetGunleri(tarife, simdi);
   const an = simdi.getTime();
   const eslesenler = [];
   const sayac = {
@@ -216,7 +217,7 @@ export function araclariEslestir(tarife, araclar, hafiza, tarayici, simdi = new 
       const plan = yakin ? planlananSaat(tarife, kayit.sefer, yakin.durak) : null;
       // Durak sırası geriye gitmemeli: gittiyse araç yeni bir tura başlamış demektir.
       if (plan && plan.sira >= kayit.sira - 1) {
-        secilen = { sefer: kayit.sefer, planlanan: plan.saniye, sira: plan.sira };
+        secilen = { sefer: kayit.sefer, planlanan: plan.saniye, sira: plan.sira, gun: kayit.gun ?? null };
         rotaIdx = kayit.rota;
         durakIdx = yakin.durak;
         metre = yakin.metre;
@@ -308,13 +309,15 @@ export function araclariEslestir(tarife, araclar, hafiza, tarayici, simdi = new 
     }
 
     // Hafızada en yakın durağın sırası: bir sonraki turda geri gidiş denetimi onunla.
-    if (kapiNo) hafiza.koy(kapiNo, rotaIdx, secilen.sefer, secilen.sira, simdi);
+    if (kapiNo) hafiza.koy(kapiNo, rotaIdx, secilen.sefer, secilen.sira, simdi, secilen.gun ?? null);
 
     eslesenler.push({
       kapiNo: kapiNo || `arac-${eslesenler.length}`,
       seferId: tarife.seferAd[secilen.sefer],
       rotaId: tarife.rotaAd[rotaIdx],
       yon: tarife.seferYon[secilen.sefer],
+      // Seferin hizmet günü (YYYYMMDD): gece yarısından sonra dünün servisi olabilir.
+      hizmetGunu: secilen.gun ?? null,
       // Güncelleme sıradaki durak için (araç ona doğru gidiyor).
       durakId: tarife.durakAd[yerPlan?.durak ?? durakIdx],
       sira: yerPlan?.sira ?? secilen.sira,
@@ -399,6 +402,9 @@ function seferTanimi(e) {
     tripId: e.seferId,
     routeId: e.rotaId,
     directionId: e.yon,
+    // start_date olmadan OTP seferi bugünün servisinde arıyor; gece yarısını aşan (dünün)
+    // seferin canlı bilgisi yarın gecenin seferine yazılıyordu.
+    ...(e.hizmetGunu ? { startDate: e.hizmetGunu } : {}),
     scheduleRelationship: TripDescriptor.ScheduleRelationship.SCHEDULED,
   });
 }

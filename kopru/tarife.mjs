@@ -367,6 +367,33 @@ export function enYakinDurak(tarife, rotaIdx, enlem, boylam, enFazlaMetre) {
   return enIyi && metre <= esik ? { ...enIyi, metre } : null;
 }
 
+/**
+ * Dün, bugün ve yarının servisleri, gözlem saatine eklenecek farkla.
+ *
+ * Gece yarısını aşan seferler önceki günün servisine ait: pazar gecesi 01:05'te kalkan
+ * 89C, tarifede pazar servisinin "25:05" seferi. Eskiden yalnız bugünün servisine bakılıp
+ * saatler 24 saat üstünden eşleniyordu; pazartesi 01:30'da araç pazartesi servisinin
+ * 25:00 seferine (yani salı gecesine) bağlanıyor, OTP de canlı bilgiyi o gecenin seferine
+ * yazıyordu. Burada her aday sefer kendi hizmet gününe göre ölçülüyor.
+ *
+ * @returns {{tarih:string, ek:number, aktif:boolean[]}[]}  ek: gözlem saniyesine eklenen
+ *   (dün için +86400: pazartesi 01:30 = pazar servisinin 25:30'u)
+ */
+export function hizmetGunleri(tarife, tarih = new Date()) {
+  return [-1, 0, 1].map((k) => {
+    const gun = new Date(tarih.getFullYear(), tarih.getMonth(), tarih.getDate() + k, 12);
+    return { tarih: ymdYaz(gun), ek: k === 0 ? 0 : -k * GUN, aktif: gununServisleri(tarife, gun) };
+  });
+}
+
+function ymdYaz(tarih) {
+  return (
+    `${tarih.getFullYear()}` +
+    `${String(tarih.getMonth() + 1).padStart(2, '0')}` +
+    `${String(tarih.getDate()).padStart(2, '0')}`
+  );
+}
+
 /** Verilen tarihte çalışan servislerin bayrak dizisi. */
 export function gununServisleri(tarife, tarih = new Date()) {
   const ymd =
@@ -383,29 +410,44 @@ export function gununServisleri(tarife, tarih = new Date()) {
  * @param rotaIdx  güzergâh kodundan bulunan rota
  * @param durakIdx aracın en yakın durağı
  * @param saniye   gözlem anı (gün başından saniye)
- * @param aktif    gününServisleri() çıktısı
+ * @param aktif    hizmetGunleri() çıktısı (önerilen) ya da gununServisleri() çıktısı
+ *                 (eski biçim: yalnız bugün, saatler 24 saat üstünden eşlenir)
  * @param enFazlaSapma bu kadar saniyeden uzak bir eşleşme kabul edilmez
  * @param haric başka araca verilmiş seferler (Set) — bunlar atlanır
- * @returns {{sefer:number, planlanan:number, sira:number, sapma:number}|null}
+ * @returns {{sefer:number, planlanan:number, sira:number, sapma:number, gun:string|null}|null}
+ *   gun: seferin hizmet günü (YYYYMMDD), GTFS-RT'de start_date
  */
 export function seferBul(tarife, rotaIdx, durakIdx, saniye, aktif, enFazlaSapma = 45 * 60, haric = null) {
   const bas = tarife.durakBas[durakIdx];
   const bit = tarife.durakBas[durakIdx + 1];
+  const gunler = aktif.length && typeof aktif[0] === 'object' && aktif[0] !== null ? aktif : null;
   let enIyi = null;
   for (let i = bas; i < bit; i++) {
     const sefer = tarife.sSefer[i];
     if (tarife.seferRota[sefer] !== rotaIdx) continue;
     if (haric?.has(sefer)) continue;
     const servis = tarife.seferServis[sefer];
-    if (servis < 0 || !aktif[servis]) continue;
+    if (servis < 0) continue;
     const planlanan = tarife.sSaniye[i];
+    if (gunler) {
+      for (const g of gunler) {
+        if (!g.aktif[servis]) continue;
+        const sapma = planlanan - (saniye + g.ek);
+        if (Math.abs(sapma) > enFazlaSapma) continue;
+        if (!enIyi || Math.abs(sapma) < Math.abs(enIyi.sapma)) {
+          enIyi = { sefer, planlanan, sira: tarife.sSira[i], sapma, gun: g.tarih };
+        }
+      }
+      continue;
+    }
+    if (!aktif[servis]) continue;
     // Gece yarısını aşan tarife saatleri: 24:30 ile 00:30 aynı ana denk gelir.
     let sapma = planlanan - saniye;
     if (sapma > GUN / 2) sapma -= GUN;
     else if (sapma < -GUN / 2) sapma += GUN;
     if (Math.abs(sapma) > enFazlaSapma) continue;
     if (!enIyi || Math.abs(sapma) < Math.abs(enIyi.sapma)) {
-      enIyi = { sefer, planlanan, sira: tarife.sSira[i], sapma };
+      enIyi = { sefer, planlanan, sira: tarife.sSira[i], sapma, gun: null };
     }
   }
   return enIyi;
