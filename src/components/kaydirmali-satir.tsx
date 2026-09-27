@@ -6,14 +6,19 @@
 //  - Açıkken satıra dokunmak önce satırı kapatır (yanlışlıkla durağa gitmesin).
 //  - VoiceOver: satırın eylemlerinde "Sil" var (yukarı/aşağı kaydırarak seçilir).
 //
-// Sürükleme arayüz iş parçacığında (gesture-handler + Reanimated). Yatay 12 pt'den
+// Sürükleme arayüz iş parçacığında (gesture-handler + Reanimated). Yatay 16 pt'den
 // önce dikey hareket başlarsa jest bırakılır, liste kaymaya devam eder.
+//
+// Silinirken satır önce sola kayıp çıkar, sonra yüksekliği sıfıra iner; alttakiler
+// yukarı süzülür. (İlk sürüm bunu Reanimated'in "layout" geçişiyle yapıyordu: o geçiş
+// satırın her yer değiştirmesini canlandırdığı için, sayfa açılırken üstteki kartlar
+// yüklenince favori satırları yerine kayarak geliyordu.)
 
 import * as Haptics from 'expo-haptics';
 import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { Ikon } from '@/components/ulasim';
@@ -37,6 +42,7 @@ export function KaydirmaliSatir({ children, onSil, silEtiketi = 'Sil' }: Ozellik
   const baslangic = useSharedValue(0);
   const genislik = useSharedValue(360);
   const tam = useSharedValue(false);
+  const yukseklik = useSharedValue(-1); // -1: ölçülmedi ya da silinmiyor, yükseklik serbest
   const [acik, setAcik] = useState(false);
 
   const titret = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -45,9 +51,18 @@ export function KaydirmaliSatir({ children, onSil, silEtiketi = 'Sil' }: Ozellik
     onSil();
   };
 
+  // Sola kayıp çık, sonra yüksekliği kapat, en son listeden sil.
+  const kapanVeSil = (olculen: number) => {
+    'worklet';
+    yukseklik.value = olculen;
+    yukseklik.value = withTiming(0, { duration: 200 }, (bitti) => {
+      if (bitti) scheduleOnRN(sil);
+    });
+  };
+  const olcu = useSharedValue(0);
   const kaydirVeSil = () => {
     x.value = withTiming(-genislik.value, { duration: 180 }, (bitti) => {
-      if (bitti) scheduleOnRN(sil);
+      if (bitti) kapanVeSil(olcu.value);
     });
   };
   const kapat = () => {
@@ -56,8 +71,8 @@ export function KaydirmaliSatir({ children, onSil, silEtiketi = 'Sil' }: Ozellik
   };
 
   const jest = Gesture.Pan()
-    .activeOffsetX([-12, 12])
-    .failOffsetY([-10, 10])
+    .activeOffsetX([-16, 16])
+    .failOffsetY([-8, 8])
     .onStart(() => {
       baslangic.value = x.value;
     })
@@ -75,7 +90,7 @@ export function KaydirmaliSatir({ children, onSil, silEtiketi = 'Sil' }: Ozellik
       if (tam.value) {
         tam.value = false;
         x.value = withTiming(-genislik.value, { duration: 160 }, (bitti) => {
-          if (bitti) scheduleOnRN(sil);
+          if (bitti) kapanVeSil(olcu.value);
         });
         return;
       }
@@ -85,6 +100,7 @@ export function KaydirmaliSatir({ children, onSil, silEtiketi = 'Sil' }: Ozellik
     });
 
   const onStil = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
+  const kokStil = useAnimatedStyle(() => (yukseklik.value >= 0 ? { height: yukseklik.value } : {}));
   // Kırmızı alan satırın açılan kısmını doldurur; tam kaydırmada yazı parmağı izler.
   const eylemStil = useAnimatedStyle(() => ({ width: Math.max(0, -x.value) }));
   const yaziStil = useAnimatedStyle(() => ({
@@ -93,11 +109,10 @@ export function KaydirmaliSatir({ children, onSil, silEtiketi = 'Sil' }: Ozellik
 
   return (
     <Animated.View
-      exiting={FadeOut.duration(160)}
-      layout={LinearTransition.duration(220)}
-      style={stiller.kok}
+      style={[stiller.kok, kokStil]}
       onLayout={(e) => {
         genislik.value = e.nativeEvent.layout.width;
+        if (yukseklik.value < 0) olcu.value = e.nativeEvent.layout.height;
       }}
       accessibilityActions={[{ name: 'delete', label: silEtiketi }]}
       onAccessibilityAction={(e) => {
