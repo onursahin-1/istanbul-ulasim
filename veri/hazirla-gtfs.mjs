@@ -673,6 +673,47 @@ async function takvimiGuncelDonemeKaydir(klasor) {
 
 
 /**
+ * Güncel beslemenin (İETT) takvimi yakında bitiyorsa son dönemi bir yıl uzatır.
+ *
+ * İETT takvimi yıl sonunda bitiyor (ör. 16.03.2026 – 31.12.2026). İBB yeni yılın verisini
+ * geç yayımlarsa ya da veri o tarihten önce yenilenmezse 1 Ocak'ta rota motoru tek bir
+ * otobüs seferi bulamaz. Eski tarife saatleri, hiç sefer olmamasından iyidir.
+ *
+ * Yalnız beslemedeki EN SON biten servisler uzatılır: İBB yeni dönemi ayrı servisle
+ * yayımlamışsa (1 Ocak'ta başlayan), eski dönem ona bırakılır ve seferler çift görünmez.
+ * Mevsimlik (60 günden kısa) servislere dokunulmaz.
+ */
+async function takvimBitisiniUzat(klasor, esikGun = 120) {
+  const dosya = path.join(klasor, 'calendar.txt');
+  const satirlar = csvCoz(await dosyaOku(dosya, 'utf-8'));
+  const b = satirlar[0];
+  const iBas = b.indexOf('start_date');
+  const iBit = b.indexOf('end_date');
+  if (iBas < 0 || iBit < 0) return null;
+  const gecerli = (v) => /^\d{8}$/.test((v ?? '').trim());
+  const gun = 86400000;
+  const bugun = new Date();
+  const bugunUtc = new Date(Date.UTC(bugun.getFullYear(), bugun.getMonth(), bugun.getDate()));
+
+  const bitisler = satirlar.slice(1).filter((r) => gecerli(r[iBit])).map((r) => r[iBit].trim());
+  if (!bitisler.length) return null;
+  const sonBitis = bitisler.reduce((a, c) => (c > a ? c : a));
+  const kalanGun = Math.round((tariheCevir(sonBitis) - bugunUtc) / gun);
+  if (kalanGun >= esikGun) return { uzatilan: 0, sonBitis, kalanGun };
+
+  const yeniBitis = tarihMetni(new Date(bugunUtc.getTime() + 365 * gun));
+  let uzatilan = 0;
+  for (const r of satirlar.slice(1)) {
+    if (!gecerli(r[iBas]) || (r[iBit] ?? '').trim() !== sonBitis) continue;
+    if ((tariheCevir(sonBitis) - tariheCevir(r[iBas].trim())) / gun < 60) continue;
+    r[iBit] = yeniBitis;
+    uzatilan++;
+  }
+  if (uzatilan) await dosyaYaz(dosya, csvYaz(satirlar), 'utf-8');
+  return { uzatilan, sonBitis, kalanGun, yeniBitis };
+}
+
+/**
  * Dosyalar arası tutarlılığı sağlar: rota motoru, var olmayan bir hatta/sefere/durağa
  * atıf yapan satır bulduğunda tüm derlemeyi durdurur. Bu işlev öksüz satırları atar.
  */
@@ -877,7 +918,7 @@ async function iettVerisiniOnar(klasor) {
   }
 }
 
-export { iettVerisiniOnar, butunlukOnar, zorunluAlanlariDoldur, frekanslariOnar, takvimiGuncelDonemeKaydir, koordinatCoz, mojibakeDuzelt };
+export { iettVerisiniOnar, butunlukOnar, zorunluAlanlariDoldur, frekanslariOnar, takvimiGuncelDonemeKaydir, takvimBitisiniUzat, koordinatCoz, mojibakeDuzelt };
 
 // ---------- Ana akış ----------
 
@@ -939,8 +980,16 @@ async function beslemeHazirla(besleme, sira, toplam) {
       log('  NOT: Saatler eski tarifeden geliyor; gerçek seferlerden birkaç dakika sapabilir.');
     }
   } else if (takvim.enBuyuk) {
-    const bugun = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    if (takvim.enBuyuk < bugun) log('  UYARI: Takvimdeki bütün hizmet dönemleri bugünden önce bitiyor.');
+    const uzatma = await takvimBitisiniUzat(cikti);
+    if (uzatma?.uzatilan) {
+      log(
+        `  UYARI: Takvim ${tarihYaz(uzatma.sonBitis)}'de bitiyor (${uzatma.kalanGun} gün kaldı); ` +
+          `${uzatma.uzatilan} servis ${tarihYaz(uzatma.yeniBitis)}'e uzatıldı.`,
+      );
+      log("  İBB yeni dönemin verisini yayımlayınca yenile.ps1'i yeniden çalıştır; o zamana kadar eski saatler kullanılıyor.");
+    } else if (uzatma) {
+      log(`  Takvim ${tarihYaz(uzatma.sonBitis)}'e kadar geçerli (${uzatma.kalanGun} gün).`);
+    }
   }
 
   log('  5/5 Zip dosyası oluşturuluyor...');
