@@ -28,7 +28,7 @@
 // Kullanım:
 //   node ozel-vapur-indir.mjs C:\otp\ozel-vapur-tarife.json
 
-import { writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 const TURYOL = 'https://www.turyol.com';
 const DENTUR = 'https://www.denturavrasya.com/tr-TR/hatlarimiz/';
@@ -254,15 +254,33 @@ export function denturCoz(hat, srcdoc) {
   return { ...sonuc, sayi };
 }
 
-async function getir(url, secenek = {}, deneme = 3) {
+// Tarayıcının gönderdiği başlıklar. Node'un varsayılanlarıyla (User-Agent "node",
+// Accept-Language "*") bazı sunucular 500 dönüyor.
+const TARAYICI = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+};
+
+/** Hata sayfasının başlığı ya da ilk cümlesi (ASP.NET hata sayfası sebebi başlıkta yazar). */
+function hataOzeti(govde) {
+  const baslik = /<title>([\s\S]*?)<\/title>/i.exec(govde)?.[1];
+  const metin = (baslik ?? govde).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return varlikCoz(metin).slice(0, 200);
+}
+
+async function getir(url, secenek = {}, deneme = 4) {
   for (let i = 1; ; i++) {
     try {
-      const yanit = await fetch(url, { ...secenek, headers: { 'User-Agent': 'Mozilla/5.0 (istanbul-ulasim veri betigi)', ...(secenek.headers ?? {}) } });
-      if (!yanit.ok) throw new Error(`HTTP ${yanit.status}`);
+      const yanit = await fetch(url, { ...secenek, headers: { ...TARAYICI, ...(secenek.headers ?? {}) } });
+      if (!yanit.ok) {
+        const ozet = hataOzeti(await yanit.text().catch(() => ''));
+        throw new Error(`HTTP ${yanit.status}${ozet ? ` (${ozet})` : ''}`);
+      }
       return yanit;
     } catch (hata) {
       if (i >= deneme) throw new Error(`${url}: ${hata.message}`);
-      await new Promise((r) => setTimeout(r, 1500 * i));
+      await new Promise((r) => setTimeout(r, 2000 * 2 ** (i - 1)));
     }
   }
 }
@@ -307,7 +325,12 @@ async function turyolIndir() {
     const varislar = await (
       await getir(`${TURYOL}/Tarife/GetVarislar2`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          Accept: 'application/json, text/javascript, */*; q=0.01',
+          'X-Requested-With': 'XMLHttpRequest',
+          Referer: `${TURYOL}/Home/Tarifeler`,
+        },
         body: `{'hatTuruId':'${hatTuru}','kalkisId':'${kalkisId}','langId':'1'}`,
       })
     ).json();
@@ -344,18 +367,48 @@ async function denturIndir() {
   return hatlar;
 }
 
+/**
+ * Bir kaynağı indir; olmazsa önceki indirmedeki verisini kullan (site geçici olarak
+ * çökmüşse bütün kurulum durmasın). Önceki de yoksa null: uygulama betiği o işletmeciye
+ * dokunmaz, beslemedeki eski verisi kalır.
+ */
+async function kaynak(ad, indir, onceki) {
+  try {
+    return { veri: await indir(), eski: false };
+  } catch (hata) {
+    console.log(`  UYARI: ${ad} indirilemedi: ${hata.message}`);
+    if (onceki?.[ad.toLowerCase()]?.length) {
+      console.log(`  ${ad} için önceki indirme kullanılıyor (${onceki.indirildi?.slice(0, 10) ?? '?'}).`);
+      return { veri: onceki[ad.toLowerCase()], eski: true };
+    }
+    console.log(`  ${ad} için önceki indirme de yok; beslemedeki eski ${ad} verisi olduğu gibi kalacak.`);
+    return { veri: null, eski: true };
+  }
+}
+
 async function main() {
   const cikti = process.argv[2];
   if (!cikti) {
     console.error('kullanım: node ozel-vapur-indir.mjs <çıktı.json>');
     process.exit(2);
   }
+  let onceki = null;
+  try {
+    if (existsSync(cikti)) onceki = JSON.parse(readFileSync(cikti, 'utf8'));
+  } catch {
+    onceki = null;
+  }
   console.log('Turyol tarifesi indiriliyor…');
-  const turyol = await turyolIndir();
+  const turyol = await kaynak('Turyol', turyolIndir, onceki);
   console.log('Dentur Avrasya tarifesi indiriliyor…');
-  const dentur = await denturIndir();
-  writeFileSync(cikti, JSON.stringify({ indirildi: new Date().toISOString(), turyol, dentur }, null, 1));
-  console.log(`\n${turyol.length} Turyol iskele çifti, ${dentur.length} Dentur hattı → ${cikti}`);
+  const dentur = await kaynak('Dentur', denturIndir, onceki);
+  if (!turyol.veri && !dentur.veri) {
+    console.log('\nUYARI: iki site de indirilemedi ve önceki indirme yok; Turyol ve Dentur eski verisiyle kalıyor.');
+  }
+  const indirildi = turyol.eski || dentur.eski ? (onceki?.indirildi ?? new Date().toISOString()) : new Date().toISOString();
+  writeFileSync(cikti, JSON.stringify({ indirildi, turyol: turyol.veri, dentur: dentur.veri }, null, 1));
+  const ozet = (k, ad, birim) => (k.veri ? `${k.veri.length} ${ad} ${birim}${k.eski ? ' (önceki indirme)' : ''}` : `${ad}: eski veri kalıyor`);
+  console.log(`\n${ozet(turyol, 'Turyol', 'iskele çifti')}, ${ozet(dentur, 'Dentur', 'hattı')} → ${cikti}`);
 }
 
 // Doğrudan çalıştırılınca indir; içe aktarılınca (test) yalnız çözümleyiciler.

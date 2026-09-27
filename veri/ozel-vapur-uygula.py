@@ -294,8 +294,23 @@ def main(json_yolu, zip_yolu):
         return a['agency_id']
 
     turyol_id, dentur_id = ajans('turyol'), ajans('dentur')
+    if not veri.get('turyol') and not veri.get('dentur'):
+        print('Turyol ve Dentur tarifesi yok (indirilemedi); zip değiştirilmedi.')
+        return
+    # İndirilemeyen işletmecinin (null) beslemedeki verisine dokunulmaz.
+    yenilenen, onek = set(), []
+    if veri.get('turyol'):
+        yenilenen.add(turyol_id)
+        onek.append('ty-')
+    else:
+        print('Turyol tarifesi yok (indirilemedi); beslemedeki Turyol verisi olduğu gibi kalıyor.')
+    if veri.get('dentur'):
+        yenilenen.add(dentur_id)
+        onek.append('dt-')
+    else:
+        print('Dentur tarifesi yok (indirilemedi); beslemedeki Dentur verisi olduğu gibi kalıyor.')
     eski_rotalar = {r['route_id'] for r in tablolar['routes.txt']
-                    if r['agency_id'] in (turyol_id, dentur_id) or r['route_id'].startswith(('ty-', 'dt-'))}
+                    if r['agency_id'] in yenilenen or (onek and r['route_id'].startswith(tuple(onek)))}
     duraklar = Duraklar(tablolar)
     uyarilar = []
 
@@ -325,7 +340,7 @@ def main(json_yolu, zip_yolu):
             birlesik[anahtar] = {'maske': maske, 'bas': cozulen[0][1], 'son': cozulen[-1][1]}
 
     # Turyol
-    t_seferler, t_adlar, t_guzergahlar = turyol_seferleri(veri.get('turyol', []), uyarilar)
+    t_seferler, t_adlar, t_guzergahlar = turyol_seferleri(veri.get('turyol') or [], uyarilar)
     for kod, seferler in t_seferler.items():
         dizi = t_guzergahlar[kod][1]
         rota_id = 'ty-' + sade(kod)
@@ -336,7 +351,7 @@ def main(json_yolu, zip_yolu):
             sefer_ekle(rota_id, '0', maske, [(t_adlar.get(k, k), t, b, n) for k, t, b, n in d], TURYOL_ISKELE, turyol_id)
 
     # Dentur
-    for hat in veri.get('dentur', []):
+    for hat in veri.get('dentur') or []:
         rota_id = 'dt-' + sade(hat['kod'])
         seferler = dentur_seferleri(hat)
         if not seferler:

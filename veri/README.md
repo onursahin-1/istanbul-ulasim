@@ -278,6 +278,9 @@ dokunmuyor):
   (site sıklık vermiyor). Yalova grafiğin dışında: Yalova–Adalar seferinin İstanbul kısmı
   alınıyor.
 - Aynı saatlerle birden çok gün türünde çalışan seferler tek sefer (birleşik gün maskesi).
+- Bir site indirilemezse (çökmüş, biçimi değişmiş) önceki indirmedeki verisi kullanılıyor;
+  o da yoksa o işletmecinin beslemedeki eski verisine dokunulmuyor. Kurulum durmuyor, çıktıda
+  UYARI yazıyor.
 
 Ardından `durak-birlestir.py` ve `siklik-cikar.py` (yenile.ps1 zaten sırayla yapıyor).
 Yaz/kış tarifesi değişince yeniden indirip uygulamak yeter.
