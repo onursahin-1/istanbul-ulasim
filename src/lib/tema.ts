@@ -57,7 +57,7 @@ export const TEMA_ACIK: Tema = {
   vurgu: '#0a7b74',
   vurguAcik: '#e6f3f1',
   vurguYazi: '#ffffff',
-  metrobus: '#d71a28',
+  metrobus: '#263679', // Metrobüs logosunun laciverti
   yurume: '#8c9993',
   konum: '#2a7df0',
   hata: '#b3261e',
@@ -80,7 +80,7 @@ export const TEMA_KOYU: Tema = {
   vurgu: '#3ab9ab',
   vurguAcik: '#123330',
   vurguYazi: '#0e1412',
-  metrobus: '#ff6b62',
+  metrobus: '#4a66c8', // logonun lacivertinin koyu haritada seçilen açığı
   yurume: '#7d8b85',
   konum: '#5c9dfb',
   hata: '#ff8a80',

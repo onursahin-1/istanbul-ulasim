@@ -126,6 +126,9 @@ export function HatRozeti({ hat, kucuk = false }: { hat?: RozetHatti | string | 
         style={[
           stil.logoRozet,
           { width: en, height: yukseklik, borderRadius: kucuk ? 6 : 7, backgroundColor: logo.zemin ?? 'transparent' },
+          // Metrobüs logosunun alt kısmı hattın lacivertiyle aynı: hat ekranının laciverdi
+          // başlığında kenarı kaybolmasın diye ince beyaz çerçeve (beyaz zeminde görünmez).
+          !logo.zemin && stil.logoCerceve,
         ]}
         accessibilityLabel={kisaAd ?? undefined}
       >
@@ -499,6 +502,7 @@ const stil = StyleSheet.create({
   rozet: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', overflow: 'hidden' },
   rozetKutu: { alignItems: 'center', justifyContent: 'center' },
   logoRozet: { alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start', overflow: 'hidden' },
+  logoCerceve: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.9)' },
   daire: { alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start' },
   daireYazi: { fontWeight: '800', letterSpacing: -0.3, includeFontPadding: false },
   rozetYazi: { fontWeight: '700', fontSize: 12.5, paddingHorizontal: 8, maxWidth: 110 },
