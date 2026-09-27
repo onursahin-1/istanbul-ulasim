@@ -36,6 +36,7 @@ $osm = Join-Path $Otp 'osm-hatlar.json'
 $metro = Join-Path $Otp 'metro-tarife.json'
 $vapur = Join-Path $Otp 'vapur-tarife.json'
 $ozelVapur = Join-Path $Otp 'ozel-vapur-tarife.json'
+$kiyi = Join-Path $Otp 'osm-kiyi.json'
 $baslangic = Get-Date
 $adim = 0
 
@@ -116,6 +117,10 @@ Adim "Turyol ve Dentur tarifesi işleniyor" { PythonCalistir ozel-vapur-uygula.p
 Adim "Erişim (basamaksız) işaretleri" { PythonCalistir erisim-isaretle.py $ray $iett }
 Adim "Resmî tatiller ve bayramlar" { PythonCalistir ozel-gun-takvimi.py ..\assets\veri\ozel-gunler.json $ray $iett }
 Adim "Hat çizgileri" { PythonCalistir cizgi-ekle.py $osm $ray }
+if (-not (Test-Path $kiyi)) {
+  Adim "OpenStreetMap'ten kıyı çizgisi çıkarılıyor (osmium gerekir)" { PythonCalistir vapur-cizgi.py cikar (Join-Path $ist 'Istanbul.osm.pbf') $kiyi }
+}
+Adim "Vapur çizgileri (denizden)" { PythonCalistir vapur-cizgi.py ekle $kiyi $ray }
 Adim "Hat adları" { PythonCalistir hat-adi-duzelt.py $ray }
 Adim "İstasyonlar birleştiriliyor (raylı ve vapur)" { PythonCalistir durak-birlestir.py $ray }
 Adim "İstasyonlar birleştiriliyor (İETT)" { PythonCalistir durak-birlestir.py $iett }

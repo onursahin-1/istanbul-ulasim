@@ -28,6 +28,7 @@ python ozel-vapur-uygula.py C:\otp\ozel-vapur-tarife.json C:\otp\istanbul\istanb
 python erisim-isaretle.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip C:\otp\istanbul\istanbul-iett-gtfs.zip
 python ozel-gun-takvimi.py ..\assets\veri\ozel-gunler.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip C:\otp\istanbul\istanbul-iett-gtfs.zip
 python cizgi-ekle.py C:\otp\osm-hatlar.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
+python vapur-cizgi.py ekle C:\otp\osm-kiyi.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python hat-adi-duzelt.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python durak-birlestir.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python durak-birlestir.py C:\otp\istanbul\istanbul-iett-gtfs.zip
@@ -396,6 +397,23 @@ duraklar çizgi boyunca sırayla ilerliyorsa kullanılıyor. Marmaray1 bu sınav
 hattın (OSM'de `B1`) çizgisiyle geçiyor; ölçülen en büyük sapma 69 m.
 
 Çizgisi zaten olan seferlere dokunulmuyor.
+
+## 6b. Vapur çizgileri — denizden
+
+```powershell
+python vapur-cizgi.py cikar C:\otp\istanbul\Istanbul.osm.pbf C:\otp\osm-kiyi.json   # bir kez, osmium gerekir
+python vapur-cizgi.py ekle C:\otp\osm-kiyi.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
+```
+
+Tarifeden kurulan vapur seferlerinin (Şehir Hatları, Turyol, Dentur) çizgisi yoktu; OTP
+iskeleleri düz çizgiyle birleştirince Eminönü–Kadıköy Sarayburnu'nu, Üsküdar–Kadıköy
+Harem'i, Haliç hattı Kasımpaşa'yı kesiyordu. Betik OSM kıyı çizgisinden 40 metrelik bir
+deniz ızgarası kuruyor (kıyı duvar, deniz Marmara ve Boğaz'daki tohumlardan doldurulan
+bölge). İki iskele arası düz çizgi baştan sona denizdense düz kalıyor (karşıya geçişler,
+Adalar); değilse ızgarada en kısa deniz yolu bulunup köşeleri sadeleştiriliyor. Doldurma
+bilinen kara noktalarına sızarsa (kıyı çizgisinde kopukluk) betik hiçbir şey yazmıyor.
+Sonuç `C:\otp\vapur-cizgi-onizleme.png`'deki gibi: 59 bacak düz, 171 bacak kıyıyı
+dolanıyor, karadan geçen çizgi yok.
 
 ## 7. Durakları istasyon altında toplama
 
