@@ -10,9 +10,11 @@ kendi derlememiz (development build) olmadan çalışmaz.
 
 ## Rota motoru
 
-OpenTripPlanner 2.10, kullanıcının bilgisayarında `C:\otp` altında çalışır; uygulama
-`http://<bilgisayarın IP'si>:8080/otp/gtfs/v1` adresine bağlanır, yani telefon aynı
-Wi-Fi'de olmak zorunda. Adres `EXPO_PUBLIC_OTP_URL` ile değiştirilebilir.
+OpenTripPlanner 2.10, kullanıcının bilgisayarında `C:\otp` altında çalışır (bulut
+sunucusuna taşıma betikleri `sunucu/` altında). Uygulama OTP'nin adresini Expo'nun
+adresinden çıkarır: `http://<Expo'yu çalıştıran makine>:8080/otp/gtfs/v1`. Telefon ya aynı
+Wi-Fi'de ya da Tailscale üstünden bağlanır (`npm run uzaktan`). Adres `EXPO_PUBLIC_OTP_URL`
+ile değiştirilebilir.
 
 ### İBB servis kotası
 

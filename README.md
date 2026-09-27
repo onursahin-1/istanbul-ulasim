@@ -1,56 +1,77 @@
-# Welcome to your Expo app 👋
+# İstanbul Ulaşım
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+İstanbul için toplu taşıma uygulaması: rota arama, canlı araç konumları, durak ve hat
+ekranları, sesli yol tarifi, ücret hesabı. Expo (React Native) ile yazıldı, iPhone'da
+Expo Go ile çalışıyor. Rotaları kendi OpenTripPlanner sunucumuz buluyor; veri İBB'nin açık
+verisinden, işletmecilerin sitelerinden ve OpenStreetMap'ten.
 
-## Get started
+## Parçalar
 
-1. Install dependencies
+| Klasör | Ne | Ayrıntı |
+|---|---|---|
+| `src/` | Uygulama (Expo Router). Ekranlar `src/app`, ortak bileşenler `src/components`, mantık `src/lib` | — |
+| `veri/` | Veri hattı: İBB GTFS'ini indirip onarır, Metro İstanbul, Şehir Hatları, Turyol ve Dentur tarifelerini işler, OTP'nin kullandığı zip'leri üretir | [veri/README.md](veri/README.md) |
+| `kopru/` | Canlı veri köprüsü: İETT'nin araç konumlarını GTFS-RT'ye çevirip OTP'ye verir, varış tahminlerini öğrenir | [kopru/README.md](kopru/README.md) |
+| `sunucu/` | OTP, köprü ve Expo'yu bulut sunucusunda (Oracle, Tailscale) çalıştırma betikleri | [sunucu/README.md](sunucu/README.md) |
+| `assets/veri/` | Uygulamayla giden veri: ağ haritası, sıklıklar, tatil takvimi, yer araması veritabanı | — |
 
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+iPhone (Expo Go) ──▶ :8081 Expo (uygulamanın kodu)
+                 ──▶ :8080 OpenTripPlanner (rota, durak, hat)   ◀── veri/ (GTFS zip'leri)
+                 ──▶ :8082 köprü (canlı konum, duyurular)       ◀── İBB canlı servisleri
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Uygulama OTP'nin ve köprünün adresini Expo'nun adresinden çıkarıyor (`src/lib/otp.ts`):
+üçü aynı makinede çalışıyor.
 
-### Other setup steps
+## Bilgisayarda çalıştırma
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+Üç ayrı PowerShell penceresinde, bu sırayla:
 
-## Learn more
+```powershell
+# 1. OTP (hazır olması 1-2 dk)
+cd C:\otp
+java -Xmx6G -jar otp-shaded-2.10.0.jar --load --serve istanbul
 
-To learn more about developing your project with Expo, look at the following resources:
+# 2. Köprü
+cd C:\projeler\istanbul-ulasim\kopru
+npm start
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+# 3. Expo: evde aynı Wi-Fi'da
+cd C:\projeler\istanbul-ulasim
+npx expo start
+#    ya da dışarıdan Tailscale ile
+npm run uzaktan
+```
 
-## Join the community
+iPhone'da Expo Go'dan projeyi aç ya da QR kodu okut.
 
-Join our community of developers creating universal apps.
+## Veriyi yenileme
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```powershell
+cd C:\projeler\istanbul-ulasim\veri
+.\yenile.ps1 -Derle             # her şeyi indir, kur, OTP grafiğini derle (~25 dk)
+.\yenile.ps1 -EskiTarife -Derle # metro/vapur tarifelerini yeniden indirmeden
+```
+
+Ne zaman: İETT tarifesi değişince, mevsim değişince (yaz/kış), `assets/veri/ozel-gunler.json`
+güncellenince. İETT takvimi bitmeye yaklaşırsa kurulum onu kendiliğinden uzatıp uyarıyor;
+yine de İBB yeni dönemin verisini yayımlayınca yeniden çalıştırmak gerekiyor.
+
+## Testler
+
+```powershell
+npm test               # uygulamanın mantık testleri
+npx tsc --noEmit       # tip denetimi
+npm run sorgu          # GraphQL sorgularını OTP şemasına karşı doğrula (sorgu değişince)
+cd kopru; npm test     # köprünün testleri
+```
+
+## Bilinen sınırlar
+
+- **Expo Go:** native modül eklenemiyor; arka planda konum, gerçek push bildirimi, Dinamik
+  Ada bağımsız bir derleme (Apple Developer üyeliği) olmadan çalışmıyor.
+- **Canlı konum** yalnız İETT otobüslerinde var; metro, tramvay ve vapur için açık canlı
+  veri yok.
+- **Yaklaşık saatler:** Marmaray (TCDD istasyon saati yayımlamıyor, sıklıktan), İDO ve
+  minibüs/dolmuş (İBB'nin eski verisi).
