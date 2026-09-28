@@ -10,7 +10,6 @@ import {
   Animated,
   Image,
   type ImageSourcePropType,
-  Pressable,
   StyleSheet,
   Text,
   View,
@@ -19,6 +18,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 
+import { Pressable } from '@/components/dokun';
 import type { CanliBilgi, CanliSinif } from '@/lib/canli';
 import { tazelikYaz } from '@/lib/onbellek';
 import type { Duyuru } from '@/lib/duyuru';

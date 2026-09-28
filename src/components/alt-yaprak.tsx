@@ -16,7 +16,6 @@
 
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import {
-  Pressable,
   StyleSheet,
   View,
   type NativeScrollEvent,
@@ -24,6 +23,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
+import { Pressable } from '@/components/dokun';
 import { Gesture, GestureDetector, ScrollView } from 'react-native-gesture-handler';
 import Animated, { cancelAnimation, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';

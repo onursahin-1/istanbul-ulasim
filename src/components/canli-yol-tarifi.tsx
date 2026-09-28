@@ -11,8 +11,6 @@
 import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  Modal,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -21,6 +19,8 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
+import { Pressable } from '@/components/dokun';
+import { ModalSayfa } from '@/components/modal-sayfa';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { canliRenk, DONUS_SIMGELERI, HatRozeti, Ikon, NabizNoktasi, useStiller, YaklasmaSeridi } from '@/components/ulasim';
@@ -778,8 +778,7 @@ export function TumAdimlar({
     kapat();
   };
   return (
-    <Modal visible={acik} transparent animationType="slide" onRequestClose={kapat}>
-      <Pressable style={s.perde} onPress={kapat} accessibilityLabel="Kapat" />
+    <ModalSayfa acik={acik} kapat={kapat}>
       <View style={[s.sayfa, { paddingBottom: kenar.bottom + 12 }]}>
         <View style={s.tutamac} />
         <Text style={s.sayfaBaslik}>{v.hedef ? `${baslikYap(v.hedef)} yolculuğu` : 'Yolculuk'}</Text>
@@ -829,7 +828,7 @@ export function TumAdimlar({
           <Text style={[s.dugmeYazi, { color: tema.vurguYazi }]}>Şu anki adıma dön</Text>
         </Pressable>
       </View>
-    </Modal>
+    </ModalSayfa>
   );
 }
 
@@ -982,7 +981,6 @@ const stiller = (t: Tema) =>
     dugmeYazi: { fontSize: 13.5, fontWeight: '700', color: t.yazi },
     zil: { width: 42, paddingHorizontal: 0 },
 
-    perde: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
     sayfa: {
       backgroundColor: t.yuzey,
       borderTopLeftRadius: 22,

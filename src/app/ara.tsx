@@ -6,7 +6,8 @@
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, FlatList, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable } from '@/components/dokun';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { GeriCubugu, HataKutusu, Ikon, useStiller, Yukleniyor, type IkonAdi } from '@/components/ulasim';
@@ -26,6 +27,7 @@ import {
 } from '@/lib/poi';
 import { baslikYap, trBuyuk, useTema, yonYaz, type Tema } from '@/lib/tema';
 import { mesafeYaz } from '@/lib/zaman';
+import { vurus } from '@/lib/dokunsal';
 
 type Parametreler = {
   kLat?: string;
@@ -180,6 +182,7 @@ export default function AraEkrani() {
   }, [konum.nokta.latitude, konum.nokta.longitude, konum.tur, p.vLat, p.vLon, p.vAd]);
 
   const kaydetSor = (hedef: Konum) => {
+    vurus();
     Alert.alert(hedef.ad, 'Bu yeri kısayol olarak kaydet', [
       { text: 'Ev olarak kaydet', onPress: () => yerKaydet('ev', hedef) },
       { text: 'İş olarak kaydet', onPress: () => yerKaydet('is', hedef) },

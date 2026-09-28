@@ -2,7 +2,8 @@
 
 import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable } from '@/components/dokun';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { KaydirmaliSatir } from '@/components/kaydirmali-satir';
@@ -220,7 +221,7 @@ export default function KayitliEkrani() {
 const stiller = (t: Tema) =>
   StyleSheet.create({
     kok: { flex: 1, backgroundColor: t.zemin },
-    baslik: { fontSize: 26, fontWeight: '800', color: t.yazi, letterSpacing: -0.4, paddingHorizontal: 16, paddingBottom: 14 },
+    baslik: { fontSize: 34, fontWeight: '700', color: t.yazi, letterSpacing: 0.37, paddingHorizontal: 16, paddingBottom: 14 },
     kartlar: { flexDirection: 'row', gap: 10, paddingHorizontal: 16 },
     kart: {
       flex: 1,

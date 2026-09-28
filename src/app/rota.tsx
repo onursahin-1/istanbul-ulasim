@@ -3,7 +3,9 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Platform, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable } from '@/components/dokun';
+import { ModalSayfa } from '@/components/modal-sayfa';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -42,6 +44,7 @@ import {
   saatYaz,
   sureYaz,
 } from '@/lib/zaman';
+import { secimTiki } from '@/lib/dokunsal';
 
 type Parametreler = { kLat: string; kLon: string; kAd: string; vLat: string; vLon: string; vAd: string };
 type Sirali = { g: Guzergah; sira: number };
@@ -441,8 +444,7 @@ export default function RotaEkrani() {
       </ScrollView>
 
       {/* Zaman seçimi: gece metrosu gibi ileri saatler ya da "şu saatte orada olmalıyım". */}
-      <Modal visible={zamanAcik} transparent animationType="slide" onRequestClose={() => setZamanAcik(false)}>
-        <Pressable style={s.perde} onPress={() => setZamanAcik(false)} accessibilityLabel="Kapat" />
+      <ModalSayfa acik={zamanAcik} kapat={() => setZamanAcik(false)}>
         <View style={[s.zamanSayfa, { paddingBottom: kenar.bottom + 16 }]}>
           <View style={s.zamanTutamac} />
           <View style={s.zamanUst}>
@@ -475,7 +477,10 @@ export default function RotaEkrani() {
               <Pressable
                 key={tur}
                 style={[s.turDugme, taslak.tur === tur && s.turSecili]}
-                onPress={() => setTaslak((t) => ({ ...t, tur }))}
+                onPress={() => {
+                  secimTiki();
+                  setTaslak((t) => ({ ...t, tur }));
+                }}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: taslak.tur === tur }}
               >
@@ -563,10 +568,9 @@ export default function RotaEkrani() {
             <Text style={s.zamanOnaylaYazi}>{taslak.tur === 'varis' ? 'Bu saatte varacak şekilde ara' : 'Bu saate göre ara'}</Text>
           </Pressable>
         </View>
-      </Modal>
+      </ModalSayfa>
 
-      <Modal visible={tercihAcik} transparent animationType="slide" onRequestClose={() => setTercihAcik(false)}>
-        <Pressable style={s.perde} onPress={() => setTercihAcik(false)} accessibilityLabel="Kapat" />
+      <ModalSayfa acik={tercihAcik} kapat={() => setTercihAcik(false)}>
         <View style={[s.zamanSayfa, { paddingBottom: kenar.bottom + 16 }]}>
           <View style={s.zamanTutamac} />
           <Text style={s.zamanBaslik}>Rota tercihleri</Text>
@@ -579,7 +583,10 @@ export default function RotaEkrani() {
                 <Pressable
                   key={x.anahtar}
                   style={[s.tercihSatiri, secili && s.tercihSecili]}
-                  onPress={() => rotaSecenekleriKaydet({ ...rotaSecenekleri, tercih: x.anahtar })}
+                  onPress={() => {
+                    secimTiki();
+                    rotaSecenekleriKaydet({ ...rotaSecenekleri, tercih: x.anahtar });
+                  }}
                   accessibilityRole="button"
                   accessibilityState={{ selected: secili }}
                 >
@@ -639,7 +646,7 @@ export default function RotaEkrani() {
             <Text style={s.zamanOnaylaYazi}>Bu tercihlerle ara</Text>
           </Pressable>
         </View>
-      </Modal>
+      </ModalSayfa>
 
     </View>
   );
@@ -728,7 +735,6 @@ const stiller = (t: Tema) =>
   hap: { flexDirection: 'row', alignItems: 'baseline', gap: 4, borderWidth: 1, borderColor: t.cizgi, backgroundColor: t.zemin, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 5 },
   hapSaat: { fontSize: 13, fontWeight: '700', color: t.yazi, fontVariant: ['tabular-nums'] },
   hapDakika: { fontSize: 11, color: t.soluk },
-    perde: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' },
     zamanSayfa: {
       backgroundColor: t.yuzey,
       borderTopLeftRadius: 22,

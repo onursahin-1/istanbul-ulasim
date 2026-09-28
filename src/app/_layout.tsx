@@ -1,6 +1,6 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -25,7 +25,9 @@ export default function KokDuzen() {
           screenOptions={{
             headerShown: false,
             contentStyle: { backgroundColor: tema.zemin },
-            animation: 'slide_from_right',
+            // iPhone'da sistemin kendi geçişi (arkadaki ekran hafifçe kayar ve kararır,
+            // kenardan kaydırınca parmakla birlikte geri gelir); Android'de sağdan kayma.
+            animation: Platform.OS === 'ios' ? 'default' : 'slide_from_right',
           }}
         />
       </SafeAreaProvider>

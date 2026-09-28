@@ -6,7 +6,9 @@
 // İkisi de telefona önceden zamanlanır; uygulama kapalıyken de çıkarlar.
 
 import { useState } from 'react';
-import { Alert, Linking, Modal, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, Linking, StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable } from '@/components/dokun';
+import { ModalSayfa } from '@/components/modal-sayfa';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Ikon, useStiller } from '@/components/ulasim';
@@ -108,8 +110,7 @@ export function HatirlatmaSayfasi({ acik, kapat, kalkis, inisler, grup, kurulu, 
   };
 
   return (
-    <Modal visible={acik} transparent animationType="slide" onRequestClose={kapat}>
-      <Pressable style={s.perde} onPress={kapat} accessibilityLabel="Kapat" />
+    <ModalSayfa acik={acik} kapat={kapat}>
       <View style={[s.sayfa, { paddingBottom: kenar.bottom + 16 }]}>
         <View style={s.tutamac} />
 
@@ -182,13 +183,12 @@ export function HatirlatmaSayfasi({ acik, kapat, kalkis, inisler, grup, kurulu, 
           </>
         )}
       </View>
-    </Modal>
+    </ModalSayfa>
   );
 }
 
 const stiller = (t: Tema) =>
   StyleSheet.create({
-    perde: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' },
     sayfa: {
       backgroundColor: t.yuzey,
       borderTopLeftRadius: 22,

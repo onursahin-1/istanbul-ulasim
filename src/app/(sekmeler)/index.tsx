@@ -3,7 +3,9 @@
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { Pressable } from '@/components/dokun';
+import { ModalSayfa } from '@/components/modal-sayfa';
 import MapView, { Marker, type LongPressEvent } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -30,6 +32,8 @@ import { baslikYap, hatEtiketi, useTema, yonYaz, type Tema } from '@/lib/tema';
 import { mesafeYaz } from '@/lib/zaman';
 import { siklikOzeti } from '@/lib/siklik';
 import { hatSikligi } from '@/lib/siklik-verisi';
+import { basari, secimTiki, vurus } from '@/lib/dokunsal';
+import { useCanliAralik } from '@/lib/canli-aralik';
 
 const YENILEME_ARALIGI = 30_000;
 
@@ -88,11 +92,10 @@ export default function AnaEkran() {
   }, [latitude, longitude]);
 
   useEffect(() => {
-    if (!hazir) return;
-    duraklariYukle();
-    const zamanlayici = setInterval(duraklariYukle, YENILEME_ARALIGI);
-    return () => clearInterval(zamanlayici);
+    if (hazir) duraklariYukle();
   }, [hazir, duraklariYukle]);
+  // Ana ekran başka bir ekranın altındayken (durak, rota) yenileme durur, dönünce tazelenir.
+  useCanliAralik(duraklariYukle, YENILEME_ARALIGI, hazir);
 
   useEffect(() => {
     if (!hazir) return;
@@ -115,6 +118,7 @@ export default function AnaEkran() {
   // "Haritada seçilen nokta" yazar.
   const haritadanSec = (olay: LongPressEvent) => {
     const { latitude: lat, longitude: lon } = olay.nativeEvent.coordinate;
+    vurus();
     setSecim({ lat, lon });
     Location.reverseGeocodeAsync({ latitude: lat, longitude: lon })
       .then((sonuc) => adresYaz(sonuc[0]))
@@ -292,8 +296,7 @@ export default function AnaEkran() {
         </AltYaprak>
       )}
 
-      <Modal visible={!!secim} transparent animationType="slide" onRequestClose={() => setSecim(null)}>
-        <Pressable style={s.perde} onPress={() => setSecim(null)} accessibilityLabel="Kapat" />
+      <ModalSayfa acik={!!secim} kapat={() => setSecim(null)}>
         <View style={[s.secimSayfa, { paddingBottom: kenar.bottom + 8 }]}>
           <View style={s.secimTutamac} />
           <Text style={s.secimBaslik} numberOfLines={2}>
@@ -307,21 +310,22 @@ export default function AnaEkran() {
           <SecimSatiri
             ikon={secimFavori ? 'star' : 'star-outline'}
             yazi={secimFavori ? 'Favorilerden çıkar' : 'Favorilere ekle'}
-            onPress={() =>
-              secim &&
+            onPress={() => {
+              if (!secim) return;
+              (secimFavori ? secimTiki : basari)();
               favoriYerDegistir({
                 ad: secimAdi,
                 ...(secim.adres?.alt ? { alt: secim.adres.alt } : {}),
                 lat: secim.lat,
                 lon: secim.lon,
-              })
-            }
+              });
+            }}
           />
           <Pressable style={s.secimIptal} onPress={() => setSecim(null)} accessibilityRole="button">
             <Text style={s.secimIptalYazi}>İptal</Text>
           </Pressable>
         </View>
-      </Modal>
+      </ModalSayfa>
     </View>
   );
 }
@@ -369,7 +373,6 @@ const stiller = (t: Tema) =>
   StyleSheet.create({
   // overflow: yaprak aşağı itildiğinde sekme çubuğunun üstüne taşmasın.
   kok: { flex: 1, backgroundColor: t.zemin, overflow: 'hidden' },
-  perde: { flex: 1, backgroundColor: 'rgba(0,0,0,0.25)' },
   secimSayfa: { backgroundColor: t.yuzey, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingTop: 8 },
   secimTutamac: { width: 38, height: 5, borderRadius: 3, backgroundColor: t.cizgi, alignSelf: 'center', marginBottom: 12 },
   secimBaslik: { fontSize: 19, fontWeight: '800', color: t.yazi, paddingHorizontal: 18 },

@@ -2,7 +2,8 @@
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable } from '@/components/dokun';
 import MapView, { Marker } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -41,6 +42,8 @@ import {
 } from '@/lib/otp';
 import { baslikYap, hatEtiketi, hatRengi, useTema, yonYaz, type Tema } from '@/lib/tema';
 import { istanbulSaatiYaz, kacDakikaSonra, kalkisGosterimi, saniyedenSaat } from '@/lib/zaman';
+import { basari, secimTiki } from '@/lib/dokunsal';
+import { useCanliAralik } from '@/lib/canli-aralik';
 
 const YENILEME_ARALIGI = 30_000;
 
@@ -84,9 +87,8 @@ export default function DurakEkrani() {
 
   useEffect(() => {
     yukle();
-    const zamanlayici = setInterval(yukle, YENILEME_ARALIGI);
-    return () => clearInterval(zamanlayici);
   }, [yukle]);
+  useCanliAralik(yukle, YENILEME_ARALIGI);
 
   // Bu durağın otobüs hatlarını köprü öncelikle tarasın; favoriyse kalıcı olarak.
   const favoriMi = favoriler.some((f) => f.gtfsId === id);
@@ -264,7 +266,10 @@ export default function DurakEkrani() {
             <View style={s.eylemler}>
               <Pressable
                 style={s.eylem}
-                onPress={() => favoriDegistir({ gtfsId: durak.gtfsId, ad })}
+                onPress={() => {
+                  (favoriMi ? secimTiki : basari)();
+                  favoriDegistir({ gtfsId: durak.gtfsId, ad });
+                }}
                 accessibilityState={{ selected: favoriMi }}
               >
                 <Ikon ad={favoriMi ? 'heart' : 'heart-outline'} boyut={16} renkKodu={tema.vurgu} />

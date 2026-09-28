@@ -5,7 +5,8 @@
 
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable } from '@/components/dokun';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HataKutusu, HatRozeti, Ikon, ROZET_SUTUNU, useStiller, Yukleniyor } from '@/components/ulasim';
@@ -200,7 +201,7 @@ const stiller = (t: Tema) =>
     kok: { flex: 1, backgroundColor: t.zemin },
     ust: { backgroundColor: t.yuzey, paddingHorizontal: 16, paddingBottom: 12, gap: 10 },
     baslikSatiri: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    baslik: { fontSize: 26, fontWeight: '800', color: t.yazi, letterSpacing: -0.4 },
+    baslik: { fontSize: 34, fontWeight: '700', color: t.yazi, letterSpacing: 0.37 },
     haritaDugmesi: {
       flexDirection: 'row',
       alignItems: 'center',

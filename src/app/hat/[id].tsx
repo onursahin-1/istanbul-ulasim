@@ -14,7 +14,8 @@
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable } from '@/components/dokun';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -36,6 +37,8 @@ import { canliBilgi } from '@/lib/canli';
 import { trKucuk } from '@/lib/metin';
 import { duyurulariGetir, hatAraclariGetir, hatDetayiKardesleriyle, OtpHatasi, type HatDetayi } from '@/lib/otp';
 import { aracAdi, baslikYap, haritaRengi, hatRengi, useTema, yaziRengi, type Tema } from '@/lib/tema';
+import { secimTiki } from '@/lib/dokunsal';
+import { useCanliAralik } from '@/lib/canli-aralik';
 
 export default function HatEkrani() {
   const kenar = useSafeAreaInsets();
@@ -92,26 +95,26 @@ export default function HatEkrani() {
   // Konum alınamazsa sessizce geçilir: canlı konum süs, hat ekranı onsuz da çalışır.
   const kimlikler = useMemo(() => (hat?.kardesler?.length ? hat.kardesler : id ? [id] : []), [hat, id]);
   const kimlikAnahtari = kimlikler.join(',');
-  useEffect(() => {
+  const sonHat = useRef(kimlikAnahtari);
+  const araclariYukle = useCallback(() => {
     if (!kimlikAnahtari) return;
-    let acik = true;
-    const araclariYukle = () =>
-      hatAraclariGetir(kimlikAnahtari.split(','))
-        .then((sonuc) => {
-          if (!acik) return;
-          setAraclar(sonuc);
-          setSimdi(Date.now());
-        })
-        .catch(() => {});
-    araclariYukle();
-    const konum = setInterval(araclariYukle, 30_000);
-    const saat = setInterval(() => setSimdi(Date.now()), 15_000);
-    return () => {
-      acik = false;
-      clearInterval(konum);
-      clearInterval(saat);
-    };
+    const istenen = kimlikAnahtari;
+    hatAraclariGetir(istenen.split(','))
+      .then((sonuc) => {
+        // Bu sırada başka bir hatta geçildiyse eski hattın cevabı yazılmaz.
+        if (istenen !== sonHat.current) return;
+        setAraclar(sonuc);
+        setSimdi(Date.now());
+      })
+      .catch(() => {});
   }, [kimlikAnahtari]);
+  useEffect(() => {
+    sonHat.current = kimlikAnahtari;
+    araclariYukle();
+  }, [kimlikAnahtari, araclariYukle]);
+  // Ekran başka ekranın altındayken (durak, yolculuk) ikisi de durur, dönünce tazelenir.
+  useCanliAralik(araclariYukle, 30_000, !!kimlikAnahtari);
+  useCanliAralik(() => setSimdi(Date.now()), 15_000);
 
   // Duraksız desenler listeye girmez; en çok durağı olan desen varsayılan yön olur.
   const desenler = useMemo(() => {
@@ -231,7 +234,10 @@ export default function HatEkrani() {
           return (
             <Pressable
               key={d.code}
-              onPress={() => setYon(i)}
+              onPress={() => {
+                secimTiki();
+                setYon(i);
+              }}
               style={[s.yon, aktif && { backgroundColor: tema.vurguAcik, borderColor: tema.vurgu }]}
               accessibilityState={{ selected: aktif }}
             >

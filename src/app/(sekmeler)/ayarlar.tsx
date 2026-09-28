@@ -10,7 +10,6 @@ import {
   Alert,
   AppState,
   Linking,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -18,6 +17,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Pressable } from '@/components/dokun';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Ikon, type IkonAdi, useStiller, VasitaSimgesi } from '@/components/ulasim';
@@ -38,6 +38,7 @@ import { TARIFE_TARIHI, UCRET_ACIKLAMALARI, UCRET_ADLARI, type UcretTuru } from 
 import { sunucuBilgisiGetir } from '@/lib/otp';
 import { useTema, type Tema } from '@/lib/tema';
 import { turuDegistir, VASITA_ADLARI, VASITA_TURLERI, type VasitaTuru } from '@/lib/vasita';
+import { secimTiki } from '@/lib/dokunsal';
 
 export default function AyarlarEkrani() {
   const kenar = useSafeAreaInsets();
@@ -51,8 +52,12 @@ export default function AyarlarEkrani() {
   const { hatirlaticilar, izin, yenile: hatirlaticilariYenile } = useHatirlaticilar();
   const { ucretTuru, ekranAcik, sesliTarif, sesCinsiyeti, temaTercihi, rotaSecenekleri } = useKayitlar();
   const kapaliTurler = rotaSecenekleri.kapali;
-  const turuAyarla = (tur: VasitaTuru, acik: boolean) =>
-    rotaSecenekleriKaydet({ ...rotaSecenekleri, kapali: turuDegistir(kapaliTurler, tur, acik) });
+  const turuAyarla = (tur: VasitaTuru, acik: boolean) => {
+    const yeni = turuDegistir(kapaliTurler, tur, acik);
+    // Son açık tür kapatılamıyor: liste değişmezse anahtar geri döner, titreşim olmaz.
+    if (yeni.length !== kapaliTurler.length) secimTiki();
+    rotaSecenekleriKaydet({ ...rotaSecenekleri, kapali: yeni });
+  };
   const [kullanilanSes, setKullanilanSes] = useState<{ ses: SesBilgisi; uydu: boolean } | null | undefined>(undefined);
   // Telefonda Türkçe ses hangi cinsiyetlerde var; ikisi de yoksa seçim gösterilmez (iPhone'da yalnız Yelda).
   const [cinsiyetler, setCinsiyetler] = useState<SesCinsiyeti[]>([]);
@@ -123,7 +128,11 @@ export default function AyarlarEkrani() {
             <Pressable
               key={t}
               style={[s.hap, ucretTuru === t && s.hapSecili]}
-              onPress={() => ucretTuruKaydet(t)}
+              hitSlop={{ top: 5, bottom: 5 }}
+              onPress={() => {
+                secimTiki();
+                ucretTuruKaydet(t);
+              }}
               accessibilityRole="button"
               accessibilityState={{ selected: ucretTuru === t }}
             >
@@ -263,7 +272,11 @@ export default function AyarlarEkrani() {
               <Pressable
                 key={c}
                 style={[s.hap, sesCinsiyeti === c && s.hapSecili]}
-                onPress={() => sesCinsiyetiKaydet(c)}
+              hitSlop={{ top: 5, bottom: 5 }}
+                onPress={() => {
+                  secimTiki();
+                  sesCinsiyetiKaydet(c);
+                }}
                 accessibilityRole="button"
                 accessibilityState={{ selected: sesCinsiyeti === c }}
               >
@@ -303,7 +316,11 @@ export default function AyarlarEkrani() {
             <Pressable
               key={t}
               style={[s.hap, s.hapIkonlu, temaTercihi === t && s.hapSecili]}
-              onPress={() => temaTercihiKaydet(t)}
+              hitSlop={{ top: 5, bottom: 5 }}
+              onPress={() => {
+                secimTiki();
+                temaTercihiKaydet(t);
+              }}
               accessibilityRole="button"
               accessibilityState={{ selected: temaTercihi === t }}
             >
@@ -353,7 +370,7 @@ const TEMA_SECENEKLERI: [TemaTercihi, string, IkonAdi][] = [
 const stiller = (t: Tema) =>
   StyleSheet.create({
     kok: { flex: 1, backgroundColor: t.zemin },
-    baslik: { fontSize: 26, fontWeight: '800', color: t.yazi, letterSpacing: -0.4, paddingHorizontal: 16, paddingBottom: 6 },
+    baslik: { fontSize: 34, fontWeight: '700', color: t.yazi, letterSpacing: 0.37, paddingHorizontal: 16, paddingBottom: 6 },
     bolumBaslik: {
       fontSize: 11.5,
       letterSpacing: 0.8,
