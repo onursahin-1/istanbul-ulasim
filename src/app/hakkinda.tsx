@@ -15,6 +15,20 @@ import { OTP_ADRESI, sunucuBilgisiGetir, type SunucuBilgisi } from '@/lib/otp';
 import { poiBilgisi } from '@/lib/poi';
 import { useTema, type Tema } from '@/lib/tema';
 
+/** Verideki yazımı düzeltir: "IETT" → "İETT", "Şehirhatları A.Ş." → "Şehir Hatları", "Minibus" → "Minibüs". */
+function isletmeciAdiDuzelt(ad: string): string {
+  const temiz = ad.trim().replace(/\s+A\.Ş\.?$/i, '');
+  const buyuk = temiz.toLocaleUpperCase('tr-TR').replace(/\s+/g, '');
+  if (buyuk === 'IETT' || buyuk === 'İETT') return 'İETT';
+  if (buyuk === 'IDO' || buyuk === 'İDO') return 'İDO';
+  if (buyuk === 'ŞEHİRHATLARI') return 'Şehir Hatları';
+  if (buyuk === 'MİNİBUS' || buyuk === 'MİNİBÜS') return 'Minibüs';
+  if (buyuk === 'TAKSİDOLMUS' || buyuk === 'TAKSİDOLMUŞ') return 'Taksi dolmuş';
+  // Marmaray verisinde aynı işletmeci iki adla geçiyor.
+  if (buyuk === 'TCDD') return 'TCDD Taşımacılık';
+  return temiz;
+}
+
 function tarihYaz(saniye?: number | null): string {
   if (!saniye) return '—';
   return new Date(saniye * 1000).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -61,6 +75,9 @@ export default function HakkindaEkrani() {
   }, [yenileniyor, yukle]);
 
   const aralik = sunucu?.serviceTimeRange;
+  const isletmeciler = [
+    ...new Set((sunucu?.feeds ?? []).flatMap((b) => (b.agencies ?? []).map((a) => isletmeciAdiDuzelt(a.name)))),
+  ].sort((a, b) => a.localeCompare(b, 'tr'));
 
   return (
     <>
@@ -73,12 +90,12 @@ export default function HakkindaEkrani() {
           headerTitleStyle: { color: tema.yazi },
           headerStyle: { backgroundColor: tema.zemin },
           headerShadowVisible: false,
+          headerTransparent: false,
         }}
       />
       <ScrollView
         style={s.kok}
         contentContainerStyle={{ paddingBottom: kenar.bottom + 24 }}
-        contentInsetAdjustmentBehavior="automatic"
         refreshControl={
           <RefreshControl
             refreshing={cekiliyor}
@@ -93,11 +110,8 @@ export default function HakkindaEkrani() {
       >
         <Grup
           baslik="Rota sunucusu"
-          dipnot={
-            sunucuHatasi ??
-            'Rota motoru bilgisayarında çalışıyor. Evin dışından bağlanmak için telefonda ve bilgisayarda Tailscale açık olmalı, uygulama "npm run uzaktan" ile başlatılmalı.'
-          }
-          dipnotHata={!!sunucuHatasi}
+          dipnot={sunucuHatasi ?? undefined}
+          dipnotHata
         >
           <Satir etiket="Durum">
             <View style={s.durum}>
@@ -108,23 +122,14 @@ export default function HakkindaEkrani() {
           <Satir etiket="Adres" deger={OTP_ADRESI} son />
         </Grup>
 
-        <Grup
-          baslik="Tarife verisi"
-          dipnot="Otobüs ve Metrobüs tarifesi İETT'nin güncel verisinden geliyor. Metro, tramvay, füniküler ve teleferik saatleri Metro İstanbul'un, vapurlar Şehir Hatları'nın, Turyol'un ve Dentur'un kendi güncel tarifesinden. Marmaray'ın saatleri TCDD'nin yayımladığı sıklıktan kuruluyor, İDO'nunkiler İBB'nin artık güncellemediği veriden geliyor; bu ikisi yaklaşıktır."
-        >
+        <Grup baslik="Tarife verisi">
           <Satir etiket="Başlangıç" deger={tarihYaz(aralik?.start)} />
-          <Satir etiket="Bitiş" deger={tarihYaz(aralik?.end)} son={!sunucu?.feeds?.length} />
-          {(sunucu?.feeds ?? []).map((b, i, hepsi) => (
-            <Satir
-              key={b.feedId}
-              etiket={b.feedId}
-              deger={(b.agencies ?? []).map((a) => a.name).join(', ') || '—'}
-              son={i === hepsi.length - 1}
-            />
-          ))}
+          <Satir etiket="Bitiş" deger={tarihYaz(aralik?.end)} son={!isletmeciler.length} />
+          {/* Besleme numarası (1, 2) yolcuya bir şey söylemiyor; işletmeciler alt alta, sığmayınca satır uzar. */}
+          {isletmeciler.length > 0 && <Satir etiket="İşletmeciler" deger={isletmeciler.join(', ')} altta son />}
         </Grup>
 
-        <Grup baslik="Yer verisi" dipnot="Yer araması telefonda yapılır; internet bağlantısı gerekmez.">
+        <Grup baslik="Yer verisi">
           <Satir etiket="Aranabilir yer" deger={poi ? poi.nokta.toLocaleString('tr-TR') : '—'} />
           <Satir etiket="Kaynak" deger={poi?.kaynak ?? 'OpenStreetMap'} son />
         </Grup>
@@ -177,17 +182,35 @@ function Grup({
   );
 }
 
-/** Solda etiket, sağda değer; son satırın altında ayraç yok. */
-function Satir({ etiket, deger, son = false, children }: { etiket: string; deger?: string; son?: boolean; children?: ReactNode }) {
+/**
+ * Solda etiket, sağda değer; son satırın altında ayraç yok. `altta`: uzun değer
+ * etiketin altına, gerektiği kadar satıra yayılır (iPhone Ayarlar'ındaki alt yazılı satır).
+ */
+function Satir({
+  etiket,
+  deger,
+  son = false,
+  altta = false,
+  children,
+}: {
+  etiket: string;
+  deger?: string;
+  son?: boolean;
+  altta?: boolean;
+  children?: ReactNode;
+}) {
   const s = useStiller(stiller);
   return (
-    <View style={s.satir}>
+    <View style={[s.satir, altta && s.satirAltta]}>
       <Text style={s.etiket}>{etiket}</Text>
-      {children ?? (
-        <Text style={s.deger} numberOfLines={1}>
-          {deger}
-        </Text>
-      )}
+      {children ??
+        (altta ? (
+          <Text style={s.degerAltta}>{deger}</Text>
+        ) : (
+          <Text style={s.deger} numberOfLines={1}>
+            {deger}
+          </Text>
+        ))}
       {/* Ayraç iPhone'daki gibi yazının hizasından başlıyor. */}
       {!son && <View style={s.ayrac} />}
     </View>
@@ -197,7 +220,7 @@ function Satir({ etiket, deger, son = false, children }: { etiket: string; deger
 const stiller = (t: Tema) =>
   StyleSheet.create({
     kok: { flex: 1, backgroundColor: t.zemin },
-    grup: { marginTop: 22 },
+    grup: { marginTop: 18 },
     grupBaslik: { fontSize: 12.5, color: t.soluk, paddingHorizontal: 32, paddingBottom: 6, letterSpacing: 0.3 },
     kutu: { marginHorizontal: 16, backgroundColor: t.yuzey, borderRadius: 12, overflow: 'hidden' },
     satir: {
@@ -210,7 +233,9 @@ const stiller = (t: Tema) =>
       paddingVertical: 11,
     },
     ayrac: { position: 'absolute', left: 16, right: 0, bottom: 0, height: StyleSheet.hairlineWidth, backgroundColor: t.cizgi },
+    satirAltta: { flexDirection: 'column', alignItems: 'stretch', gap: 3 },
     etiket: { fontSize: 16, color: t.yazi },
+    degerAltta: { fontSize: 15, color: t.soluk, lineHeight: 21 },
     deger: { fontSize: 16, color: t.soluk, flexShrink: 1, textAlign: 'right', fontVariant: ['tabular-nums'] },
     durum: { flexDirection: 'row', alignItems: 'center', gap: 7 },
     nokta: { width: 8, height: 8, borderRadius: 4 },
