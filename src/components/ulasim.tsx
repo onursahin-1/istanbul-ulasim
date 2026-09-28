@@ -102,10 +102,12 @@ export function vapurLogosu(mode?: string | null, isletmeci?: string | null): Ha
  * Ayarlar › Vasıta türü tercihleri satırındaki simge: logosu olan türde logo (Metrobüs,
  * Metro, Marmaray), öbürlerinde araç simgesi. Kutular aynı boyda, adlar hizalı dursun.
  */
-const VASITA_SIMGELERI: Record<VasitaTuru, { logo: HatLogosu } | { ikon: IkonAdi }> = {
+// koyudaZemin: logonun koyu temadaki zemini. Metro logosunun laciverdi koyu kartta
+// kayboluyordu; koyu temada beyaz yuvarlak zemine oturuyor (açık temada gerek yok).
+const VASITA_SIMGELERI: Record<VasitaTuru, { logo: HatLogosu; koyudaZemin?: string } | { ikon: IkonAdi }> = {
   otobus: { ikon: 'bus-outline' },
   metrobus: { logo: LOGOLAR.metrobus },
-  metro: { logo: { kaynak: require('@/assets/images/hat/metro.png'), oran: 0.87, zemin: null } },
+  metro: { logo: { kaynak: require('@/assets/images/hat/metro.png'), oran: 0.87, zemin: null }, koyudaZemin: '#ffffff' },
   marmaray: { logo: LOGOLAR.marmaray },
   tramvay: { ikon: 'train-outline' },
   funikuler: { ikon: 'trending-up-outline' },
@@ -123,7 +125,8 @@ export function VasitaSimgesi({ tur }: { tur: VasitaTuru }) {
       </View>
     );
   }
-  const { kaynak, oran, zemin } = simge.logo;
+  const { kaynak, oran } = simge.logo;
+  const zemin = simge.logo.zemin ?? (tema.koyu ? (simge.koyudaZemin ?? null) : null);
   // Beyaz zeminli logo (Marmaray) biraz içeride; zeminsizler kutuyu doldurur.
   const pay = zemin ? 5 : 0;
   const yukseklik = Math.min(28, 34 / oran) - pay;

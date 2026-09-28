@@ -1,4 +1,4 @@
-// Kayıtlı sekmesi: Ev/İş kısayolları, favori duraklar ve son aranan yerler.
+// Kayıtlı sekmesi: Ev/İş kısayolları, favori yerler, favori duraklar ve son aranan yerler.
 
 import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { KaydirmaliSatir } from '@/components/kaydirmali-satir';
 import { Dakika, Ikon, useStiller } from '@/components/ulasim';
-import { aramalariTemizle, favoriDegistir, useKayitlar, type YerTuru } from '@/lib/kayitlar';
+import { aramalariTemizle, favoriDegistir, favoriYerDegistir, useKayitlar, type YerTuru } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
 import { durakDetayiGetir } from '@/lib/otp';
 import { baslikYap, useTema, type Tema } from '@/lib/tema';
@@ -22,7 +22,7 @@ export default function KayitliEkrani() {
   const tema = useTema();
   const s = useStiller(stiller);
   const konum = useKonum();
-  const { yerler, favoriler, aramalar } = useKayitlar();
+  const { yerler, favoriler, favoriYerler, aramalar } = useKayitlar();
 
   const [dakikalar, setDakikalar] = useState<Dakikalar>({});
   const [yenileniyor, setYenileniyor] = useState(false);
@@ -105,6 +105,34 @@ export default function KayitliEkrani() {
         })}
       </View>
 
+      <Text style={s.bolumBaslik}>FAVORİ YERLER</Text>
+      {favoriYerler.length === 0 ? (
+        <Text style={s.bos}>
+          Henüz favori yerin yok. Ana ekranda haritaya basılı tutup "Favorilere ekle"ye dokunarak ekleyebilirsin.
+        </Text>
+      ) : (
+        <View style={s.liste}>
+          {favoriYerler.map((y) => (
+            <KaydirmaliSatir key={`${y.lat},${y.lon}`} onSil={() => favoriYerDegistir(y)} silEtiketi="Favorilerden çıkar">
+              <Pressable style={s.satir} onPress={() => hedefeGit(y)} accessibilityRole="button">
+                <View style={s.satirIkon}>
+                  <Ikon ad="star" boyut={17} renkKodu={tema.vurgu} />
+                </View>
+                <View style={s.satirMetin}>
+                  <Text style={s.satirBaslik} numberOfLines={1}>
+                    {y.ad}
+                  </Text>
+                  <Text style={s.satirAlt} numberOfLines={1}>
+                    {y.alt ? `${y.alt} · silmek için sola kaydır` : 'Silmek için sola kaydır'}
+                  </Text>
+                </View>
+                <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.yurume} />
+              </Pressable>
+            </KaydirmaliSatir>
+          ))}
+        </View>
+      )}
+
       <Text style={s.bolumBaslik}>FAVORİ DURAKLAR</Text>
       {favoriler.length === 0 ? (
         <Text style={s.bos}>
@@ -146,7 +174,7 @@ export default function KayitliEkrani() {
             onPress={() =>
               Alert.alert(
                 'Son aramalar silinsin mi?',
-                `${aramalar.length} arama kaydı silinecek. Ev, İş ve favori durakların yerinde kalır.`,
+                `${aramalar.length} arama kaydı silinecek. Ev, İş, favori yerlerin ve durakların yerinde kalır.`,
                 [
                   { text: 'Vazgeç', style: 'cancel' },
                   { text: 'Sil', style: 'destructive', onPress: () => aramalariTemizle() },

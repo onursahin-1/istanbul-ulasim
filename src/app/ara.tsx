@@ -62,7 +62,7 @@ export default function AraEkrani() {
   const tema = useTema();
   const s = useStiller(stiller);
   const p = useLocalSearchParams<Parametreler>();
-  const { yerler } = useKayitlar();
+  const { yerler, favoriYerler } = useKayitlar();
   const konum = useKonum();
 
   const [metin, setMetin] = useState('');
@@ -255,6 +255,37 @@ export default function AraEkrani() {
             </Pressable>
           )}
 
+          {/* Haritadan "Buradan yol tarifi" ile gelindi: başlangıç seçilen nokta, varış kendi konumun olabilir. */}
+          {!p.kaydet && !p.alan && !!p.kLat && !!p.kAd && p.kAd !== 'Konumum' && (
+            <Pressable
+              style={s.satir}
+              onPress={() =>
+                router.replace({
+                  pathname: '/rota',
+                  params: {
+                    kLat: p.kLat ?? '',
+                    kLon: p.kLon ?? '',
+                    kAd: p.kAd ?? '',
+                    vLat: String(konum.nokta.latitude),
+                    vLon: String(konum.nokta.longitude),
+                    vAd: konum.tur === 'gercek' ? 'Konumum' : 'Kadıköy (örnek konum)',
+                  },
+                })
+              }
+              accessibilityRole="button"
+            >
+              <View style={s.satirIkon}>
+                <Ikon ad="locate" boyut={18} renkKodu={tema.vurgu} />
+              </View>
+              <View style={s.satirMetin}>
+                <Text style={s.satirBaslik}>Konumum</Text>
+                <Text style={s.satirAlt}>
+                  {konum.tur === 'gercek' ? 'Bulunduğun yere dön' : 'Konum alınamadı; örnek konum kullanılıyor'}
+                </Text>
+              </View>
+            </Pressable>
+          )}
+
           {!p.kaydet &&
             (['ev', 'is'] as YerTuru[]).map((tur) => {
               const yer = yerler[tur];
@@ -275,6 +306,34 @@ export default function AraEkrani() {
               );
             })}
 
+          {!p.kaydet && favoriYerler.length > 0 && (
+            <>
+              <Text style={s.bolumBaslik}>FAVORİ YERLER</Text>
+              {favoriYerler.map((y) => (
+                <Pressable
+                  key={`${y.lat},${y.lon}`}
+                  style={s.satir}
+                  onPress={() => hedefSec({ ad: y.ad, lat: y.lat, lon: y.lon }, y.alt)}
+                  accessibilityRole="button"
+                >
+                  <View style={s.satirIkon}>
+                    <Ikon ad="star" boyut={17} renkKodu={tema.vurgu} />
+                  </View>
+                  <View style={s.satirMetin}>
+                    <Text style={s.satirBaslik} numberOfLines={1}>
+                      {y.ad}
+                    </Text>
+                    {!!y.alt && (
+                      <Text style={s.satirAlt} numberOfLines={1}>
+                        {y.alt}
+                      </Text>
+                    )}
+                  </View>
+                </Pressable>
+              ))}
+            </>
+          )}
+
           <Text style={s.bolumBaslik}>YAKINIMDA NE VAR?</Text>
           <View style={s.kisayollar}>
             {KISAYOLLAR.map((k) => (
@@ -289,8 +348,8 @@ export default function AraEkrani() {
             <Ikon ad="bulb-outline" boyut={16} renkKodu={tema.soluk} />
             <Text style={s.ipucuYazi}>
               Yer adı, kategori ya da durak adı yazabilirsin. Yer aramaları telefonda yapılır, internet gerekmez.
-              Ana ekranda haritaya basılı tutarak da hedef seçebilirsin; bir sonuca basılı tutarsan Ev ya da İş
-              olarak kaydedilir.
+              Ana ekranda haritaya basılı tutarak bir noktayı hedef, başlangıç ya da favori yapabilirsin; bir sonuca
+              basılı tutarsan Ev ya da İş olarak kaydedilir.
             </Text>
           </View>
         </ScrollView>

@@ -1,4 +1,4 @@
-// Telefonda saklanan kişisel kayıtlar: Ev / İş adresleri ve favori duraklar.
+// Telefonda saklanan kişisel kayıtlar: Ev / İş adresleri, favori yerler ve favori duraklar.
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState } from 'react';
@@ -11,6 +11,8 @@ import type { UcretTuru } from './ucret';
 
 export type YerTuru = 'ev' | 'is';
 export type FavoriDurak = { gtfsId: string; ad: string };
+/** Haritada basılı tutup favorilere eklenen yer. */
+export type FavoriYer = { ad: string; alt?: string; lat: number; lon: number };
 /** Görünüm: telefonun ayarını izle ya da her zaman açık/koyu. */
 export type TemaTercihi = 'sistem' | 'acik' | 'koyu';
 /** Kullanıcının daha önce hedef olarak seçtiği yer. Kayıtlı sekmesinde listelenir. */
@@ -18,6 +20,8 @@ export type SonArama = { ad: string; lat: number; lon: number; alt?: string; zam
 
 const YER_ANAHTARI = 'kayitli-yerler-v1';
 const FAVORI_ANAHTARI = 'favori-duraklar-v1';
+const FAVORI_YER_ANAHTARI = 'favori-yerler-v1';
+const FAVORI_YER_SINIRI = 30;
 const ARAMA_ANAHTARI = 'son-aramalar-v1';
 const UCRET_ANAHTARI = 'ucret-turu-v1';
 const ROTA_ANAHTARI = 'rota-secenekleri-v1';
@@ -61,6 +65,22 @@ export async function favoriDegistir(durak: FavoriDurak): Promise<void> {
   const liste = await oku<FavoriDurak[]>(FAVORI_ANAHTARI, []);
   const varMi = liste.some((d) => d.gtfsId === durak.gtfsId);
   await yaz(FAVORI_ANAHTARI, varMi ? liste.filter((d) => d.gtfsId !== durak.gtfsId) : [durak, ...liste].slice(0, 10));
+  haberVer();
+}
+
+/** İki nokta aynı yer mi: ~15 metreden yakınsa. */
+export function ayniYer(a: { lat: number; lon: number }, b: { lat: number; lon: number }): boolean {
+  return Math.abs(a.lat - b.lat) < 1.5e-4 && Math.abs(a.lon - b.lon) < 1.5e-4;
+}
+
+/** Yeri favorilere ekler; zaten favoriyse çıkarır. Yeni eklenen başa geçer. */
+export async function favoriYerDegistir(yer: FavoriYer): Promise<void> {
+  const liste = await oku<FavoriYer[]>(FAVORI_YER_ANAHTARI, []);
+  const varMi = liste.some((y) => ayniYer(y, yer));
+  await yaz(
+    FAVORI_YER_ANAHTARI,
+    varMi ? liste.filter((y) => !ayniYer(y, yer)) : [yer, ...liste].slice(0, FAVORI_YER_SINIRI),
+  );
   haberVer();
 }
 
@@ -138,6 +158,7 @@ export async function ucretTuruKaydet(tur: UcretTuru): Promise<void> {
 export function useKayitlar() {
   const [yerler, setYerler] = useState<Yerler>({});
   const [favoriler, setFavoriler] = useState<FavoriDurak[]>([]);
+  const [favoriYerler, setFavoriYerler] = useState<FavoriYer[]>([]);
   const [aramalar, setAramalar] = useState<SonArama[]>([]);
   const [ucretTuru, setUcretTuru] = useState<UcretTuru>('tam');
   const [rotaSecenekleri, setRotaSecenekleri] = useState<RotaSecenekleri>(VARSAYILAN_SECENEKLER);
@@ -151,6 +172,7 @@ export function useKayitlar() {
   const yukle = useCallback(async () => {
     setYerler(await oku<Yerler>(YER_ANAHTARI, {}));
     setFavoriler(await oku<FavoriDurak[]>(FAVORI_ANAHTARI, []));
+    setFavoriYerler(await oku<FavoriYer[]>(FAVORI_YER_ANAHTARI, []));
     setAramalar(await oku<SonArama[]>(ARAMA_ANAHTARI, []));
     setUcretTuru(await oku<UcretTuru>(UCRET_ANAHTARI, 'tam'));
     setRotaSecenekleri(secenekleriDuzelt(await oku<RotaSecenekleri>(ROTA_ANAHTARI, VARSAYILAN_SECENEKLER)));
@@ -172,6 +194,7 @@ export function useKayitlar() {
   return {
     yerler,
     favoriler,
+    favoriYerler,
     aramalar,
     ucretTuru,
     rotaSecenekleri,
