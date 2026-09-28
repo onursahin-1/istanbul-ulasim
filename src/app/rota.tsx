@@ -22,7 +22,7 @@ import {
 import { bacakCanli } from '@/lib/canli';
 import { OtpHatasi, rotaPlanlaYedekli, type Guzergah, type Konum, type RotaTercihi } from '@/lib/otp';
 import { rayliMi, rotalariSirala } from '@/lib/rota-secimi';
-import { kapaliTurKullaniyor, type VasitaTuru } from '@/lib/vasita';
+import { kapaliTurKullaniyor, VASITA_ADLARI, type VasitaTuru } from '@/lib/vasita';
 import { rotaSecenekleriKaydet, useKayitlar } from '@/lib/kayitlar';
 import { guzergahlariSakla } from '@/lib/secim';
 import { ozelGunBul, ozelGunNotu } from '@/lib/ozel-gunler';
@@ -610,6 +610,31 @@ export default function RotaEkrani() {
             />
           </View>
 
+          {rotaSecenekleri.kapali.length > 0 && (
+            <>
+              <Text style={s.zamanAltBaslik}>VASITA TÜRLERİ</Text>
+              <Pressable
+                style={s.tercihAnahtari}
+                onPress={() => {
+                  setTercihAcik(false);
+                  router.navigate('/ayarlar');
+                }}
+                accessibilityRole="button"
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={s.tercihBaslik}>
+                    {`Geri planda: ${rotaSecenekleri.kapali.map((t) => VASITA_ADLARI[t]).join(', ')}`}
+                  </Text>
+                  <Text style={s.tercihAlt}>
+                    Başka makul yol varsa bu türleri kullanan rotalar listenin sonunda. Değiştirmek için Ayarlar ›
+                    Vasıta türü tercihleri.
+                  </Text>
+                </View>
+                <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.soluk} />
+              </Pressable>
+            </>
+          )}
+
           <Pressable style={s.zamanOnayla} onPress={() => setTercihAcik(false)} accessibilityRole="button">
             <Text style={s.zamanOnaylaYazi}>Bu tercihlerle ara</Text>
           </Pressable>
@@ -631,9 +656,11 @@ function hatYazisi(bacak: Guzergah['legs'][number]): string {
 }
 
 /** Tercih hapındaki etiket: seçili tercih ne ise onu yazar. */
-function tercihEtiketi(secenekler: { tercih: RotaTercihi; erisilebilir: boolean }): string {
+function tercihEtiketi(secenekler: { tercih: RotaTercihi; erisilebilir: boolean; kapali: VasitaTuru[] }): string {
   const ad = TERCIHLER.find((x) => x.anahtar === secenekler.tercih)?.kisa ?? 'Önerilen';
-  return secenekler.erisilebilir ? `${ad} · basamaksız` : ad;
+  // Ayarlar'da kapatılan vasıta türleri: sonuçlar neden farklı, hap söylesin.
+  const kapali = secenekler.kapali.length ? `${secenekler.kapali.length} tür kapalı` : '';
+  return [ad, secenekler.erisilebilir ? 'basamaksız' : '', kapali].filter(Boolean).join(' · ');
 }
 
 const stiller = (t: Tema) =>

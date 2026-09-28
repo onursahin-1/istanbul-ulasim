@@ -48,7 +48,6 @@
   "scripts": {
     "start": "expo start",
     "uzaktan": "powershell -ExecutionPolicy Bypass -File scripts/uzaktan-baslat.ps1",
-    "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",

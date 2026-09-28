@@ -1,12 +1,12 @@
-// Ayarlar sekmesi: verinin ne kadar güncel olduğu, rota sunucusunun durumu ve uygulama bilgisi.
+// Ayarlar sekmesi: İstanbulkart, vasıta türleri, hatırlatıcılar, yolculuk ve görünüm.
 //
-// Buradaki bilgiler süs değil: tarifenin hangi tarihleri kapsadığını sunucunun kendisinden
-// okuyoruz, böylece "neden bu sefer çıkmıyor" sorusunun cevabı ekranda görünüyor.
+// Rota sunucusu, tarife ve yer verisi, sürüm gibi teknik bilgiler Hakkında ekranında
+// (src/app/hakkinda.tsx). Burada yalnız sunucunun ulaşılabilir olup olmadığına bakılıyor:
+// ulaşılamıyorsa Hakkında satırında kırmızıyla yazıyor, rota neden gelmiyor belli oluyor.
 
-import Constants from 'expo-constants';
+import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   AppState,
   Linking,
@@ -35,30 +35,19 @@ import {
 import { konus, secilenSes, sesleriGetir, sesleriTazele } from '@/lib/konusma';
 import { cinsiyetSecenekleri, sesAdi, sesKalitesi, type SesBilgisi, type SesCinsiyeti } from '@/lib/ses-secimi';
 import { TARIFE_TARIHI, UCRET_ACIKLAMALARI, UCRET_ADLARI, type UcretTuru } from '@/lib/ucret';
-import { OTP_ADRESI, sunucuBilgisiGetir, type SunucuBilgisi } from '@/lib/otp';
-import { poiBilgisi } from '@/lib/poi';
+import { sunucuBilgisiGetir } from '@/lib/otp';
 import { useTema, type Tema } from '@/lib/tema';
 import { turuDegistir, VASITA_ADLARI, VASITA_TURLERI, type VasitaTuru } from '@/lib/vasita';
-
-function tarihYaz(saniye?: number | null): string {
-  if (!saniye) return '—';
-  const d = new Date(saniye * 1000);
-  return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' });
-}
 
 export default function AyarlarEkrani() {
   const kenar = useSafeAreaInsets();
   const tema = useTema();
   const s = useStiller(stiller);
 
-  const [sunucu, setSunucu] = useState<SunucuBilgisi | null>(null);
-  const [sunucuHatasi, setSunucuHatasi] = useState<string | null>(null);
-  const [poi, setPoi] = useState<{ nokta: number; kaynak: string } | null>(null);
+  /** Rota sunucusu: null bakılıyor, true/false cevap. */
+  const [sunucuBagli, setSunucuBagli] = useState<boolean | null>(null);
   /** Aşağı çekerek yenileme (RefreshControl'ün kendi göstergesi). */
   const [cekiliyor, setCekiliyor] = useState(false);
-  /** Düğmeyle ya da çekerek başlayan yenileme sürüyor. */
-  const [yenileniyor, setYenileniyor] = useState(false);
-  const [sonYenileme, setSonYenileme] = useState<Date | null>(null);
   const { hatirlaticilar, izin, yenile: hatirlaticilariYenile } = useHatirlaticilar();
   const { ucretTuru, ekranAcik, sesliTarif, sesCinsiyeti, temaTercihi, rotaSecenekleri } = useKayitlar();
   const kapaliTurler = rotaSecenekleri.kapali;
@@ -92,37 +81,22 @@ export default function AyarlarEkrani() {
     };
   }, [sesCinsiyeti]);
 
-  const yukle = useCallback(async () => {
-    setSunucuHatasi(null);
+  const sunucuyaBak = useCallback(async () => {
     try {
-      setSunucu(await sunucuBilgisiGetir());
-    } catch (e) {
-      setSunucu(null);
-      setSunucuHatasi((e as Error).message ?? 'Sunucuya ulaşılamadı.');
+      await sunucuBilgisiGetir();
+      setSunucuBagli(true);
+    } catch {
+      setSunucuBagli(false);
     }
-    setPoi(await poiBilgisi());
   }, []);
 
   useEffect(() => {
-    yukle();
-  }, [yukle]);
+    sunucuyaBak();
+  }, [sunucuyaBak]);
 
-  // "Bilgileri yenile" eskiden yalnız yukle'yi çağırıyordu: sunucu aynı cevabı verince ekranda
-  // hiçbir şey değişmiyor, düğme çalışmıyor gibi görünüyordu; sunucu kapalıyken de yeniden
-  // denemeler sürerken hiçbir işaret yoktu. Şimdi sürdüğü görünüyor, bitince saati yazılıyor.
   const yenile = useCallback(async () => {
-    if (yenileniyor) return;
-    setYenileniyor(true);
-    try {
-      await Promise.all([yukle(), hatirlaticilariYenile()]);
-    } finally {
-      setYenileniyor(false);
-      setSonYenileme(new Date());
-    }
-  }, [yenileniyor, yukle, hatirlaticilariYenile]);
-
-  const besleme = sunucu?.feeds ?? [];
-  const aralik = sunucu?.serviceTimeRange;
+    await Promise.all([sunucuyaBak(), hatirlaticilariYenile()]);
+  }, [sunucuyaBak, hatirlaticilariYenile]);
 
   return (
     <ScrollView
@@ -141,59 +115,6 @@ export default function AyarlarEkrani() {
       }
     >
       <Text style={s.baslik}>Ayarlar</Text>
-
-      <Text style={s.bolumBaslik}>ROTA SUNUCUSU</Text>
-      <View style={s.kutu}>
-        <View style={s.satir}>
-          <View style={[s.nokta, { backgroundColor: sunucu ? tema.vurgu : tema.hata }]} />
-          <Text style={s.satirBaslik}>{sunucu ? 'Bağlı' : 'Ulaşılamıyor'}</Text>
-        </View>
-        <Text style={s.adres}>{OTP_ADRESI}</Text>
-        {sunucuHatasi && <Text style={s.hataYazi}>{sunucuHatasi}</Text>}
-        {!sunucuHatasi && (
-          <Text style={s.aciklama}>
-            Rota motoru bilgisayarında çalışıyor. Evin dışından bağlanmak için telefonda ve bilgisayarda Tailscale
-            açık olmalı, uygulama "npm run uzaktan" ile başlatılmalı.
-          </Text>
-        )}
-      </View>
-
-      <Text style={s.bolumBaslik}>TARİFE VERİSİ</Text>
-      <View style={s.kutu}>
-        <View style={s.bilgiSatiri}>
-          <Text style={s.etiket}>Geçerlilik</Text>
-          <Text style={s.deger}>{`${tarihYaz(aralik?.start)} – ${tarihYaz(aralik?.end)}`}</Text>
-        </View>
-        {besleme.map((b) => (
-          <View key={b.feedId} style={s.bilgiSatiri}>
-            <Text style={s.etiket}>{b.feedId}</Text>
-            <Text style={s.deger} numberOfLines={1}>
-              {(b.agencies ?? []).map((a) => a.name).join(', ') || '—'}
-            </Text>
-          </View>
-        ))}
-        <Text style={s.aciklama}>
-          Otobüs ve Metrobüs tarifesi İETT'nin güncel verisinden geliyor. Metro, tramvay, füniküler ve teleferik
-          saatleri Metro İstanbul'un, vapurlar Şehir Hatları'nın, Turyol'un ve Dentur'un kendi güncel tarifesinden.
-          Marmaray'ın saatleri TCDD'nin yayımladığı sıklıktan kuruluyor, İDO'nunkiler İBB'nin artık güncellemediği
-          veriden geliyor; bu ikisi yaklaşıktır.
-        </Text>
-      </View>
-
-      <Text style={s.bolumBaslik}>YER VERİSİ</Text>
-      <View style={s.kutu}>
-        <View style={s.bilgiSatiri}>
-          <Text style={s.etiket}>Aranabilir yer</Text>
-          <Text style={s.deger}>{poi ? poi.nokta.toLocaleString('tr-TR') : '—'}</Text>
-        </View>
-        <View style={s.bilgiSatiri}>
-          <Text style={s.etiket}>Kaynak</Text>
-          <Text style={s.deger} numberOfLines={1}>
-            {poi?.kaynak ?? 'OpenStreetMap'}
-          </Text>
-        </View>
-        <Text style={s.aciklama}>Yer araması telefonda yapılır; internet bağlantısı gerekmez.</Text>
-      </View>
 
       <Text style={s.bolumBaslik}>İSTANBULKART</Text>
       <View style={s.kutu}>
@@ -398,31 +319,20 @@ export default function AyarlarEkrani() {
         </Text>
       </View>
 
-      <Text style={s.bolumBaslik}>UYGULAMA</Text>
-      <View style={s.kutu}>
-        <View style={s.bilgiSatiri}>
-          <Text style={s.etiket}>Sürüm</Text>
-          <Text style={s.deger}>{Constants.expoConfig?.version ?? '—'}</Text>
-        </View>
+      <View style={[s.kutu, s.liste, { marginTop: 26 }]}>
         <Pressable
-          onPress={yenile}
-          disabled={yenileniyor}
-          style={({ pressed }) => [s.dugme, (pressed || yenileniyor) && { opacity: 0.55 }]}
+          style={({ pressed }) => [s.gecisSatiri, pressed && { opacity: 0.6 }]}
+          onPress={() => router.push('/hakkinda')}
           accessibilityRole="button"
-          accessibilityState={{ busy: yenileniyor, disabled: yenileniyor }}
+          accessibilityLabel={`Hakkında, rota sunucusu ${sunucuBagli ? 'bağlı' : 'ulaşılamıyor'}`}
         >
-          {yenileniyor ? (
-            <ActivityIndicator size="small" color={tema.vurgu} />
-          ) : (
-            <Ikon ad="refresh" boyut={16} renkKodu={tema.vurgu} />
-          )}
-          <Text style={s.dugmeYazi}>{yenileniyor ? 'Yenileniyor…' : 'Bilgileri yenile'}</Text>
+          <View style={s.gecisIkon}>
+            <Ikon ad="information" boyut={19} renkKodu="#ffffff" />
+          </View>
+          <Text style={[s.satirBaslik, { flex: 1, fontWeight: '400', fontSize: 16 }]}>Hakkında</Text>
+          {sunucuBagli === false && <Text style={[s.gecisDeger, { color: tema.hata }]}>Sunucuya ulaşılamıyor</Text>}
+          <Ikon ad="chevron-forward" boyut={17} renkKodu={tema.soluk} />
         </Pressable>
-        {sonYenileme && !yenileniyor && (
-          <Text style={s.aciklama}>
-            {`Son yenileme ${sonYenileme.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} · rota sunucusu ${sunucu ? 'bağlı' : 'ulaşılamıyor'}`}
-          </Text>
-        )}
       </View>
     </ScrollView>
   );
@@ -463,6 +373,9 @@ const stiller = (t: Tema) =>
       gap: 8,
     },
     satir: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    gecisSatiri: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 48, paddingVertical: 8 },
+    gecisIkon: { width: 30, height: 30, borderRadius: 7, backgroundColor: '#8e8e93', alignItems: 'center', justifyContent: 'center' },
+    gecisDeger: { fontSize: 14, color: t.soluk },
     liste: { paddingVertical: 0, gap: 0 },
     vasitaSatiri: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
     vasitaAyrac: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.cizgi },
@@ -470,12 +383,7 @@ const stiller = (t: Tema) =>
     disAciklama: { fontSize: 12, color: t.soluk, lineHeight: 18, paddingHorizontal: 20, paddingTop: 8 },
     nokta: { width: 9, height: 9, borderRadius: 5 },
     satirBaslik: { fontSize: 15, fontWeight: '700', color: t.yazi },
-    adres: { fontSize: 13, color: t.soluk, fontVariant: ['tabular-nums'] },
-    bilgiSatiri: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 },
-    etiket: { fontSize: 13.5, color: t.soluk },
-    deger: { fontSize: 13.5, fontWeight: '600', color: t.yazi, flexShrink: 1, textAlign: 'right' },
     aciklama: { fontSize: 12, color: t.soluk, lineHeight: 18 },
-    hataYazi: { fontSize: 12.5, color: t.hata, lineHeight: 18 },
     dugme: { flexDirection: 'row', alignItems: 'center', gap: 7, alignSelf: 'flex-start', paddingTop: 4 },
     dinle: {
       flexDirection: 'row',

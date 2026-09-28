@@ -1,0 +1,12 @@
+# Satır sonları depoda her zaman LF. Windows'ta bir editör dosyayı CRLF ile kaydedince
+# git onu değişmiş saymasın (scripts/uzaktan-baslat.ps1 hep "değişmiş" görünüyordu).
+* text=auto
+
+# Sunucuda çalışan kabuk betikleri CRLF ile bozulur; her yerde LF.
+*.sh text eol=lf
+
+# İkili dosyalar olduğu gibi.
+*.png binary
+*.jpg binary
+*.db binary
+*.zip binary
