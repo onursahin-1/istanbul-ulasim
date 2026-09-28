@@ -1,6 +1,7 @@
 {
   "name": "istanbul-ulasim-kopru",
   "version": "1.0.0",
+  "license": "UNLICENSED",
   "private": true,
   "type": "module",
   "description": "İETT canlı araç verisini GTFS-RT'ye çevirip OTP'ye sunan köprü",

@@ -1,21 +1,32 @@
-The MIT License (MIT)
+Copyright (c) 2026 Onur Şahin
+Tüm hakları saklıdır. All rights reserved.
 
-Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
+TÜRKÇE
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Bu depodaki kaynak kod ve belgeler Onur Şahin'e aittir. Yazılı izin olmadan
+kopyalanamaz, değiştirilemez, dağıtılamaz, yayımlanamaz ya da başka bir yazılımda
+kullanılamaz. Deponun herkese açık olması bu hakları vermez; yalnız GitHub'ın
+kullanım koşullarının zorunlu kıldığı ölçüde (depoyu görüntülemek ve GitHub
+içinde çatallamak) kullanıma izin verilir.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Veri bu lisansa tabi değildir. Uygulamanın kullandığı ve veri hattının (veri/)
+ürettiği tarife, durak, hat ve harita verisi kendi kaynağının lisansına tabidir;
+kaynakların listesi README.md'deki "Veri kaynakları" bölümündedir. Özellikle:
+  - assets/veri/istanbul-poi.db ve OpenStreetMap'ten türetilen öbür veriler
+    © OpenStreetMap katkıda bulunanları, Open Database License (ODbL) 1.0.
+  - İstanbul Büyükşehir Belediyesi açık verisi, İBB Açık Veri Lisansı.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+ENGLISH
+
+The source code and documentation in this repository belong to Onur Şahin. They
+may not be copied, modified, distributed, published or used in other software
+without written permission. The repository being public does not grant these
+rights; use is permitted only to the extent required by GitHub's Terms of
+Service (viewing the repository and forking it within GitHub).
+
+Data is not covered by this license. Timetable, stop, route and map data used by
+the app or produced by the data pipeline (veri/) remain under the license of
+their source; see "Veri kaynakları" in README.md. In particular:
+  - assets/veri/istanbul-poi.db and other data derived from OpenStreetMap:
+    © OpenStreetMap contributors, Open Database License (ODbL) 1.0.
+  - Istanbul Metropolitan Municipality open data: İBB Open Data License.

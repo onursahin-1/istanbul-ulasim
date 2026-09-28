@@ -75,3 +75,26 @@ cd kopru; npm test     # köprünün testleri
   veri yok.
 - **Yaklaşık saatler:** Marmaray (TCDD istasyon saati yayımlamıyor, sıklıktan), İDO ve
   minibüs/dolmuş (İBB'nin eski verisi).
+
+## Veri kaynakları
+
+Uygulama şu kaynakların açık verisini ya da yayımlanmış tarifesini kullanıyor. Veri,
+kodun lisansına değil kendi kaynağının lisansına tabi; kaynakların anılması isteniyor,
+bu yüzden uygulamanın Hakkında ekranında da listeleniyorlar.
+
+| Kaynak | Ne için | Lisans |
+|---|---|---|
+| [İBB Açık Veri Portalı](https://data.ibb.gov.tr) | İETT GTFS (otobüs, Metrobüs, durak, hat), İDO, minibüs ve dolmuş; İETT canlı araç konumları | İBB Açık Veri Lisansı |
+| [Metro İstanbul](https://www.metro.istanbul) | Metro, tramvay, füniküler ve teleferik tarifesi | Yayımlanmış tarife |
+| [Şehir Hatları](https://sehirhatlari.istanbul), [Turyol](https://www.turyol.com), [Dentur Avrasya](https://www.denturavrasya.com) | Vapur tarifeleri | Yayımlanmış tarife |
+| [TCDD Taşımacılık](https://www.tcddtasimacilik.gov.tr) | Marmaray sefer sıklığı | Yayımlanmış bilgi |
+| [OpenStreetMap](https://www.openstreetmap.org/copyright) | Yol ağı (yürüme), ilgi noktaları, ray ve kıyı geometrisi | © OpenStreetMap katkıda bulunanları, ODbL 1.0 |
+
+`assets/veri/istanbul-poi.db` OpenStreetMap'ten türetilmiş bir veritabanı; ODbL gereği
+kendisi de ODbL 1.0 lisansına tabi.
+
+## Lisans
+
+Kod: © 2026 Onur Şahin, tüm hakları saklıdır (bkz. [LICENSE](LICENSE)). Veri yukarıdaki
+kaynakların lisansına tabidir.
+

@@ -134,6 +134,15 @@ export default function HakkindaEkrani() {
           <Satir etiket="Kaynak" deger={poi?.kaynak ?? 'OpenStreetMap'} son />
         </Grup>
 
+        {/* Kaynakların anılması lisans gereği (OpenStreetMap ODbL, İBB Açık Veri Lisansı). */}
+        <Grup baslik="Veri kaynakları">
+          <Satir etiket="Otobüs, Metrobüs, İDO, minibüs" deger="İBB Açık Veri Portalı" altta />
+          <Satir etiket="Metro, tramvay, füniküler, teleferik" deger="Metro İstanbul" altta />
+          <Satir etiket="Vapur" deger="Şehir Hatları, Turyol, Dentur Avrasya" altta />
+          <Satir etiket="Marmaray" deger="TCDD Taşımacılık" altta />
+          <Satir etiket="Yol ağı ve yerler" deger="© OpenStreetMap katkıda bulunanları (ODbL)" altta son />
+        </Grup>
+
         <Grup
           baslik="Uygulama"
           dipnot={
@@ -143,6 +152,7 @@ export default function HakkindaEkrani() {
           }
         >
           <Satir etiket="Sürüm" deger={Constants.expoConfig?.version ?? '—'} />
+          <Satir etiket="Telif" deger="© 2026 Onur Şahin" />
           <Pressable
             onPress={yenile}
             disabled={yenileniyor}
