@@ -19,23 +19,86 @@ const BUYUK_KALANLAR = new Set([
 ]);
 const KUCUK_KALANLAR = new Set(['ve', 'ile', 'de', 'da']);
 
-// Durak adlarında sık geçen, okurken takılan kısaltmaların açılımları. Anahtar noktasız
-// büyük harf: "İ.Ö.O", "İÖO.", "İ.Ö.OKL." hepsi "İÖO"/"İÖOKL" olarak aranıyor. Yalnız
-// anlamı tek olanlar burada; "B.ŞEHİR" hem Başakşehir hem Büyükşehir olabildiği için yok.
-const ACILIMLAR: Record<string, string> = {
-  İÖO: 'İlköğretim Okulu',
-  İÖOKL: 'İlköğretim Okulu',
-  İÖ: 'İlköğretim',
-  ÖO: 'Öğretim Okulu',
-  İHL: 'İmam Hatip Lisesi',
-  ŞH: 'Şehir Hatları',
-  KHANE: 'Kağıthane',
-  BPAŞA: 'Bayrampaşa',
-  BÇEKMECE: 'Büyükçekmece',
-  KÇEKMECE: 'Küçükçekmece',
-  SGAZİ: 'Sultangazi',
-  GOPAŞA: 'Gaziosmanpaşa',
-};
+// Harf sınıfı. \p{L} yerine açık liste: Hermes'in eski sürümleri Unicode özellik
+// kaçışlarını ve geriye bakan (lookbehind) ifadeleri desteklemiyordu.
+const HARF = 'A-Za-zÇĞİIÖŞÜçğıöşüÂâÎîÛû';
+const ONCE = `(^|[^${HARF}])`; // kelime başı; yakalanan karakter yerine geri konuyor
+const SONRA = `(?![${HARF}])`; // kelime sonu
+
+/**
+ * İBB verisindeki kısaltma ve kesik yazımları düzelten kurallar. Büyük harfli metne,
+ * kelimelere ayırmadan önce uygulanıyor; sıra önemli (özel olan önce).
+ *
+ * Neden bu kadar çok biçim: İETT durak adları 20 karakterde kesiliyor, uzun okul adları
+ * "HASAN GÜREL İLK ÖĞRE", "TUNA İLKÖĞRETİM OKUL" gibi yarım kalıyor; aynı kısaltma da
+ * "İÖO", "İ.Ö.O.", "İ.Ö.OKL.", "İ.Ö. OKULU" diye her durakta başka yazılmış.
+ */
+const DUZELTMELER: [RegExp, string][] = [
+  // "50.Y.İÖO" → "50.YIL İÖO"; "ORHONİÖO" (bitişik) → "ORHON İÖO"
+  [/(\d\.)\s?Y\.\s?/g, '$1YIL '],
+  [new RegExp(`([${HARF}]{3})(İ\\.?Ö\\.?O)${SONRA}`, 'g'), '$1 $2'],
+  [new RegExp(`${ONCE}M\\.\\s?TEK\\.\\s?A\\.\\s?LİS\\.?${SONRA}`, 'g'), '$1MESLEKİ VE TEKNİK ANADOLU LİSESİ'],
+  // İlköğretim okulu: İÖO, İ.Ö.O., İ.Ö.OKL., İÖOKULU, İ.Ö. OKULU, "İÖ" (kesik)
+  [new RegExp(`${ONCE}İ\\.?\\s?Ö\\.?\\s?(?:OKULU|OKUL|OKL\\.?|O\\.?)?${SONRA}`, 'g'), '$1İLKÖĞRETİM OKULU'],
+  // İLK Ö.O, İLK ÖĞRE (kesik), İLKÖĞ., İLKOĞRETİM (yazım hatası), İLKÖĞRETİM O / OKUL
+  [new RegExp(`${ONCE}İLK\\.?\\s?Ö\\.?\\s?O\\.?${SONRA}`, 'g'), '$1İLKÖĞRETİM OKULU'],
+  [new RegExp(`${ONCE}İLK\\.?\\s?[ÖO]Ğ[RETİM]*\\.?\\s?(?:OKULU|OKUL|OKL\\.?|O\\.?)${SONRA}`, 'g'), '$1İLKÖĞRETİM OKULU'],
+  [new RegExp(`${ONCE}İLK\\.?\\s?[ÖO]Ğ[RETİM]*\\.?\\s*$`, 'g'), '$1İLKÖĞRETİM OKULU'],
+  [new RegExp(`${ONCE}İLK\\.?\\s?[ÖO]Ğ[RETİM]*\\.?${SONRA}`, 'g'), '$1İLKÖĞRETİM'],
+  [new RegExp(`${ONCE}İLK\\.\\s?(OKULU|OKUL)${SONRA}`, 'g'), '$1İLKOKULU'],
+  // İmam hatip, lise, meslek, ticaret, Anadolu, teknik, endüstri
+  [new RegExp(`${ONCE}İ\\.?\\s?H\\.?\\s?L\\.?${SONRA}`, 'g'), '$1İMAM HATİP LİSESİ'],
+  [new RegExp(`${ONCE}HAT\\.\\s?(?=LİS)`, 'g'), '$1HATİP '],
+  [/MSL\.L$/g, 'MSL.LİSESİ'],
+  [new RegExp(`${ONCE}(?:LİSES|LİS|LS)\\.?${SONRA}`, 'g'), '$1LİSESİ'],
+  [new RegExp(`${ONCE}(?:MSLK|MSL|MES)\\.\\s?`, 'g'), '$1MESLEK '],
+  [new RegExp(`${ONCE}TİC\\.\\s?`, 'g'), '$1TİCARET '],
+  [new RegExp(`${ONCE}AND\\.\\s?`, 'g'), '$1ANADOLU '],
+  [new RegExp(`${ONCE}TEK\\.\\s?(?=END|LİS|ÜNV)`, 'g'), '$1TEKNİK '],
+  [new RegExp(`${ONCE}END\\.\\s?`, 'g'), '$1ENDÜSTRİ '],
+  [new RegExp(`${ONCE}PROG\\.\\s?`, 'g'), '$1PROGRAMLI '],
+  [new RegExp(`${ONCE}MRK\\.\\s?ÜNV\\.\\s?KMP\\.?${SONRA}`, 'g'), '$1MERKEZ ÜNİVERSİTE KAMPÜSÜ'],
+  // "ÜNİV.MAH." Üniversite Mahallesi, "MARMARA ÜNV." Marmara Üniversitesi
+  [new RegExp(`${ONCE}(?:ÜNİV|ÜNİ|ÜNV)\\.\\s?(?=MAH|MH|KAMP|KMP)`, 'g'), '$1ÜNİVERSİTE '],
+  [new RegExp(`${ONCE}(?:ÜNİV|ÜNİ|ÜNV)\\.\\s?`, 'g'), '$1ÜNİVERSİTESİ '],
+  [new RegExp(`${ONCE}(?:HAST|HST)\\.?${SONRA}`, 'g'), '$1HASTANESİ'],
+  [new RegExp(`${ONCE}(?:MRKZ|MRK)\\.?${SONRA}`, 'g'), '$1MERKEZİ'],
+  [new RegExp(`${ONCE}(?:EĞİT|EĞT)\\.\\s?`, 'g'), '$1EĞİTİM '],
+  [new RegExp(`${ONCE}ARŞ\\.\\s?`, 'g'), '$1ARAŞTIRMA '],
+  [new RegExp(`${ONCE}ŞHT\\.\\s?`, 'g'), '$1ŞEHİT '],
+  [new RegExp(`${ONCE}KÖP\\.?${SONRA}`, 'g'), '$1KÖPRÜSÜ'],
+  [/MESLEK L\.?$/g, 'MESLEK LİSESİ'],
+  [/ L\.$/g, ' LİSESİ'],
+  [new RegExp(`${ONCE}(?:MUHT|MUH)\\s?\\.${SONRA}`, 'g'), '$1MUHTARLIĞI'],
+  [new RegExp(`${ONCE}(?:KAMP|KMP)\\.?${SONRA}`, 'g'), '$1KAMPÜSÜ'],
+  [new RegExp(`${ONCE}AVC\\.\\s?`, 'g'), '$1AVCILAR '],
+  [new RegExp(`${ONCE}HİS\\.\\s?`, 'g'), '$1HİSARI '],
+  // Kesik kalmış sık adlar
+  [new RegExp(`${ONCE}(?:ÖĞR\\.?\\s?|ÖĞRENCİ\\s+)YUR(?:DU|D)?\\.?${SONRA}`, 'g'), '$1ÖĞRENCİ YURDU'],
+  [new RegExp(`${ONCE}POLİS\\s+(?:MERKEZ|MERK|MER|MRK)\\.?${SONRA}`, 'g'), '$1POLİS MERKEZİ'],
+  [new RegExp(`${ONCE}BLOKL${SONRA}`, 'g'), '$1BLOKLARI'],
+  // Semt kısaltmaları (anlamı tek olanlar; "B.ŞEHİR" Başakşehir de Büyükşehir de olabilir)
+  [new RegExp(`${ONCE}ÜMR\\.\\s?`, 'g'), '$1ÜMRANİYE '],
+  [new RegExp(`${ONCE}K\\.\\s?HANE${SONRA}`, 'g'), '$1KAĞITHANE'],
+  [new RegExp(`${ONCE}B\\.\\s?PAŞA${SONRA}`, 'g'), '$1BAYRAMPAŞA'],
+  [new RegExp(`${ONCE}B\\.\\s?ÇEKMECE${SONRA}`, 'g'), '$1BÜYÜKÇEKMECE'],
+  [new RegExp(`${ONCE}K\\.\\s?ÇEKMECE${SONRA}`, 'g'), '$1KÜÇÜKÇEKMECE'],
+  [new RegExp(`${ONCE}S\\.\\s?GAZİ${SONRA}`, 'g'), '$1SULTANGAZİ'],
+  [new RegExp(`${ONCE}(?:G|GAZİ)\\.\\s?O\\.\\s?PAŞA${SONRA}`, 'g'), '$1GAZİOSMANPAŞA'],
+  [new RegExp(`${ONCE}K\\.\\s?M\\.\\s?PAŞA${SONRA}`, 'g'), '$1KOCAMUSTAFAPAŞA'],
+  [new RegExp(`${ONCE}Z\\.\\s?KUYU${SONRA}`, 'g'), '$1ZİNCİRLİKUYU'],
+  [new RegExp(`${ONCE}Y\\.\\s?BOSNA${SONRA}`, 'g'), '$1YENİBOSNA'],
+  // Vapur iskeleleri: "KABATAŞ ŞH." → Şehir Hatları
+  [new RegExp(`${ONCE}ŞH\\.?${SONRA}`, 'g'), '$1ŞEHİR HATLARI'],
+];
+
+/** Kısaltma ve kesik yazımları açar; büyük harfli metin alır, büyük harfli verir. */
+function duzelt(buyuk: string): string {
+  // Tireden önce ya da sonra boşluk varsa iki yanında da olsun: "BLOKLAR- ŞEHİT" → "BLOKLAR - ŞEHİT".
+  let metin = buyuk.replace(/\s+/g, ' ').replace(/ -\s*|\s*- /g, ' - ').trim();
+  for (const [kalip, yerine] of DUZELTMELER) metin = metin.replace(kalip, yerine);
+  return metin.replace(/\s+/g, ' ').trim();
+}
 
 /** Tek kelime: bağlaç küçük, kısaltma büyük, gerisi baş harfi büyük. */
 function kelimeYap(kelime: string, bastaMi: boolean): string {
@@ -47,15 +110,13 @@ function kelimeYap(kelime: string, bastaMi: boolean): string {
 }
 
 /** Tek harf (baş harf kısaltması: "İ.Ü.", "F.S. Mehmet"). */
-const basHarfMi = (parca: string) => /^\p{L}$/u.test(parca);
+const basHarfMi = (parca: string) => new RegExp(`^[${HARF}]$`).test(parca);
 
 /**
- * Noktalı bir parça: "İ.Ö.O" → "İlköğretim Okulu", "M.Ü." → "M.Ü.",
- * "DR.SADIK" → "Dr. Sadık", "4.LEVENT" → "4. Levent", "PROF.DR.CEMİL" → "Prof. Dr. Cemil".
+ * Noktalı bir parça: "M.Ü." → "M.Ü.", "DR.SADIK" → "Dr. Sadık", "4.LEVENT" → "4. Levent",
+ * "PROF.DR.CEMİL" → "Prof. Dr. Cemil".
  */
 function noktaliYap(parca: string, bastaMi: boolean): string {
-  const acilim = ACILIMLAR[trBuyuk(parca).replace(/\./g, '')];
-  if (acilim) return acilim;
   const bolumler = parca.split('.');
   let sonuc = '';
   bolumler.forEach((b, i) => {
@@ -63,9 +124,9 @@ function noktaliYap(parca: string, bastaMi: boolean): string {
       sonuc += '.';
       // Noktadan sonra boşluk: iki baş harfin arasına ("İ.Ü.") ve sayının içine ("3.5") değil.
       const onceki = bolumler[i - 1];
-      if (b && /^\p{L}/u.test(b) && !(basHarfMi(onceki) && basHarfMi(b))) sonuc += ' ';
+      if (b && new RegExp(`^[${HARF}]`).test(b) && !(basHarfMi(onceki) && basHarfMi(b))) sonuc += ' ';
     }
-    sonuc += basHarfMi(b) ? trBuyuk(b) : kelimeYap(b, bastaMi && i === 0);
+    sonuc += basHarfMi(b) ? b : kelimeYap(b, bastaMi && i === 0);
   });
   return sonuc;
 }
@@ -73,17 +134,15 @@ function noktaliYap(parca: string, bastaMi: boolean): string {
 /**
  * İETT durak adları büyük harfle gelir ("KADIKÖY BELEDİYESİ - METROBÜS").
  * Ekranda daha rahat okunsun diye "Kadıköy Belediyesi - Metrobüs" biçimine çevirir.
- * Noktalı kısaltmalar bozulmuyor: "MALAZGİRT İ.Ö.O" → "Malazgirt İlköğretim Okulu".
+ * Kısaltma ve kesik yazımlar açılıyor: "MALAZGİRT İ.Ö.O" ve "MALAZGİRT İLK Ö.O" →
+ * "Malazgirt İlköğretim Okulu".
  */
 export function baslikYap(metin?: string | null): string {
   if (!metin) return '';
-  return metin
-    .trim()
+  return duzelt(trBuyuk(metin))
     .split(/(\s+|-|\/|\(|\))/)
     .map((parca, sira) => {
       if (!parca.trim() || /^[-/()]$/.test(parca)) return parca;
-      const acilim = ACILIMLAR[trBuyuk(parca)];
-      if (acilim) return acilim;
       if (parca.includes('.')) return noktaliYap(parca, sira === 0);
       return kelimeYap(parca, sira === 0);
     })

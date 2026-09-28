@@ -77,6 +77,26 @@ const LOGOLAR: Record<'marmaray' | 'metrobus', HatLogosu> = {
   metrobus: { kaynak: require('@/assets/images/hat/metrobus.png'), oran: 1.2, zemin: null },
 };
 
+/**
+ * Vapur rozeti yalnız işletmecinin amblemi, Marmaray gibi beyaz zeminde ve yanında yazı
+ * yok: Turyol ve Dentur Avrasya kendi amblemleriyle, geri kalan bütün vapur hatları
+ * (Şehir Hatları, İDO) Şehir Hatları amblemiyle. Dentur'un amblemi geniş (3,2 : 1); rozet
+ * iki buçuk kareden geniş olmasın diye kutu sınırlanıyor, amblem içine sığdırılıyor.
+ */
+const VAPUR_LOGOLARI: Record<'sehirHatlari' | 'turyol' | 'dentur', HatLogosu> = {
+  sehirHatlari: { kaynak: require('@/assets/images/hat/sehir-hatlari.png'), oran: 1.35, zemin: '#ffffff' },
+  turyol: { kaynak: require('@/assets/images/hat/turyol.png'), oran: 1.1, zemin: '#ffffff' },
+  dentur: { kaynak: require('@/assets/images/hat/dentur.png'), oran: 2.4, zemin: '#ffffff' },
+};
+
+export function vapurLogosu(mode?: string | null, isletmeci?: string | null): HatLogosu | null {
+  if ((mode ?? '').toUpperCase() !== 'FERRY') return null;
+  const ad = (isletmeci ?? '').toLocaleLowerCase('tr-TR');
+  if (ad.includes('turyol')) return VAPUR_LOGOLARI.turyol;
+  if (ad.includes('dentur')) return VAPUR_LOGOLARI.dentur;
+  return VAPUR_LOGOLARI.sehirHatlari;
+}
+
 export function hatLogosu(kisaAd?: string | null): HatLogosu | null {
   const ad = kisaAd?.trim() ?? '';
   if (/^marmaray\s*\d*$/i.test(ad)) return LOGOLAR.marmaray;
@@ -113,9 +133,9 @@ export function HatRozeti({ hat, kucuk = false }: { hat?: RozetHatti | string | 
   const isletmeci = typeof hat === 'string' ? null : hat?.agency?.name;
   const { rozet } = hatEtiketi(kisaAd, tur, isletmeci);
   const renkler = rozetRenkleri(hat, tema);
-  const logo = hatLogosu(kisaAd);
+  const logo = hatLogosu(kisaAd) ?? vapurLogosu(tur, isletmeci);
   const boy = kucuk ? 22 : 26;
-  // Marmaray ve Metrobüs: yalnız logo, yanında yazı yok (hat kodu yolculuk ayrıntısında görünüyor).
+  // Marmaray, Metrobüs ve vapur: yalnız logo, yanında yazı yok (hat yolculuk ayrıntısında görünüyor).
   if (logo) {
     // Metro dairesiyle aynı yükseklik: yan yana rozetler hizalı dursun.
     const yukseklik = kucuk ? 24 : 30;

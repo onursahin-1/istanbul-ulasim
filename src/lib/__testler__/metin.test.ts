@@ -60,6 +60,36 @@ describe('baslikYap', () => {
     assert.equal(baslikYap('Kabataş ŞH.'), 'Kabataş Şehir Hatları');
   });
 
+  it('ilköğretim okulunun kesik ve hatalı yazımlarını tek biçime getirir', () => {
+    assert.equal(baslikYap('MALAZGİRT İLK Ö.O'), 'Malazgirt İlköğretim Okulu');
+    assert.equal(baslikYap('HASAN GÜREL İLK ÖĞRE'), 'Hasan Gürel İlköğretim Okulu');
+    assert.equal(baslikYap('A.EMİN YALMAN İLKÖĞ.'), 'A. Emin Yalman İlköğretim Okulu');
+    assert.equal(baslikYap('TUNA İLKÖĞRETİM OKUL'), 'Tuna İlköğretim Okulu');
+    assert.equal(baslikYap('ATATÜRK İLKÖĞRETİM O'), 'Atatürk İlköğretim Okulu');
+    assert.equal(baslikYap('HİLAL MAHALLESİ İLKOĞRETİM OKULU'), 'Hilal Mahallesi İlköğretim Okulu');
+    assert.equal(baslikYap('ÇAMLICA İÖOKULU'), 'Çamlıca İlköğretim Okulu');
+    assert.equal(baslikYap('ORHAN SEYFİ ORHONİÖO'), 'Orhan Seyfi Orhon İlköğretim Okulu');
+    assert.equal(baslikYap('SELÇUK ECZA 50.Y.İÖO'), 'Selçuk Ecza 50. Yıl İlköğretim Okulu');
+    assert.equal(baslikYap('AYAZAĞA İLK. OKULU'), 'Ayazağa İlkokulu');
+    assert.equal(baslikYap('PERRAN KUTMAN SARITAŞ İLKÖĞRETİM VE ORTAOKULU'), 'Perran Kutman Sarıtaş İlköğretim ve Ortaokulu');
+  });
+
+  it('lise, meslek ve kesik kalmış sık adları açar', () => {
+    assert.equal(baslikYap('TİCARET MSL.LİSESİ'), 'Ticaret Meslek Lisesi');
+    assert.equal(baslikYap('ÜMRANİYE TİC.MES.LS.'), 'Ümraniye Ticaret Meslek Lisesi');
+    assert.equal(baslikYap('TEKSTİL MESLEK LİSES'), 'Tekstil Meslek Lisesi');
+    assert.equal(baslikYap('BEY.BOĞ.İMAM HAT.LİS'), 'Bey. Boğ. İmam Hatip Lisesi');
+    assert.equal(baslikYap('A.ZADE ERKEK ÖĞR.YUR'), 'A. Zade Erkek Öğrenci Yurdu');
+    assert.equal(baslikYap('KOCASİNAN POLİS MERK'), 'Kocasinan Polis Merkezi');
+    assert.equal(baslikYap('MARMARA ÜNV. AND.HİSARI KAMPÜSÜ'), 'Marmara Üniversitesi Anadolu Hisarı Kampüsü');
+    assert.equal(baslikYap('B.PAŞA DEVLET HAST.'), 'Bayrampaşa Devlet Hastanesi');
+  });
+
+  it('tirenin iki yanına boşluk koyar, bitişik tireyi korur', () => {
+    assert.equal(baslikYap('BLOKLAR- ŞEHİT MEHMET CİVAK'), 'Bloklar - Şehit Mehmet Civak');
+    assert.equal(baslikYap('BÜYÜKÇEKMECE-1'), 'Büyükçekmece-1');
+  });
+
   it('baş harf kısaltmalarını büyük bırakır', () => {
     assert.equal(baslikYap('İ.Ü. CERRAHPAŞA'), 'İ.Ü. Cerrahpaşa');
     assert.equal(baslikYap('M.Ü. GÖZTEPE'), 'M.Ü. Göztepe');
