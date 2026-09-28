@@ -231,19 +231,44 @@ const MOD_SIMGELERI: Record<string, string> = {
 
 /** Rota motorundan gelen hat bilgisi; ekranlarda yalnızca kısa ad da geçilebilir. */
 export type HatBilgisi =
-  | { shortName?: string | null; color?: string | null; textColor?: string | null; mode?: string | null }
+  | {
+      shortName?: string | null;
+      color?: string | null;
+      textColor?: string | null;
+      mode?: string | null;
+      agency?: { name: string } | null;
+    }
   | string
   | null
   | undefined;
 
 function hatAyikla(hat: HatBilgisi) {
-  if (typeof hat === 'string') return { shortName: hat, color: null, textColor: null, mode: null };
+  if (typeof hat === 'string') return { shortName: hat, color: null, textColor: null, mode: null, isletmeci: null };
   return {
     shortName: hat?.shortName ?? null,
     color: hat?.color ?? null,
     textColor: hat?.textColor ?? null,
     mode: hat?.mode ?? null,
+    isletmeci: hat?.agency?.name ?? null,
   };
+}
+
+/**
+ * Vapur hattının rengi, işletmecinin logosundan: rozette logo duruyor, hat ekranının
+ * başlık şeridi ve haritadaki çizgi onunla uyumlu olsun (Metrobüs'te yaptığımız gibi).
+ * Logo seçimiyle aynı kural (components/ulasim.tsx, vapurLogosu): Turyol ve Dentur kendi
+ * rengiyle, geri kalanlar Şehir Hatları rengiyle.
+ *
+ * - Şehir Hatları: çıpaların kırmızısı. Logonun sarısı beyaz yazıyı taşımıyor.
+ * - Turyol: logodaki yeşil.
+ * - Dentur Avrasya: logodaki turuncu. Lacivert Metrobüs'le karışırdı.
+ * Koyu temada aynı rengin açılmış tonu (koyu haritada çizgi görünsün).
+ */
+function vapurRengi(isletmeci: string | null, tema: Tema): string {
+  const ad = (isletmeci ?? '').toLocaleLowerCase('tr-TR');
+  if (ad.includes('turyol')) return tema.koyu ? '#4f9a6c' : '#1f5c3a';
+  if (ad.includes('dentur')) return tema.koyu ? '#e0702a' : '#d9651a';
+  return tema.koyu ? '#e8505f' : '#c41a2f';
 }
 
 /** GTFS rengi "E2261C" biçiminde, diyez olmadan gelir. Geçersiz değerler yok sayılır. */
@@ -262,8 +287,8 @@ function hashRengi(kisaAd: string, tema: Tema): string {
 }
 
 /**
- * Rozetin zemin rengi. Sırasıyla: bilinen hat kodu tablosu, Metrobüs kırmızısı,
- * veriden gelen renk, araç tipinin rengi, en son hat kodundan üretilen sabit renk.
+ * Rozetin zemin rengi. Sırasıyla: bilinen hat kodu tablosu, Metrobüs laciverdi,
+ * vapurda işletmecinin rengi, veriden gelen renk, araç tipinin rengi, en son hat kodundan üretilen sabit renk.
  *
  * Bilinen hat tablosu veriden gelen renge göre önceliklidir: İBB verisinde hat renkleri
  * boş, ama bir gün dolarsa da kontrast düzeltmesi yapılmış sürümü tercih ederiz.
@@ -277,6 +302,8 @@ export function hatRengi(hat: HatBilgisi, tema: Tema): string {
     if (bilinen) return bilinen;
     if (metrobusMu(kisaAd)) return tema.metrobus;
   }
+  const { isletmeci } = hatAyikla(hat);
+  if ((mode ?? '').toUpperCase() === 'FERRY') return vapurRengi(isletmeci, tema);
   const veriden = renkKoduDuzelt(color);
   if (veriden) return veriden;
   const modTablo = tema.koyu ? MOD_RENKLERI_KOYU : MOD_RENKLERI_ACIK;
