@@ -45,6 +45,7 @@ import {
   sureYaz,
 } from '@/lib/zaman';
 import { secimTiki } from '@/lib/dokunsal';
+import { ekranAc } from '@/lib/gezinti';
 
 type Parametreler = { kLat: string; kLon: string; kAd: string; vLat: string; vLon: string; vAd: string };
 type Sirali = { g: Guzergah; sira: number };
@@ -256,7 +257,7 @@ export default function RotaEkrani() {
 
   /** Başlangıç ya da varış alanına dokununca arama ekranı açılır; seçim buraya geri döner. */
   const yerSec = (alan: 'baslangic' | 'varis') =>
-    router.push({
+    ekranAc({
       pathname: '/ara',
       params: {
         alan,
@@ -286,7 +287,7 @@ export default function RotaEkrani() {
   const detayaGit = (sira: number) => {
     if (!guzergahlar) return;
     guzergahlariSakla(guzergahlar);
-    router.push({ pathname: '/rota-detay', params: { sira: String(sira), hedef: nereye.ad } });
+    ekranAc({ pathname: '/rota-detay', params: { sira: String(sira), hedef: nereye.ad } });
   };
 
   return (
@@ -311,12 +312,12 @@ export default function RotaEkrani() {
               </Text>
             </Pressable>
           </View>
-          <Pressable style={s.degistir} onPress={yerDegistir} accessibilityLabel="Başlangıç ve varışı değiştir">
+          <Pressable hitSlop={4} style={s.degistir} onPress={yerDegistir} accessibilityLabel="Başlangıç ve varışı değiştir">
             <Ikon ad="swap-vertical" boyut={18} renkKodu={tema.soluk} />
           </Pressable>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filtreler}>
-          <Pressable
+          <Pressable hitSlop={6}
             style={[s.filtre, s.filtreKoyu]}
             onPress={() => {
               setTaslak(
@@ -338,7 +339,7 @@ export default function RotaEkrani() {
                 : `Şimdi · ${aramaSaati}`}
             </Text>
           </Pressable>
-          <Pressable
+          <Pressable hitSlop={6}
             style={[s.filtre, s.filtreSecili]}
             onPress={() => setTercihAcik(true)}
             accessibilityRole="button"
@@ -417,7 +418,7 @@ export default function RotaEkrani() {
                       const saat = binisSaati(x.g);
                       const dakika = isoDakikaSonra(saat);
                       return (
-                        <Pressable
+                        <Pressable hitSlop={5}
                           key={x.sira}
                           style={s.hap}
                           onPress={() => detayaGit(x.sira)}
@@ -474,7 +475,7 @@ export default function RotaEkrani() {
                 ['varis', 'Varış saati'],
               ] as const
             ).map(([tur, etiket]) => (
-              <Pressable
+              <Pressable hitSlop={5}
                 key={tur}
                 style={[s.turDugme, taslak.tur === tur && s.turSecili]}
                 onPress={() => {

@@ -2,7 +2,7 @@
 // Hepsi temayı kendisi okur; çağıran ekranın renk geçirmesine gerek yok.
 
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router } from 'expo-router';
+
 import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import {
   AccessibilityInfo,
@@ -27,6 +27,7 @@ import { istanbulSaatiYaz, kalkisGosterimi } from '@/lib/zaman';
 import type { Bacak, Hat } from '@/lib/otp';
 import type { VasitaTuru } from '@/lib/vasita';
 import { aracSimgesi, hatEtiketi, hatRengi, metrobusMu, resmiRozet, rozetRenkleri, useTema, type Tema } from '@/lib/tema';
+import { geriDon } from '@/lib/gezinti';
 
 export type IkonAdi = ComponentProps<typeof Ionicons>['name'];
 
@@ -273,7 +274,7 @@ export function GeriCubugu({ baslik, sag }: { baslik: string; sag?: ReactNode })
         accessibilityRole="button"
         accessibilityLabel="Geri"
         hitSlop={12}
-        onPress={() => (router.canGoBack() ? router.back() : router.replace('/(sekmeler)'))}
+        onPress={geriDon}
       >
         <Ikon ad="chevron-back" boyut={26} />
       </Pressable>

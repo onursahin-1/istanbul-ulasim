@@ -3,8 +3,7 @@
 // Hat listesi rota motorundan bir kez çekilip bellekte tutulur (~3.700 hat);
 // süzme ve arama telefonda yapılır, her tuşa basışta sunucuya gidilmez.
 
-import { router } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Pressable } from '@/components/dokun';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,6 +13,9 @@ import { hatlariGetir, OtpHatasi, type HatOzeti } from '@/lib/otp';
 import { hatlariTekille, modSirasi } from '@/lib/hat-tekil';
 import { sadelestir } from '@/lib/poi';
 import { aracAdi, baslikYap, useTema, type Tema } from '@/lib/tema';
+import { ekranAc } from '@/lib/gezinti';
+import { useScrollToTop } from 'expo-router';
+import { secimTiki } from '@/lib/dokunsal';
 
 type Suzgec = { anahtar: string; ad: string; modlar: string[] | null };
 
@@ -31,6 +33,9 @@ const SUZGECLER: Suzgec[] = [
 type Satir = { tip: 'baslik'; anahtar: string; yazi: string } | { tip: 'hat'; anahtar: string; veri: HatOzeti };
 
 export default function HatlarEkrani() {
+  // Seçili sekmeye yeniden dokununca liste başa kayar (iPhone'daki gibi).
+  const liste = useRef<FlatList<Satir>>(null);
+  useScrollToTop(liste);
   const kenar = useSafeAreaInsets();
   const tema = useTema();
   const s = useStiller(stiller);
@@ -102,7 +107,7 @@ export default function HatlarEkrani() {
         <View style={s.baslikSatiri}>
           <Text style={s.baslik}>Hatlar</Text>
           <Pressable
-            onPress={() => router.push('/ag')}
+            onPress={() => ekranAc('/ag')}
             style={s.haritaDugmesi}
             accessibilityRole="button"
             accessibilityLabel="Ağ haritası"
@@ -136,8 +141,12 @@ export default function HatlarEkrani() {
           const secili = item.anahtar === suzgec;
           return (
             <Pressable
-              onPress={() => setSuzgec(item.anahtar)}
+              onPress={() => {
+                if (!secili) secimTiki();
+                setSuzgec(item.anahtar);
+              }}
               style={[s.suzgec, secili && s.suzgecSecili]}
+              hitSlop={6}
               accessibilityState={{ selected: secili }}
             >
               <Text style={[s.suzgecYazi, secili && { color: tema.vurguYazi }]}>{item.ad}</Text>
@@ -153,6 +162,7 @@ export default function HatlarEkrani() {
       )}
 
       <FlatList
+        ref={liste}
         data={satirlar}
         keyExtractor={(x) => x.anahtar}
         keyboardShouldPersistTaps="handled"
@@ -173,7 +183,7 @@ export default function HatlarEkrani() {
           return (
             <Pressable
               style={s.satir}
-              onPress={() => router.push({ pathname: '/hat/[id]', params: { id: h.gtfsId } })}
+              onPress={() => ekranAc({ pathname: '/hat/[id]', params: { id: h.gtfsId } })}
               accessibilityRole="button"
             >
               <View style={s.rozetKutusu}>

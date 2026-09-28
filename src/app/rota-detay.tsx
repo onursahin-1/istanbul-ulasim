@@ -5,7 +5,7 @@
 import * as Haptics from 'expo-haptics';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as Location from 'expo-location';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Pressable } from '@/components/dokun';
@@ -44,6 +44,7 @@ import {
 } from '@/lib/yolculuk';
 import { adimlariYaz } from '@/lib/yuruyus';
 import { isodanSaniye, mesafeYaz, saatYaz, saniyedenSaat, sureYaz } from '@/lib/zaman';
+import { geriDon } from '@/lib/gezinti';
 
 type Takip = { bacak: number; kalanDurak: number } | null;
 
@@ -518,7 +519,7 @@ export default function RotaDetayEkrani() {
       </MapView>
 
       <View style={[s.geri, { top: kenar.top + 8 }]}>
-        <Pressable style={s.yuvarlak} onPress={() => router.back()} accessibilityLabel="Geri">
+        <Pressable hitSlop={4} style={s.yuvarlak} onPress={geriDon} accessibilityLabel="Geri">
           <Ikon ad="chevron-back" boyut={22} />
         </Pressable>
       </View>

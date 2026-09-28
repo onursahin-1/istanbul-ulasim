@@ -1,7 +1,6 @@
 // Kayıtlı sekmesi: Ev/İş kısayolları, favori yerler, favori duraklar ve son aranan yerler.
 
-import { router } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Pressable } from '@/components/dokun';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,6 +11,8 @@ import { aramalariTemizle, favoriDegistir, favoriYerDegistir, useKayitlar, type 
 import { useKonum } from '@/lib/konum';
 import { durakDetayiGetir } from '@/lib/otp';
 import { baslikYap, useTema, type Tema } from '@/lib/tema';
+import { ekranAc } from '@/lib/gezinti';
+import { useScrollToTop } from 'expo-router';
 
 const YER_ADI: Record<YerTuru, string> = { ev: 'Ev', is: 'İş' };
 
@@ -19,6 +20,9 @@ const YER_ADI: Record<YerTuru, string> = { ev: 'Ev', is: 'İş' };
 type Dakikalar = Record<string, number | null>;
 
 export default function KayitliEkrani() {
+  // Seçili sekmeye yeniden dokununca liste başa kayar (iPhone'daki gibi).
+  const liste = useRef<ScrollView>(null);
+  useScrollToTop(liste);
   const kenar = useSafeAreaInsets();
   const tema = useTema();
   const s = useStiller(stiller);
@@ -54,7 +58,7 @@ export default function KayitliEkrani() {
   }, [kalkislariYukle]);
 
   const hedefeGit = (hedef: { ad: string; lat: number; lon: number }) =>
-    router.push({
+    ekranAc({
       pathname: '/rota',
       params: {
         kLat: String(konum.nokta.latitude),
@@ -68,6 +72,7 @@ export default function KayitliEkrani() {
 
   return (
     <ScrollView
+      ref={liste}
       style={s.kok}
       contentContainerStyle={{ paddingTop: kenar.top + 6, paddingBottom: kenar.bottom + 24 }}
       refreshControl={
@@ -91,7 +96,7 @@ export default function KayitliEkrani() {
             <Pressable
               key={tur}
               style={s.kart}
-              onPress={() => (yer ? hedefeGit(yer) : router.push({ pathname: '/ara', params: { kaydet: tur } }))}
+              onPress={() => (yer ? hedefeGit(yer) : ekranAc({ pathname: '/ara', params: { kaydet: tur } }))}
               accessibilityRole="button"
             >
               <View style={s.kartIkon}>
@@ -145,7 +150,7 @@ export default function KayitliEkrani() {
             <KaydirmaliSatir key={f.gtfsId} onSil={() => favoriDegistir(f)} silEtiketi="Favorilerden çıkar">
               <Pressable
                 style={s.satir}
-                onPress={() => router.push({ pathname: '/durak/[id]', params: { id: f.gtfsId } })}
+                onPress={() => ekranAc({ pathname: '/durak/[id]', params: { id: f.gtfsId } })}
                 accessibilityRole="button"
               >
                 <View style={s.satirIkon}>

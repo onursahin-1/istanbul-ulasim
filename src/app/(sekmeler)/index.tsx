@@ -1,7 +1,7 @@
 // 1 · Ana ekran: harita, arama kutusu, Ev/İş kısayolları ve yakındaki duraklar.
 
 import * as Location from 'expo-location';
-import { router } from 'expo-router';
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Pressable } from '@/components/dokun';
@@ -34,6 +34,8 @@ import { siklikOzeti } from '@/lib/siklik';
 import { hatSikligi } from '@/lib/siklik-verisi';
 import { basari, secimTiki, vurus } from '@/lib/dokunsal';
 import { useCanliAralik } from '@/lib/canli-aralik';
+import { ekranAc } from '@/lib/gezinti';
+import { useScrollToTop } from 'expo-router';
 
 const YENILEME_ARALIGI = 30_000;
 
@@ -102,15 +104,23 @@ export default function AnaEkran() {
     harita.current?.animateToRegion({ latitude, longitude, latitudeDelta: 0.012, longitudeDelta: 0.012 }, 500);
   }, [hazir, latitude, longitude]);
 
+  // Keşfet sekmesine yeniden dokununca harita konumuna döner (iPhone Haritalar'daki gibi).
+  const ortala = useRef({ scrollToTop: () => {} });
+  useEffect(() => {
+    ortala.current.scrollToTop = () =>
+      harita.current?.animateToRegion({ latitude, longitude, latitudeDelta: 0.012, longitudeDelta: 0.012 }, 400);
+  }, [latitude, longitude]);
+  useScrollToTop(ortala);
+
   const buradan = { kLat: String(latitude), kLon: String(longitude), kAd: konum.tur === 'gercek' ? 'Konumum' : 'Kadıköy (örnek konum)' };
 
   const kisayolaGit = (tur: YerTuru) => {
     const yer = yerler[tur];
     if (!yer) {
-      router.push({ pathname: '/ara', params: { ...buradan, kaydet: tur } });
+      ekranAc({ pathname: '/ara', params: { ...buradan, kaydet: tur } });
       return;
     }
-    router.push({ pathname: '/rota', params: { ...buradan, vLat: String(yer.lat), vLon: String(yer.lon), vAd: yer.ad } });
+    ekranAc({ pathname: '/rota', params: { ...buradan, vLat: String(yer.lat), vLon: String(yer.lon), vAd: yer.ad } });
   };
 
   // Haritada basılı tutunca iğne düşer ve seçenek yaprağı açılır: buraya / buradan yol
@@ -135,10 +145,10 @@ export default function AnaEkran() {
     const nokta = { lat: String(secim.lat), lon: String(secim.lon), ad: secimAdi };
     setSecim(null);
     if (yon === 'buraya') {
-      router.push({ pathname: '/rota', params: { ...buradan, vLat: nokta.lat, vLon: nokta.lon, vAd: nokta.ad } });
+      ekranAc({ pathname: '/rota', params: { ...buradan, vLat: nokta.lat, vLon: nokta.lon, vAd: nokta.ad } });
     } else {
       // Başlangıç bu nokta; varış arama ekranında seçiliyor ("Konumum" da orada).
-      router.push({ pathname: '/ara', params: { kLat: nokta.lat, kLon: nokta.lon, kAd: nokta.ad } });
+      ekranAc({ pathname: '/ara', params: { kLat: nokta.lat, kLon: nokta.lon, kAd: nokta.ad } });
     }
   };
 
@@ -167,7 +177,7 @@ export default function AnaEkran() {
               title={baslikYap(durak.name)}
               description={yonYaz(durak.desc)}
               pinColor={tema.vurgu}
-              onCalloutPress={() => router.push({ pathname: '/durak/[id]', params: { id: durak.gtfsId } })}
+              onCalloutPress={() => ekranAc({ pathname: '/durak/[id]', params: { id: durak.gtfsId } })}
             />
           ) : null,
         )}
@@ -180,7 +190,7 @@ export default function AnaEkran() {
         <Pressable
           style={s.arama}
           accessibilityRole="search"
-          onPress={() => router.push({ pathname: '/ara', params: buradan })}
+          onPress={() => ekranAc({ pathname: '/ara', params: buradan })}
         >
           <Ikon ad="search" />
           <Text style={s.aramaYazi}>Nereye gidiyorsun?</Text>
@@ -219,7 +229,7 @@ export default function AnaEkran() {
                 <Pressable
                   key={f.gtfsId}
                   style={s.favori}
-                  onPress={() => router.push({ pathname: '/durak/[id]', params: { id: f.gtfsId } })}
+                  onPress={() => ekranAc({ pathname: '/durak/[id]', params: { id: f.gtfsId } })}
                 >
                   <Ikon ad="heart" boyut={14} renkKodu={tema.vurgu} />
                   <Text style={s.favoriYazi} numberOfLines={1}>
@@ -236,7 +246,7 @@ export default function AnaEkran() {
             <Pressable
               key={durak.gtfsId}
               style={s.durakBlok}
-              onPress={() => router.push({ pathname: '/durak/[id]', params: { id: durak.gtfsId } })}
+              onPress={() => ekranAc({ pathname: '/durak/[id]', params: { id: durak.gtfsId } })}
             >
               <View style={s.durakAd}>
                 <View style={{ flex: 1 }}>
@@ -347,7 +357,7 @@ function Kisayol({ ikon, baslik, alt, onPress }: { ikon: 'home' | 'briefcase'; b
   const tema = useTema();
   const s = useStiller(stiller);
   return (
-    <Pressable style={s.kisayol} onPress={onPress} accessibilityRole="button">
+    <Pressable hitSlop={4} style={s.kisayol} onPress={onPress} accessibilityRole="button">
       <View style={s.kisayolIkon}>
         <Ikon ad={ikon} boyut={15} renkKodu={tema.vurgu} />
       </View>

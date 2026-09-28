@@ -1,6 +1,6 @@
 // 4 · Durak detayı: konum, geçen hatlar ve yaklaşan seferler.
 
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Pressable } from '@/components/dokun';
@@ -44,6 +44,7 @@ import { baslikYap, hatEtiketi, hatRengi, useTema, yonYaz, type Tema } from '@/l
 import { istanbulSaatiYaz, kacDakikaSonra, kalkisGosterimi, saniyedenSaat } from '@/lib/zaman';
 import { basari, secimTiki } from '@/lib/dokunsal';
 import { useCanliAralik } from '@/lib/canli-aralik';
+import { ekranAc, geriDon } from '@/lib/gezinti';
 
 const YENILEME_ARALIGI = 30_000;
 
@@ -196,7 +197,7 @@ export default function DurakEkrani() {
 
   const yolTarifi = () => {
     if (durak?.lat == null || durak.lon == null) return;
-    router.push({
+    ekranAc({
       pathname: '/rota',
       params: {
         kLat: String(konum.nokta.latitude),
@@ -231,7 +232,7 @@ export default function DurakEkrani() {
       )}
 
       <View style={[s.ustDugmeler, { top: kenar.top + 8 }]}>
-        <Pressable style={s.yuvarlak} onPress={() => router.back()} accessibilityLabel="Geri">
+        <Pressable hitSlop={4} style={s.yuvarlak} onPress={geriDon} accessibilityLabel="Geri">
           <Ikon ad="chevron-back" boyut={22} />
         </Pressable>
       </View>
@@ -288,7 +289,7 @@ export default function DurakEkrani() {
                   {hatlar.map((h) => (
                     <Pressable
                       key={h.gtfsId}
-                      onPress={() => router.push({ pathname: '/hat/[id]', params: { id: h.gtfsId } })}
+                      onPress={() => ekranAc({ pathname: '/hat/[id]', params: { id: h.gtfsId } })}
                       accessibilityRole="button"
                       accessibilityLabel={`${h.shortName ?? ''} hattının detayı`}
                     >
@@ -344,7 +345,7 @@ export default function DurakEkrani() {
                   style={s.sefer}
                   onPress={() =>
                     y.hat &&
-                    router.push({
+                    ekranAc({
                       pathname: '/hat/[id]',
                       // Hat ekranı bu yönü açsın, bu durağı işaretlesin: yaklaşan otobüsler görünsün.
                       params: { id: y.hat.gtfsId, desen: y.desen, durak: durak?.gtfsId ?? '', durakAd: durak?.name ?? '' },
@@ -411,7 +412,7 @@ export default function DurakEkrani() {
                 <Pressable
                   key={`siklik-${h.gtfsId}`}
                   style={s.sefer}
-                  onPress={() => router.push({ pathname: '/hat/[id]', params: { id: h.gtfsId } })}
+                  onPress={() => ekranAc({ pathname: '/hat/[id]', params: { id: h.gtfsId } })}
                   accessibilityRole="button"
                   accessibilityLabel={[h.shortName ?? '', baslikYap(h.longName), metin].filter(Boolean).join(' · ')}
                 >
@@ -439,7 +440,7 @@ export default function DurakEkrani() {
                     <Pressable
                       key={h.gtfsId}
                       style={s.sefer}
-                      onPress={() => router.push({ pathname: '/hat/[id]', params: { id: h.gtfsId } })}
+                      onPress={() => ekranAc({ pathname: '/hat/[id]', params: { id: h.gtfsId } })}
                       accessibilityRole="button"
                       accessibilityLabel={`${guzergah || h.shortName || ''}, saat bilgisi yok`}
                     >

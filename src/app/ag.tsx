@@ -8,7 +8,6 @@
 // istasyonları alttan açılıyor. Süzgeç araç tipine göre çünkü 26 hat rozetini
 // alt şeritte tutmak hem yer yiyor hem kaydırma gerektiriyordu.
 
-import { router } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Pressable } from '@/components/dokun';
@@ -23,6 +22,7 @@ import { enYakinCizgi, metrePiksel } from '@/lib/cografya';
 import { durakAra, hatlariGetir, OtpHatasi } from '@/lib/otp';
 import { karistir } from '@/lib/renk';
 import { aracModu, baslikYap, hatRengi, useTema, type Tema } from '@/lib/tema';
+import { ekranAc } from '@/lib/gezinti';
 
 /** Seçili hattın çizgisi bu kadar kalın; diğerleri ince ve soluk. */
 const KALIN = 5;
@@ -153,7 +153,7 @@ export default function AgEkrani() {
     try {
       const hepsi = await hatlariGetir();
       const eş = hepsi.find((h) => (h.shortName ?? '').trim() === hat.kod);
-      if (eş) router.push({ pathname: '/hat/[id]', params: { id: eş.gtfsId } });
+      if (eş) ekranAc({ pathname: '/hat/[id]', params: { id: eş.gtfsId } });
     } catch {
       // Sunucu kapalıysa harita çalışmaya devam ediyor; sadece hat ekranına geçemiyoruz.
     } finally {
@@ -169,7 +169,7 @@ export default function AgEkrani() {
       const en = sonuc
         .filter((d) => d.lat != null && d.lon != null)
         .sort((a, b) => (a.lat! - lat) ** 2 + (a.lon! - lon) ** 2 - ((b.lat! - lat) ** 2 + (b.lon! - lon) ** 2))[0];
-      if (en) router.push({ pathname: '/durak/[id]', params: { id: en.gtfsId } });
+      if (en) ekranAc({ pathname: '/durak/[id]', params: { id: en.gtfsId } });
     } catch (e) {
       if (!(e instanceof OtpHatasi)) throw e;
     } finally {

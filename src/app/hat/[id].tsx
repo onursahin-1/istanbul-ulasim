@@ -12,7 +12,7 @@
 // ekranından gelindiyse o durak işaretleniyor ve harita durağı ile ona yaklaşan
 // otobüsü birlikte gösteriyor: "bana en yakın otobüs nerede" bir bakışta okunur.
 
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Pressable } from '@/components/dokun';
@@ -39,6 +39,7 @@ import { duyurulariGetir, hatAraclariGetir, hatDetayiKardesleriyle, OtpHatasi, t
 import { aracAdi, baslikYap, haritaRengi, hatRengi, useTema, yaziRengi, type Tema } from '@/lib/tema';
 import { secimTiki } from '@/lib/dokunsal';
 import { useCanliAralik } from '@/lib/canli-aralik';
+import { ekranAc, geriDon } from '@/lib/gezinti';
 
 export default function HatEkrani() {
   const kenar = useSafeAreaInsets();
@@ -255,7 +256,7 @@ export default function HatEkrani() {
     <View style={s.kok}>
       <View style={[s.tepe, { backgroundColor: seritRengi, paddingTop: kenar.top + 6 }]}>
         <View style={s.tepeSatir}>
-          <Pressable onPress={() => router.back()} accessibilityLabel="Geri" hitSlop={12}>
+          <Pressable onPress={geriDon} accessibilityLabel="Geri" hitSlop={12}>
             <Ikon ad="chevron-back" boyut={24} renkKodu={yaziKodu} />
           </Pressable>
           {hat && <HatRozeti hat={hat} />}
@@ -296,7 +297,7 @@ export default function HatEkrani() {
                   anchor={{ x: 0.5, y: 0.5 }}
                   title={baslikYap(d.name)}
                   description="Durağın kalkışları için dokun"
-                  onCalloutPress={() => router.push({ pathname: '/durak/[id]', params: { id: d.gtfsId } })}
+                  onCalloutPress={() => ekranAc({ pathname: '/durak/[id]', params: { id: d.gtfsId } })}
                   tracksViewChanges={false}
                   zIndex={i === isaretli ? 5 : 1}
                 >
@@ -393,7 +394,7 @@ export default function HatEkrani() {
                     >
                       <Pressable
                         style={s.durak}
-                        onPress={() => router.push({ pathname: '/durak/[id]', params: { id: d.gtfsId } })}
+                        onPress={() => ekranAc({ pathname: '/durak/[id]', params: { id: d.gtfsId } })}
                         accessibilityRole="button"
                       >
                         <View style={s.cizgiSutun}>

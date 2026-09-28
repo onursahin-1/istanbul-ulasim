@@ -28,6 +28,7 @@ import {
 import { baslikYap, trBuyuk, useTema, yonYaz, type Tema } from '@/lib/tema';
 import { mesafeYaz } from '@/lib/zaman';
 import { vurus } from '@/lib/dokunsal';
+import { geriDon } from '@/lib/gezinti';
 
 type Parametreler = {
   kLat?: string;
@@ -131,7 +132,7 @@ export default function AraEkrani() {
     async (hedef: Konum, alt?: string) => {
       if (p.kaydet) {
         await yerKaydet(p.kaydet, hedef);
-        router.back();
+        geriDon();
         return;
       }
       // Seçilen hedef Kayıtlı sekmesindeki "son aramalar" listesine girer.
@@ -340,7 +341,7 @@ export default function AraEkrani() {
           <Text style={s.bolumBaslik}>YAKINIMDA NE VAR?</Text>
           <View style={s.kisayollar}>
             {KISAYOLLAR.map((k) => (
-              <Pressable key={k.tur} style={s.kisayol} onPress={() => setMetin(k.ad)} accessibilityRole="button">
+              <Pressable hitSlop={4} key={k.tur} style={s.kisayol} onPress={() => setMetin(k.ad)} accessibilityRole="button">
                 <Ikon ad={poiSimgesi(k.tur) as IkonAdi} boyut={15} renkKodu={tema.vurgu} />
                 <Text style={s.kisayolYazi}>{k.ad}</Text>
               </Pressable>

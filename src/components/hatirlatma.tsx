@@ -135,7 +135,7 @@ export function HatirlatmaSayfasi({ acik, kapat, kalkis, inisler, grup, kurulu, 
             <Text style={s.altBaslik}>ÇIKIŞTAN ÖNCE</Text>
             <View style={s.satir}>
               {ONCE_SECENEKLERI.map((dk) => (
-                <Pressable
+                <Pressable hitSlop={5}
                   key={dk}
                   style={[s.hap, once === dk && s.hapSecili]}
                   onPress={() => setOnce(dk)}

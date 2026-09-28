@@ -4,8 +4,7 @@
 // (src/app/hakkinda.tsx). Burada yalnız sunucunun ulaşılabilir olup olmadığına bakılıyor:
 // ulaşılamıyorsa Hakkında satırında kırmızıyla yazıyor, rota neden gelmiyor belli oluyor.
 
-import { router } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   AppState,
@@ -39,8 +38,13 @@ import { sunucuBilgisiGetir } from '@/lib/otp';
 import { useTema, type Tema } from '@/lib/tema';
 import { turuDegistir, VASITA_ADLARI, VASITA_TURLERI, type VasitaTuru } from '@/lib/vasita';
 import { secimTiki } from '@/lib/dokunsal';
+import { ekranAc } from '@/lib/gezinti';
+import { useScrollToTop } from 'expo-router';
 
 export default function AyarlarEkrani() {
+  // Seçili sekmeye yeniden dokununca liste başa kayar (iPhone'daki gibi).
+  const liste = useRef<ScrollView>(null);
+  useScrollToTop(liste);
   const kenar = useSafeAreaInsets();
   const tema = useTema();
   const s = useStiller(stiller);
@@ -105,6 +109,7 @@ export default function AyarlarEkrani() {
 
   return (
     <ScrollView
+      ref={liste}
       style={s.kok}
       contentContainerStyle={{ paddingTop: kenar.top + 6, paddingBottom: kenar.bottom + 24 }}
       refreshControl={
@@ -284,7 +289,7 @@ export default function AyarlarEkrani() {
               </Pressable>
             ))}
           </View>
-          <Pressable
+          <Pressable hitSlop={5}
             style={s.dinle}
             onPress={() => konus('200 metre sonra sağa dön, Bağdat Caddesi. Sonra 89T otobüsüne bin.', sesCinsiyeti, true)}
             accessibilityRole="button"
@@ -339,7 +344,7 @@ export default function AyarlarEkrani() {
       <View style={[s.kutu, s.liste, { marginTop: 26 }]}>
         <Pressable
           style={({ pressed }) => [s.gecisSatiri, pressed && { opacity: 0.6 }]}
-          onPress={() => router.push('/hakkinda')}
+          onPress={() => ekranAc('/hakkinda')}
           accessibilityRole="button"
           accessibilityLabel={`Hakkında, rota sunucusu ${sunucuBagli ? 'bağlı' : 'ulaşılamıyor'}`}
         >
