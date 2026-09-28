@@ -25,6 +25,7 @@ import type { Duyuru } from '@/lib/duyuru';
 import type { DonusTuru } from '@/lib/yuruyus';
 import { istanbulSaatiYaz, kalkisGosterimi } from '@/lib/zaman';
 import type { Bacak, Hat } from '@/lib/otp';
+import type { VasitaTuru } from '@/lib/vasita';
 import { aracSimgesi, hatEtiketi, hatRengi, metrobusMu, resmiRozet, rozetRenkleri, useTema, type Tema } from '@/lib/tema';
 
 export type IkonAdi = ComponentProps<typeof Ionicons>['name'];
@@ -95,6 +96,49 @@ export function vapurLogosu(mode?: string | null, isletmeci?: string | null): Ha
   if (ad.includes('turyol')) return VAPUR_LOGOLARI.turyol;
   if (ad.includes('dentur')) return VAPUR_LOGOLARI.dentur;
   return VAPUR_LOGOLARI.sehirHatlari;
+}
+
+/**
+ * Ayarlar › Vasıta türü tercihleri satırındaki simge: logosu olan türde logo (Metrobüs,
+ * Metro, Marmaray), öbürlerinde araç simgesi. Kutular aynı boyda, adlar hizalı dursun.
+ */
+const VASITA_SIMGELERI: Record<VasitaTuru, { logo: HatLogosu } | { ikon: IkonAdi }> = {
+  otobus: { ikon: 'bus-outline' },
+  metrobus: { logo: LOGOLAR.metrobus },
+  metro: { logo: { kaynak: require('@/assets/images/hat/metro.png'), oran: 0.87, zemin: null } },
+  marmaray: { logo: LOGOLAR.marmaray },
+  tramvay: { ikon: 'train-outline' },
+  funikuler: { ikon: 'trending-up-outline' },
+  minibus: { ikon: 'car-outline' },
+  vapur: { ikon: 'boat-outline' },
+};
+
+export function VasitaSimgesi({ tur }: { tur: VasitaTuru }) {
+  const tema = useTema();
+  const simge = VASITA_SIMGELERI[tur];
+  if ('ikon' in simge) {
+    return (
+      <View style={stil.vasitaKutu}>
+        <Ionicons name={simge.ikon} size={22} color={tema.vurgu} />
+      </View>
+    );
+  }
+  const { kaynak, oran, zemin } = simge.logo;
+  // Beyaz zeminli logo (Marmaray) biraz içeride; zeminsizler kutuyu doldurur.
+  const pay = zemin ? 5 : 0;
+  const yukseklik = Math.min(28, 34 / oran) - pay;
+  return (
+    <View style={stil.vasitaKutu}>
+      <View style={zemin ? [stil.vasitaZemin, { backgroundColor: zemin }] : undefined}>
+        <Image
+          source={kaynak}
+          style={{ width: Math.round(yukseklik * oran), height: Math.round(yukseklik) }}
+          resizeMode="contain"
+          accessibilityIgnoresInvertColors
+        />
+      </View>
+    </View>
+  );
 }
 
 export function hatLogosu(kisaAd?: string | null): HatLogosu | null {
@@ -521,6 +565,8 @@ const stil = StyleSheet.create({
   cevrimdisiDene: { fontSize: 13, fontWeight: '600' },
   rozet: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', overflow: 'hidden' },
   rozetKutu: { alignItems: 'center', justifyContent: 'center' },
+  vasitaKutu: { width: 34, height: 28, alignItems: 'center', justifyContent: 'center' },
+  vasitaZemin: { borderRadius: 6, padding: 2.5 },
   logoRozet: { alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start', overflow: 'hidden' },
   logoCerceve: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.9)' },
   daire: { alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start' },

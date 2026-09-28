@@ -94,9 +94,25 @@ describe('aramalariYap', () => {
 
 describe('secenekleriDuzelt', () => {
   it('bilinmeyen ya da bozuk kayıt varsayılana döner', () => {
-    assert.deepEqual(secenekleriDuzelt({ tercih: 'eski' as any, erisilebilir: true }), { tercih: 'dengeli', erisilebilir: true });
-    assert.deepEqual(secenekleriDuzelt(null), { tercih: 'dengeli', erisilebilir: false });
-    assert.deepEqual(secenekleriDuzelt({ tercih: 'rayli', erisilebilir: false }), { tercih: 'rayli', erisilebilir: false });
+    assert.deepEqual(secenekleriDuzelt({ tercih: 'eski' as any, erisilebilir: true }), {
+      tercih: 'dengeli',
+      erisilebilir: true,
+      kapali: [],
+    });
+    assert.deepEqual(secenekleriDuzelt(null), { tercih: 'dengeli', erisilebilir: false, kapali: [] });
+    assert.deepEqual(secenekleriDuzelt({ tercih: 'rayli', erisilebilir: false }), {
+      tercih: 'rayli',
+      erisilebilir: false,
+      kapali: [],
+    });
+  });
+
+  it('kapalı vasıta türlerini temizler, sırasını Ayarlar sırasına getirir', () => {
+    assert.deepEqual(secenekleriDuzelt({ tercih: 'dengeli', kapali: ['vapur', 'uçak', 'otobus', 'vapur'] as any }).kapali, [
+      'otobus',
+      'vapur',
+    ]);
+    assert.deepEqual(secenekleriDuzelt({ tercih: 'dengeli', kapali: 'vapur' as any }).kapali, []);
   });
 });
 

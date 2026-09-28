@@ -22,6 +22,7 @@ import {
 import { bacakCanli } from '@/lib/canli';
 import { OtpHatasi, rotaPlanlaYedekli, type Guzergah, type Konum, type RotaTercihi } from '@/lib/otp';
 import { rayliMi, rotalariSirala } from '@/lib/rota-secimi';
+import { kapaliTurKullaniyor, type VasitaTuru } from '@/lib/vasita';
 import { rotaSecenekleriKaydet, useKayitlar } from '@/lib/kayitlar';
 import { guzergahlariSakla } from '@/lib/secim';
 import { ozelGunBul, ozelGunNotu } from '@/lib/ozel-gunler';
@@ -168,7 +169,12 @@ export default function RotaEkrani() {
   // yalnız tercihin kendisi değişince yenile. Eskiden ekran her açılışta iki kez arıyordu:
   // önce varsayılanla, kayıt okununca bir daha.
   const { tercih, erisilebilir } = kayitliSecenekler;
-  const rotaSecenekleri = useMemo(() => ({ tercih, erisilebilir }), [tercih, erisilebilir]);
+  // Kapalı vasıta türleri (Ayarlar) her okumada yeni dizi; içeriği değişince yenilensin.
+  const kapaliAnahtar = kayitliSecenekler.kapali.join(',');
+  const rotaSecenekleri = useMemo(
+    () => ({ tercih, erisilebilir, kapali: kapaliAnahtar ? (kapaliAnahtar.split(',') as VasitaTuru[]) : [] }),
+    [tercih, erisilebilir, kapaliAnahtar],
+  );
   const [tercihAcik, setTercihAcik] = useState(false);
   const nereden: Konum = useMemo(() => ({ ad: p.kAd ?? 'Konumum', lat: Number(p.kLat), lon: Number(p.kLon) }), [p.kAd, p.kLat, p.kLon]);
   const nereye: Konum = useMemo(() => ({ ad: p.vAd ?? 'Hedef', lat: Number(p.vLat), lon: Number(p.vLon) }), [p.vAd, p.vLat, p.vLon]);
@@ -235,10 +241,14 @@ export default function RotaEkrani() {
     const sirali = rotalariSirala(
       liste.map((x) => x.ana.g),
       rotaSecenekleri.tercih,
+      rotaSecenekleri.kapali,
     );
     return sirali.map((g) => liste.find((x) => x.ana.g === g)!);
-  }, [guzergahlar, rotaSecenekleri.tercih]);
-  const ilkRayli = useMemo(() => gruplar.findIndex((x) => rayliMi(x.ana.g)), [gruplar]);
+  }, [guzergahlar, rotaSecenekleri.tercih, rotaSecenekleri.kapali]);
+  const ilkRayli = useMemo(
+    () => gruplar.findIndex((x) => rayliMi(x.ana.g) && !kapaliTurKullaniyor(x.ana.g, rotaSecenekleri.kapali)),
+    [gruplar, rotaSecenekleri.kapali],
+  );
 
 
   /** Başlangıç ya da varış alanına dokununca arama ekranı açılır; seçim buraya geri döner. */

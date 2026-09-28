@@ -3,6 +3,7 @@
 // Bağımlılıksız: testlerden çağrılabiliyor.
 
 import { EN_COK_YURUME_RAYLI_SN, EN_COK_YURUME_SN, type RotaTercihi } from './sorgular';
+import { kapaliTurKullaniyor, kapaliTurleriGeriAl, type VasitaTuru } from './vasita';
 
 /** Burada gereken kadarı: OTP'nin itinerary alanları. */
 export type SiralanacakRota = {
@@ -14,7 +15,7 @@ export type SiralanacakRota = {
     mode?: string | null;
     transitLeg?: boolean | null;
     duration?: number | null;
-    route?: { gtfsId?: string | null; shortName?: string | null } | null;
+    route?: { gtfsId?: string | null; shortName?: string | null; agency?: { name?: string | null } | null } | null;
     from?: { stop?: { gtfsId?: string | null } | null; name?: string | null } | null;
   }[];
 };
@@ -82,8 +83,19 @@ export function oneriPuani(g: SiralanacakRota): number {
   return (g.duration ?? Infinity) + 0.5 * (g.walkTime ?? 0) + 300 * g.numberOfTransfers + 0.2 * otobusSuresi(g);
 }
 
-/** Listeyi seçilen tercihe göre sıralar (yeni dizi). */
-export function rotalariSirala<T extends SiralanacakRota>(liste: T[], tercih: RotaTercihi): T[] {
+/**
+ * Listeyi seçilen tercihe göre sıralar (yeni dizi). Kapalı vasıta türünü kullanan
+ * rotalar, onu kullanmayan makul rotaların arkasına geçer (bkz. vasita.ts).
+ */
+export function rotalariSirala<T extends SiralanacakRota>(
+  liste: T[],
+  tercih: RotaTercihi,
+  kapali: VasitaTuru[] = [],
+): T[] {
+  return kapaliTurleriGeriAl(tercihSirasi(liste, tercih, kapali), kapali);
+}
+
+function tercihSirasi<T extends SiralanacakRota>(liste: T[], tercih: RotaTercihi, kapali: VasitaTuru[]): T[] {
   const sure = (g: T) => g.duration ?? Infinity;
   const erken = (g: T) => Date.parse(g.start ?? '') || 0;
   const kopya = [...liste];
@@ -98,7 +110,7 @@ export function rotalariSirala<T extends SiralanacakRota>(liste: T[], tercih: Ro
       return kopya.sort((a, b) => otobusSuresi(a) - otobusSuresi(b) || sure(a) - sure(b));
     default: {
       const sirali = kopya.sort((a, b) => oneriPuani(a) - oneriPuani(b) || erken(a) - erken(b));
-      return rayliyiOneAl(sirali);
+      return rayliyiOneAl(sirali, kapali);
     }
   }
 }
@@ -111,8 +123,9 @@ export const RAYLI_EN_GEC_SIRA = 2;
  * trafiği bilmiyor ve İETT'de ara durak saatleri uydurma; metrolu seçenek puanda geride
  * kalsa bile yolcu onu görmeli.
  */
-export function rayliyiOneAl<T extends SiralanacakRota>(liste: T[]): T[] {
-  const i = liste.findIndex(rayliMi);
+export function rayliyiOneAl<T extends SiralanacakRota>(liste: T[], kapali: VasitaTuru[] = []): T[] {
+  // Kapalı türü kullanan raylı rota öne alınmaz (metroyu kapatan metrolu rota görmek istemez).
+  const i = liste.findIndex((g) => rayliMi(g) && !kapaliTurKullaniyor(g, kapali));
   if (i <= RAYLI_EN_GEC_SIRA) return liste;
   const sonuc = [...liste];
   const [rayli] = sonuc.splice(i, 1);

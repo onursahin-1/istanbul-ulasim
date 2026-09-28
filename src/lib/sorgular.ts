@@ -6,6 +6,8 @@
 
 
 // Rozetlerin doğru renk ve simgeyi seçebilmesi için hat sorgularında araç tipi ve renk de istenir.
+import { kapaliTurleriDuzelt, kipCarpani, type VasitaTuru } from './vasita';
+
 // agency: minibüs ile dolmuşu ayırmak için gerekiyor; ikisinin de kısa adı güzergâhın tamamı.
 const HAT_ALANLARI = `gtfsId shortName longName mode color textColor agency { name }`;
 
@@ -236,14 +238,18 @@ export type RotaTercihi = 'dengeli' | 'hizli' | 'azYurume' | 'azAktarma' | 'rayl
 
 export const ROTA_TERCIHLERI: RotaTercihi[] = ['dengeli', 'hizli', 'azYurume', 'azAktarma', 'rayli'];
 
-export type RotaSecenekleri = { tercih: RotaTercihi; erisilebilir: boolean };
+/**
+ * @property kapali Ayarlar › Vasıta türü tercihleri'nde kapatılan türler; rotalarda geri
+ *                  planda kalıyorlar (bkz. vasita.ts).
+ */
+export type RotaSecenekleri = { tercih: RotaTercihi; erisilebilir: boolean; kapali: VasitaTuru[] };
 
-export const VARSAYILAN_SECENEKLER: RotaSecenekleri = { tercih: 'dengeli', erisilebilir: false };
+export const VARSAYILAN_SECENEKLER: RotaSecenekleri = { tercih: 'dengeli', erisilebilir: false, kapali: [] };
 
 /** Diskten okunan tercih bilinmiyorsa (eski sürüm, bozuk kayıt) varsayılana döner. */
 export function secenekleriDuzelt(ham: Partial<RotaSecenekleri> | null | undefined): RotaSecenekleri {
   const tercih = ROTA_TERCIHLERI.includes(ham?.tercih as RotaTercihi) ? (ham!.tercih as RotaTercihi) : 'dengeli';
-  return { tercih, erisilebilir: !!ham?.erisilebilir };
+  return { tercih, erisilebilir: !!ham?.erisilebilir, kapali: kapaliTurleriDuzelt(ham?.kapali) };
 }
 
 /**
@@ -273,13 +279,18 @@ const OTOBUS_HAFIF = 1.3;
 const OTOBUS_GUCLU = 3.0;
 const TUM_KIPLER = ['BUS', 'TROLLEYBUS', 'COACH', 'RAIL', 'SUBWAY', 'TRAM', 'MONORAIL', 'FERRY', 'FUNICULAR', 'GONDOLA', 'CABLE_CAR'];
 
-/** Otobüsü `isteksizlik` kadar pahalı sayan araç kipleri (öbür kipler 1). */
-function otobusIsteksiz(isteksizlik: number): Record<string, unknown> {
+/**
+ * Otobüsü `isteksizlik` kadar pahalı sayan araç kipleri (öbür kipler 1). Kapalı vasıta
+ * türlerinin kipleri ayrıca kipCarpani kadar pahalanıyor.
+ */
+function otobusIsteksiz(isteksizlik: number, kapali: VasitaTuru[] = []): Record<string, unknown> {
   return {
     transit: {
       transit: TUM_KIPLER.map((mode) => ({
         mode,
-        cost: { reluctance: ['BUS', 'TROLLEYBUS', 'COACH'].includes(mode) ? isteksizlik : 1 },
+        cost: {
+          reluctance: (['BUS', 'TROLLEYBUS', 'COACH'].includes(mode) ? isteksizlik : 1) * kipCarpani(mode, kapali),
+        },
       })),
     },
   };
@@ -313,22 +324,25 @@ export type RotaAramasi = { tercihler: Record<string, unknown> | null; modlar: R
  */
 export function aramalariYap(secenekler: RotaSecenekleri): RotaAramasi[] {
   const tercihler = tercihleriYap(secenekler);
+  const kapali = secenekler.kapali ?? [];
+  // Kapalı tür yoksa kayırmasız arama sunucunun varsayılanıyla (modes gönderilmez).
+  const notr = kapali.length ? otobusIsteksiz(1, kapali) : null;
   switch (secenekler.tercih) {
     case 'dengeli':
       // Üçüncü arama raylıyı güçlü kayırıyor: en iyi raylı seçenek her zaman elde olsun
       // (listede ilk üçe konuyor, bkz. rota-secimi.ts).
       return [
-        { tercihler, modlar: otobusIsteksiz(OTOBUS_HAFIF) },
-        { tercihler, modlar: null },
-        { tercihler, modlar: otobusIsteksiz(OTOBUS_GUCLU) },
+        { tercihler, modlar: otobusIsteksiz(OTOBUS_HAFIF, kapali) },
+        { tercihler, modlar: notr },
+        { tercihler, modlar: otobusIsteksiz(OTOBUS_GUCLU, kapali) },
       ];
     case 'rayli':
       return [
-        { tercihler, modlar: otobusIsteksiz(OTOBUS_GUCLU) },
-        { tercihler, modlar: otobusIsteksiz(OTOBUS_HAFIF) },
+        { tercihler, modlar: otobusIsteksiz(OTOBUS_GUCLU, kapali) },
+        { tercihler, modlar: otobusIsteksiz(OTOBUS_HAFIF, kapali) },
       ];
     default:
-      return [{ tercihler, modlar: null }];
+      return [{ tercihler, modlar: notr }];
   }
 }
 

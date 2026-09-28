@@ -20,10 +20,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Ikon, type IkonAdi, useStiller } from '@/components/ulasim';
+import { Ikon, type IkonAdi, useStiller, VasitaSimgesi } from '@/components/ulasim';
 import { hatirlaticiIptal, hatirlaticiSaati, hepsiniIptal, izinIste, useHatirlaticilar } from '@/lib/bildirim';
 import {
   ekranAcikKaydet,
+  rotaSecenekleriKaydet,
   sesCinsiyetiKaydet,
   sesliTarifKaydet,
   temaTercihiKaydet,
@@ -37,6 +38,7 @@ import { TARIFE_TARIHI, UCRET_ACIKLAMALARI, UCRET_ADLARI, type UcretTuru } from 
 import { OTP_ADRESI, sunucuBilgisiGetir, type SunucuBilgisi } from '@/lib/otp';
 import { poiBilgisi } from '@/lib/poi';
 import { useTema, type Tema } from '@/lib/tema';
+import { turuDegistir, VASITA_ADLARI, VASITA_TURLERI, type VasitaTuru } from '@/lib/vasita';
 
 function tarihYaz(saniye?: number | null): string {
   if (!saniye) return '—';
@@ -58,7 +60,10 @@ export default function AyarlarEkrani() {
   const [yenileniyor, setYenileniyor] = useState(false);
   const [sonYenileme, setSonYenileme] = useState<Date | null>(null);
   const { hatirlaticilar, izin, yenile: hatirlaticilariYenile } = useHatirlaticilar();
-  const { ucretTuru, ekranAcik, sesliTarif, sesCinsiyeti, temaTercihi } = useKayitlar();
+  const { ucretTuru, ekranAcik, sesliTarif, sesCinsiyeti, temaTercihi, rotaSecenekleri } = useKayitlar();
+  const kapaliTurler = rotaSecenekleri.kapali;
+  const turuAyarla = (tur: VasitaTuru, acik: boolean) =>
+    rotaSecenekleriKaydet({ ...rotaSecenekleri, kapali: turuDegistir(kapaliTurler, tur, acik) });
   const [kullanilanSes, setKullanilanSes] = useState<{ ses: SesBilgisi; uydu: boolean } | null | undefined>(undefined);
   // Telefonda Türkçe ses hangi cinsiyetlerde var; ikisi de yoksa seçim gösterilmez (iPhone'da yalnız Yelda).
   const [cinsiyetler, setCinsiyetler] = useState<SesCinsiyeti[]>([]);
@@ -210,6 +215,29 @@ export default function AyarlarEkrani() {
           {`Rota ücretleri ${TARIFE_TARIHI} tarihli İBB tarifesine göre hesaplanır. İlk biniş tam bilet, sonraki binişler aktarma bedelidir; aktarma hakkı 120 dakika sürer. Metrobüs, Marmaray ve M11 durak sayısına göre ücretlendirilir.`}
         </Text>
       </View>
+
+      <Text style={s.bolumBaslik}>VASITA TÜRÜ TERCİHLERİ</Text>
+      <View style={[s.kutu, s.liste]}>
+        {VASITA_TURLERI.map((tur, i) => (
+          <View key={tur} style={[s.vasitaSatiri, i > 0 && s.vasitaAyrac]}>
+            <VasitaSimgesi tur={tur} />
+            <View style={{ flex: 1 }}>
+              <Text style={s.satirBaslik}>{VASITA_ADLARI[tur]}</Text>
+              {!!VASITA_ALT[tur] && <Text style={s.vasitaAlt}>{VASITA_ALT[tur]}</Text>}
+            </View>
+            <Switch
+              value={!kapaliTurler.includes(tur)}
+              onValueChange={(acik) => turuAyarla(tur, acik)}
+              trackColor={{ true: tema.vurgu }}
+              accessibilityLabel={VASITA_ADLARI[tur]}
+            />
+          </View>
+        ))}
+      </View>
+      <Text style={s.disAciklama}>
+        Kapattığın türler rotalarda geri planda kalır: aynı yere başka türlerle makul bir yol varsa o öne çıkar. Başka
+        yol yoksa kapalı türü kullanan rota yine gösterilir. En az bir tür açık kalır.
+      </Text>
 
       <Text style={s.bolumBaslik}>HATIRLATICILAR</Text>
       <View style={s.kutu}>
@@ -400,6 +428,12 @@ export default function AyarlarEkrani() {
   );
 }
 
+/** Vasıta türü satırının alt yazısı: adı yetmeyenler için. */
+const VASITA_ALT: Partial<Record<VasitaTuru, string>> = {
+  otobus: 'İETT ve özel halk otobüsleri',
+  vapur: 'Şehir Hatları, Turyol, Dentur, İDO',
+};
+
 const TEMA_SECENEKLERI: [TemaTercihi, string, IkonAdi][] = [
   ['sistem', 'Sistem', 'phone-portrait-outline'],
   ['acik', 'Açık', 'sunny-outline'],
@@ -429,6 +463,11 @@ const stiller = (t: Tema) =>
       gap: 8,
     },
     satir: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    liste: { paddingVertical: 0, gap: 0 },
+    vasitaSatiri: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
+    vasitaAyrac: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.cizgi },
+    vasitaAlt: { fontSize: 12, color: t.soluk, marginTop: 1 },
+    disAciklama: { fontSize: 12, color: t.soluk, lineHeight: 18, paddingHorizontal: 20, paddingTop: 8 },
     nokta: { width: 9, height: 9, borderRadius: 5 },
     satirBaslik: { fontSize: 15, fontWeight: '700', color: t.yazi },
     adres: { fontSize: 13, color: t.soluk, fontVariant: ['tabular-nums'] },

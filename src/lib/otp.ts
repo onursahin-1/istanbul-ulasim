@@ -352,7 +352,8 @@ export async function rotaPlanla(
 /** Aynı yolculuğun onbellekteki karşılığı. Koordinatlar ~11 m'ye yuvarlanıyor. */
 function rotaAnahtari(nereden: Konum, nereye: Konum, secenekler: RotaSecenekleri, tur: RotaZamani['tur']): string {
   const nk = (k: Konum) => `${k.lat.toFixed(4)},${k.lon.toFixed(4)}`;
-  return `rota:${nk(nereden)}>${nk(nereye)}|${secenekler.tercih}|${secenekler.erisilebilir ? 'e' : ''}${tur === 'varis' ? '|v' : ''}`;
+  const kapali = secenekler.kapali?.length ? `|-${secenekler.kapali.join(',')}` : '';
+  return `rota:${nk(nereden)}>${nk(nereye)}|${secenekler.tercih}|${secenekler.erisilebilir ? 'e' : ''}${tur === 'varis' ? '|v' : ''}${kapali}`;
 }
 
 /**
