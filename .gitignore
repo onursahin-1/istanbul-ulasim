@@ -47,3 +47,6 @@ veri/iett-ornek.json
 kopru/ogrenilen.json
 kopru/ogrenilen.json.yaziliyor
 kopru/kayit/
+
+# Python
+__pycache__/

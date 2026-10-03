@@ -60,15 +60,21 @@ def saat_yaz(dk):
 
 
 def servis_dakikalari(liste):
-    """Servis günü sırasıyla gelen "HH:MM" listesi → artan dakikalar (gece yarısı sonrası +1440)."""
+    """Servis günü sırasıyla gelen "HH:MM" listesi → artan dakikalar (gece yarısı sonrası +1440).
+
+    Servis listeyi her zaman sıralı vermiyor (M1A Cumartesi Atatürk Havalimanı yönü:
+    "07:25, 07:38, 07:31, 07:46"). Sefer kurulurken her istasyonun k. saati k. sefere
+    yazıldığı için sırasız bir liste o istasyonda seferleri birbirine karıştırıyordu;
+    gece yarısı düzeltmesinden sonra sıralanıyor.
+    """
     sonuc, ek, onceki = [], 0, None
     for s in liste:
         dk = dakika(s)
         if onceki is not None and dk + ek < onceki - 60:
             ek += 1440
         sonuc.append(dk + ek)
-        onceki = dk + ek
-    return sonuc
+        onceki = max(onceki or 0, dk + ek)
+    return sorted(sonuc)
 
 
 def seferleri_kur(istasyon_saatleri):
@@ -277,18 +283,25 @@ def ring_satirlari(istasyon, kalkislar, gun_adi):
 
 
 def saatleri_duzelt(sefer, ara):
-    """Dakikaya yuvarlanmış saatlerde aynı dakikaya düşen komşu durakları ayırır.
+    """Son istasyonun varış saatini düzeltir; aradaki istasyonlara dokunmaz.
 
     Servis son istasyona bir öncekinin saatini veriyor (Darüşşafaka 06:21, Hacıosman
     06:21; iki istasyonlu füniküler ve teleferiklerde iki uç aynı dakika). Son aralık için
-    beslemedeki eski yol süresi (yoksa 2 dk), aradakiler için 1 dk eklenir.
+    beslemedeki eski yol süresi (yoksa 2 dk) eklenir.
+
+    Aradaki istasyonlarda aynı dakika gerçek: saatler dakikaya yuvarlanmış, iki istasyon
+    arası bir dakikadan kısa olabiliyor. Eskiden ikincisine bir dakika ekleniyordu; ek
+    zincirleme büyüyor ve tarife Metro İstanbul'unkinden 1-2 dakika kayıyordu (M5
+    Sancaktepe Şehir Hastanesi, M2 Sanayi Mahallesi). GTFS eşit saatlere izin veriyor.
+    Geriye giden bir saat (servisteki hata) bir öncekine eşitlenir.
     """
     sonuc = [sefer[0]]
     for i, (stop, t) in enumerate(sefer[1:], start=1):
         onceki_stop, onceki_t = sonuc[-1]
-        if t <= onceki_t:
-            ek = ara.get((onceki_stop, stop), 2) if i == len(sefer) - 1 else 1
-            t = onceki_t + ek
+        if i == len(sefer) - 1 and t <= onceki_t:
+            t = onceki_t + ara.get((onceki_stop, stop), 2)
+        elif t < onceki_t:
+            t = onceki_t
         sonuc.append((stop, t))
     return sonuc
 

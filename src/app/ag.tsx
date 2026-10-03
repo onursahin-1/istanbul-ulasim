@@ -229,7 +229,21 @@ export default function AgEkrani() {
         style={[s.ust, { paddingTop: kenar.top }]}
         onLayout={(e) => setUstBoyu(e.nativeEvent.layout.height)}
       >
-        <GeriCubugu baslik="Ağ haritası" />
+        <GeriCubugu
+          baslik="Ağ haritası"
+          sag={
+            <Pressable
+              style={s.semaDugme}
+              hitSlop={6}
+              onPress={() => ekranAc('/ag-semasi')}
+              accessibilityRole="button"
+              accessibilityLabel="Raylı sistem şemasını aç"
+            >
+              <Ikon ad="git-network-outline" boyut={16} renkKodu={tema.vurgu} />
+              <Text style={s.semaYazi}>Şema</Text>
+            </Pressable>
+          }
+        />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.suzgecler}>
           {AG_SUZGECLERI.map((x) => {
             const acik = x.anahtar === suzgec;
@@ -332,6 +346,18 @@ export default function AgEkrani() {
 
 const stiller = (t: Tema) =>
   StyleSheet.create({
+    semaDugme: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      height: 34,
+      paddingHorizontal: 12,
+      borderRadius: 17,
+      borderWidth: 1,
+      borderColor: t.vurgu,
+      backgroundColor: t.yuzey,
+    },
+    semaYazi: { fontSize: 13.5, fontWeight: '700', color: t.vurgu },
     kok: { flex: 1, backgroundColor: t.zemin },
     ust: { position: 'absolute', top: 0, left: 0, right: 0, backgroundColor: t.yuzey, paddingBottom: 8 },
     suzgecler: { paddingHorizontal: 12, gap: 8 },

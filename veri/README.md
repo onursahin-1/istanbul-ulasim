@@ -202,6 +202,9 @@ Servisin iki tuhaflığı düzeltiliyor: son istasyona bir öncekinin saati yaz�
 istasyonlu füniküler ve teleferiklerde iki uç aynı dakika) — son aralığa beslemedeki eski
 yol süresi ekleniyor; T3 ringinde saat listeleri gidiş yönünün tersine sıralı — T3 istasyon
 sırasıyla ve servisin konumlarıyla kuruluyor (beslemedeki T3 durakları yanlış adlı).
+Servis bazı istasyonların listesini sırasız veriyor (M1A Cumartesi); listeler sıralanıp
+öyle eşleniyor. Aradaki istasyonlarda aynı dakika olduğu gibi kalıyor (saatler dakikaya
+yuvarlı); eskiden bir dakika eklenip tarife Metro İstanbul'unkinden kayıyordu.
 
 T2 (İETT), T6, M11 ve Marmaray (TCDD), F2 (İETT) ve F3 Metro İstanbul servisinde yok;
 onlar beslemedeki (ya da `eksik-hatlar.py`'nin eklediği) tarifeleriyle kalıyor.
