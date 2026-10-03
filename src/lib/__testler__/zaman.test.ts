@@ -8,6 +8,9 @@ import { describe, it } from 'node:test';
 
 import {
   andanSecim,
+  durakVarisMetni,
+  saatEkli,
+  sayiBulunmaEki,
   istanbulSaatiYaz,
   isodanSaniye,
   kalkisGosterimi,
@@ -161,5 +164,42 @@ describe('saat çarkı dönüşümü', () => {
     for (const [g, h, d] of [[0, 0, 0], [3, 23, 59], [6, 12, 1]]) {
       assert.deepEqual(andanSecim(secimdenAn(g, h, d, simdi), simdi), { gun: g, saat: h, dakika: d });
     }
+  });
+});
+
+describe('sayiBulunmaEki', () => {
+  it('birler basamağının okunuşuna uyuyor', () => {
+    const beklenen = ['da', 'de', 'de', 'te', 'te', 'te', 'da', 'de', 'de', 'da'];
+    beklenen.forEach((ek, n) => assert.equal(sayiBulunmaEki(n), ek, String(n)));
+  });
+  it('onlar: on, yirmi, otuz, kırk, elli', () => {
+    assert.deepEqual([10, 20, 30, 40, 50].map(sayiBulunmaEki), ['da', 'de', 'da', 'ta', 'de']);
+  });
+  it('iki basamaklı sayılarda son okunan kelime belirliyor', () => {
+    assert.equal(sayiBulunmaEki(13), 'te'); // on üç
+    assert.equal(sayiBulunmaEki(16), 'da'); // on altı
+    assert.equal(sayiBulunmaEki(47), 'de'); // kırk yedi
+    assert.equal(sayiBulunmaEki(59), 'da'); // elli dokuz
+  });
+});
+
+describe('saatEkli / durakVarisMetni', () => {
+  // İstanbul UTC+3: 16:02 UTC → 19:02.
+  const an = (s: number, d: number) => Date.UTC(2026, 9, 3, s - 3, d) / 1000;
+  it('dakika sıfır değilse ek dakikaya uyar', () => {
+    assert.equal(saatEkli(an(19, 2)), "19:02'de");
+    assert.equal(saatEkli(an(19, 6)), "19:06'da");
+    assert.equal(saatEkli(an(8, 43)), "08:43'te");
+    assert.equal(saatEkli(an(8, 40)), "08:40'ta");
+  });
+  it('tam saatte ek saate uyar', () => {
+    assert.equal(saatEkli(an(19, 0)), "19:00'da"); // on dokuz
+    assert.equal(saatEkli(an(13, 0)), "13:00'te"); // on üç
+    assert.equal(saatEkli(an(20, 0)), "20:00'de"); // yirmi
+    assert.equal(saatEkli(an(4, 0)), "04:00'te"); // dört
+    assert.equal(saatEkli(an(3, 0) + 24 * 3600 - 3 * 3600), "00:00'da"); // sıfır
+  });
+  it('tam metin', () => {
+    assert.equal(durakVarisMetni(an(19, 2)), "19:02'de durakta");
   });
 });

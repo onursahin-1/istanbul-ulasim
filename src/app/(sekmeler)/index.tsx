@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AltYaprak } from '@/components/alt-yaprak';
 import {
+  ARKASINDA_SN,
   CanliAciklama,
   Dakika,
   HataKutusu,
@@ -265,10 +266,23 @@ export default function AnaEkran() {
                 <Text style={s.seferYok}>Yakın zamanda sefer yok</Text>
               )}
               {(() => {
-                const ilkIki = durak.kalkislar.slice(0, 2).map((k) => ({ k, canli: kalkisCanli(k) }));
+                const ilkIki = durak.kalkislar.slice(0, 2).map((k) => ({
+                  k,
+                  canli: kalkisCanli(k),
+                  an: (k.serviceDay ?? 0) + (k.realtimeDeparture ?? k.scheduledDeparture ?? 0),
+                }));
                 // Aynı durakta canlı kalkış varsa canlı olmayanlar "tarifeye göre" diye ayrılıyor.
                 const canliVar = ilkIki.some((x) => x.canli);
-                return ilkIki.map(({ k, canli }, i) => (
+                // Aynı hattın iki canlı otobüsü üç dakikadan yakınsa ikincisi "hemen arkasında":
+                // iki satırda neredeyse aynı saati görünce yolcu yinelenen kayıt sanmasın.
+                const [a, b] = ilkIki;
+                const arkasinda =
+                  !!a?.canli &&
+                  !!b?.canli &&
+                  !!a.k.trip?.route?.gtfsId &&
+                  a.k.trip?.route?.gtfsId === b.k.trip?.route?.gtfsId &&
+                  Math.abs(b.an - a.an) < ARKASINDA_SN;
+                return ilkIki.map(({ k, canli, an }, i) => (
                   <View key={i} style={s.sefer}>
                     <View style={s.seferRozet}>
                       <HatRozeti hat={k.trip?.route} />
@@ -277,9 +291,13 @@ export default function AnaEkran() {
                       <Text style={s.seferYon} numberOfLines={1}>
                         {baslikYap(k.trip?.pattern?.headsign) || baslikYap(k.headsign)}
                       </Text>
-                      {canli ? <CanliAciklama canli={canli} /> : canliVar ? <TarifeEtiketi /> : null}
+                      {canli ? (
+                        <CanliAciklama an={an} arkasinda={i === 1 && arkasinda} />
+                      ) : canliVar ? (
+                        <TarifeEtiketi />
+                      ) : null}
                     </View>
-                    <Dakika an={(k.serviceDay ?? 0) + (k.realtimeDeparture ?? k.scheduledDeparture ?? 0)} canli={canli} />
+                    <Dakika an={an} canli={canli} />
                   </View>
                 ));
               })()}

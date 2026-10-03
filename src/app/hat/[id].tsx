@@ -21,11 +21,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AltYaprak } from '@/components/alt-yaprak';
 import { DurakIsareti, OtobusIsareti } from '@/components/harita-isaretleri';
-import { canliRenk, DuyuruKarti, HataKutusu, HatRozeti, Ikon, NabizNoktasi, useStiller, Yukleniyor } from '@/components/ulasim';
+import { DuyuruKarti, HataKutusu, HatRozeti, Ikon, NabizNoktasi, useStiller, Yukleniyor } from '@/components/ulasim';
 import { hattinDuyurulari, type Duyuru } from '@/lib/duyuru';
 import {
   araclariYerlestir,
-  gecikmeKisa,
   kalanYaz,
   yaklasanOtobus,
   yasYaz,
@@ -33,7 +32,6 @@ import {
   type YerlesikArac,
 } from '@/lib/arac-konum';
 import { polylineCoz, type Nokta } from '@/lib/cografya';
-import { canliBilgi } from '@/lib/canli';
 import { trKucuk } from '@/lib/metin';
 import { duyurulariGetir, hatAraclariGetir, hatDetayiKardesleriyle, OtpHatasi, saatsizHatMi, type HatDetayi } from '@/lib/otp';
 import { aracAdi, baslikYap, haritaRengi, hatRengi, useTema, yaziRengi, type Tema } from '@/lib/tema';
@@ -508,7 +506,6 @@ function otobusAciklamasi(o: YerlesikArac, durakAdi: string): string {
   if (o.sinif === 'eski') return `${durakAdi} civarı · ${yasYaz(o.yasSn)} görüldü`;
   return [
     o.durum === 'durakta' ? `${durakAdi} durağında` : `Sıradaki durak: ${durakAdi}`,
-    o.gecikme != null ? gecikmeKisa(o.gecikme) : null,
     yasYaz(o.yasSn),
   ]
     .filter(Boolean)
@@ -517,7 +514,7 @@ function otobusAciklamasi(o: YerlesikArac, durakAdi: string): string {
 
 /**
  * Durak listesinin arasındaki otobüs: çizginin üstünde otobüs simgesi, yanında ne
- * durumda olduğu. Taze konumda gecikme ve yaş; 5 dakikadan eskide yalnız "… civarı,
+ * durumda olduğu. Taze konumda durum ve yaş; 5 dakikadan eskide yalnız "… civarı,
  * N dk önce görüldü", soluk.
  */
 function OtobusSatiri({
@@ -537,12 +534,10 @@ function OtobusSatiri({
   const s = useStiller(stiller);
   const eski = otobus.sinif === 'eski';
   const simgeRengi = eski ? tema.soluk : renkKodu;
-  const gecikme = otobus.gecikme != null ? canliBilgi(otobus.gecikme) : null;
   const etiket = eski
     ? `${durakAdi} civarında, ${yasYaz(otobus.yasSn)} görüldü`
     : [
         otobus.durum === 'durakta' ? `${durakAdi} durağında` : `${durakAdi} durağına yaklaşıyor`,
-        gecikme?.metin,
         `konum ${yasYaz(otobus.yasSn)}`,
       ]
         .filter(Boolean)
@@ -567,11 +562,6 @@ function OtobusSatiri({
       ) : (
         <Text style={s.otobusYazi} numberOfLines={1}>
           <Text style={s.kalin}>{otobus.durum === 'durakta' ? 'Durakta' : 'Yaklaşıyor'}</Text>
-          {gecikme && (
-            <Text style={{ color: canliRenk(gecikme.sinif, tema), fontWeight: '700' }}>
-              {`  ${gecikmeKisa(otobus.gecikme!)}`}
-            </Text>
-          )}
           <Text style={s.otobusYas}>{`  ${yasYaz(otobus.yasSn)}`}</Text>
         </Text>
       )}

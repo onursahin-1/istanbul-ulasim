@@ -23,7 +23,7 @@ import type { CanliBilgi, CanliSinif } from '@/lib/canli';
 import { tazelikYaz } from '@/lib/onbellek';
 import type { Duyuru } from '@/lib/duyuru';
 import type { DonusTuru } from '@/lib/yuruyus';
-import { istanbulSaatiYaz, kalkisGosterimi } from '@/lib/zaman';
+import { durakVarisMetni, kalkisGosterimi } from '@/lib/zaman';
 import type { Bacak, Hat } from '@/lib/otp';
 import type { VasitaTuru } from '@/lib/vasita';
 import { aracSimgesi, hatEtiketi, hatRengi, metrobusMu, resmiRozet, rozetRenkleri, useTema, type Tema } from '@/lib/tema';
@@ -410,9 +410,10 @@ export function Dakika({ an, canli, style }: { an: number; canli?: CanliBilgi | 
   const tema = useTema();
   const g = kalkisGosterimi(an);
   // Renk yalnız canlı veriye ait: tarifeli saat, ne kadar yakın olursa olsun, düz yazı rengi.
-  // Yoksa yakın bir tarifeli kalkış canlı "zamanında" ile aynı renge boyanıp karışıyordu.
-  const renk = canli ? canliRenk(canli.sinif, tema) : tema.yazi;
-  const etiket = canli ? `${g.seslendirme}, canlı, ${canli.metin}` : g.seslendirme;
+  // Canlı kalkış gecikmeli de erken de olsa aynı yeşil: gösterilen dakika zaten tahmini
+  // varış; tarifeden sapmanın rengi yolcuya bir şey söylemiyordu.
+  const renk = canli ? tema.vurgu : tema.yazi;
+  const etiket = canli ? `${g.seslendirme}, canlı` : g.seslendirme;
   return (
     <View style={[stil.dakika, style]} accessible accessibilityLabel={etiket}>
       {canli && <NabizNoktasi renk={renk} />}
@@ -425,18 +426,24 @@ export function Dakika({ an, canli, style }: { an: number; canli?: CanliBilgi | 
 }
 
 /**
- * Canlı kalkışın açıklaması: "07:45 · 3 dk gecikmeli". `an` verilmezse yalnız
- * gecikme yazılır (dar yerler için; saat zaten sağdaki dakikada).
+ * Canlı kalkışın açıklaması: "Canlı · 19:02'de durakta". Gecikme ya da erkenlik
+ * sayısı yazılmıyor: durak listesinde yolcu otobüsün ne zaman geleceğini soruyor,
+ * tarifeden ne kadar saptığını değil ("17 dk gecikmeli" anlamsız kalıyordu).
+ * Sapma yalnız rota ekranlarında, aktarma zamanlaması için gösteriliyor.
+ * `arkasinda`: aynı hattın bir önceki canlı otobüsü 3 dakikadan yakın.
  */
-export function CanliAciklama({ canli, an, style }: { canli: CanliBilgi; an?: number; style?: StyleProp<TextStyle> }) {
+export function CanliAciklama({ an, arkasinda, style }: { an: number; arkasinda?: boolean; style?: StyleProp<TextStyle> }) {
   const tema = useTema();
-  const metin = an != null ? `${istanbulSaatiYaz(an)} · ${canli.metin}` : canli.metin;
+  const metin = `Canlı · ${durakVarisMetni(an)}${arkasinda ? ' · hemen arkasında' : ''}`;
   return (
-    <Text style={[stil.canliYazi, { color: canliRenk(canli.sinif, tema) }, style]} numberOfLines={1}>
+    <Text style={[stil.canliYazi, { color: tema.vurgu }, style]} numberOfLines={1}>
       {metin}
     </Text>
   );
 }
+
+/** Aynı hattın iki canlı otobüsü bu kadar saniyeden yakınsa ikincisi "hemen arkasında". */
+export const ARKASINDA_SN = 3 * 60;
 
 /**
  * Canlı verisi olmayan kalkış: "tarifeye göre". Aynı listede canlı kalkışlar

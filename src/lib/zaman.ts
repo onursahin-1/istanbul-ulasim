@@ -43,6 +43,36 @@ export function istanbulSaatiYaz(anSaniye: number): string {
   return `${IKI(d.getUTCHours())}:${IKI(d.getUTCMinutes())}`;
 }
 
+// Saatin okunuşuna göre bulunma eki: "19:02'de", "19:06'da", "19:03'te", "19:40'ta".
+// Dakika sıfır değilse ek dakikanın okunuşuna, sıfırsa saatinkine uyar ("19:00'da" → ondokuz).
+const BIRLER_EKI = ['', 'de', 'de', 'te', 'te', 'te', 'da', 'de', 'de', 'da'];
+const ONLAR_EKI = ['', 'da', 'de', 'da', 'ta', 'de'];
+
+/** 0–59 arası bir sayının okunuşuna uyan bulunma eki ("de/da/te/ta"). Sıfır: "da". */
+export function sayiBulunmaEki(n: number): string {
+  if (n === 0) return 'da';
+  const birler = n % 10;
+  if (birler !== 0) return BIRLER_EKI[birler];
+  return ONLAR_EKI[Math.floor(n / 10) % 6];
+}
+
+/** "19:02'de", "00:00'da". */
+export function saatEkli(anSaniye: number): string {
+  const d = new Date((anSaniye + 3 * 3600) * 1000);
+  const saat = d.getUTCHours();
+  const dakika = d.getUTCMinutes();
+  const ek = sayiBulunmaEki(dakika !== 0 ? dakika : saat);
+  return `${IKI(saat)}:${IKI(dakika)}'${ek}`;
+}
+
+/**
+ * Canlı kalkışın yolcuya okunan hâli: "19:02'de durakta". Gecikme ya da erkenlik
+ * sayısı yok: yolcuyu ilgilendiren otobüsün ne zaman geleceği, tarifeye göre farkı değil.
+ */
+export function durakVarisMetni(anSaniye: number): string {
+  return `${saatEkli(anSaniye)} durakta`;
+}
+
 export type KalkisGosterimi = {
   /** Büyük yazılan kısım: "Şimdi", "7" ya da "05:51". */
   metin: string;

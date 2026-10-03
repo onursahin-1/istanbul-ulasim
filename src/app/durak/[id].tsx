@@ -41,7 +41,7 @@ import {
   kopruyeIlgiBildir,
 } from '@/lib/otp';
 import { baslikYap, hatEtiketi, hatRengi, useTema, yonYaz, type Tema } from '@/lib/tema';
-import { istanbulSaatiYaz, kacDakikaSonra, kalkisGosterimi, saniyedenSaat } from '@/lib/zaman';
+import { durakVarisMetni, istanbulSaatiYaz, kacDakikaSonra, kalkisGosterimi, saniyedenSaat } from '@/lib/zaman';
 import { basari, secimTiki } from '@/lib/dokunsal';
 import { useCanliAralik } from '@/lib/canli-aralik';
 import { ekranAc, geriDon } from '@/lib/gezinti';
@@ -361,7 +361,7 @@ export default function DurakEkrani() {
                     y.hat?.shortName ?? '',
                     y.yon,
                     kalkisGosterimi(y.kalkislar[0].an).seslendirme,
-                    y.kalkislar[0].canli ? `canlı, ${y.kalkislar[0].canli.metin}` : canliVar ? 'tarifeye göre' : '',
+                    y.kalkislar[0].canli ? `canlı, ${durakVarisMetni(y.kalkislar[0].an)}` : canliVar ? 'tarifeye göre' : '',
                     y.yaklasan ? `otobüs ${kalanYaz(y.yaklasan.kalan)}` : '',
                   ]
                     .filter(Boolean)
@@ -380,7 +380,7 @@ export default function DurakEkrani() {
                       </Text>
                     )}
                     {y.kalkislar[0].canli ? (
-                      <CanliAciklama canli={y.kalkislar[0].canli} an={y.kalkislar[0].an} />
+                      <CanliAciklama an={y.kalkislar[0].an} />
                     ) : canliVar ? (
                       <TarifeEtiketi saat={istanbulSaatiYaz(y.kalkislar[0].an)} />
                     ) : null}
