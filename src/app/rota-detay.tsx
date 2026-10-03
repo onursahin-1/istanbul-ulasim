@@ -763,7 +763,7 @@ export default function RotaDetayEkrani() {
               {(ucret.toplam > 0 || ucret.ucretsizGun) && (
                 <View style={s.ucretKutusu}>
                   <View style={s.ucretUst}>
-                    <Text style={s.ucretBaslik}>İstanbulkart ücreti</Text>
+                    <Text style={s.ucretBaslik}>{ucret.minibus ? 'Ücret' : 'İstanbulkart ücreti'}</Text>
                     <Text style={s.ucretToplam}>{ucretKisa(ucret)}</Text>
                   </View>
                   {bacaklar.map((b, i) => {
@@ -911,7 +911,15 @@ function ucretNotu(ucret: ReturnType<typeof yolculukUcreti>, tur: keyof typeof U
   }
   if (ucret.geceTarifesi) parcalar.push('Gece tarifesi (çift ücret) uygulandı');
   if (ucret.yeniYolculuk > 0) parcalar.push('120 dakikalık aktarma süresi dolduğu için ücret yeniden başladı');
-  if (ucret.yaklasik) parcalar.push('Vapur ücreti hatta göre değişir; tutar yaklaşıktır');
+  if (ucret.minibus) {
+    parcalar.push(
+      tur === 'ogrenci' || tur === 'ogrenci30'
+        ? 'Minibüste İstanbulkart geçmez, ücret araçta ödenir; öğrenci ücreti ilk, orta ve lise öğrencileri için'
+        : 'Minibüste İstanbulkart geçmez, ücret araçta ödenir ve mesafeye göre değişir; aktarma indirimi yok',
+    );
+  }
+  if (ucret.vapurYaklasik) parcalar.push('Vapur ücreti hatta göre değişir; tutar yaklaşıktır');
+  else if (ucret.yaklasik && !ucret.minibus) parcalar.push('Mesafeli hatlarda bu kartın ücreti tam bilete oranla tahmin edildi');
   return parcalar.join(' · ');
 }
 

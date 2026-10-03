@@ -11,10 +11,16 @@
 //   3. Metrobüs, Marmaray ve M11 mesafeye göre ücretlendirilir; bu hatlarda aktarma
 //      indirimi, tam biletle aktarma bedeli arasındaki fark kadar düşülür.
 //
+// Minibüs bu sistemin dışında: İstanbulkart geçmez, ücret araçta ayrıca ödenir.
+// Aktarma indirimi, 120 dakikalık pencere ve gece tarifesi yok; kaçıncı biniş olduğu
+// fiyatı değiştirmez. Ücret yalnız gidilen mesafeye bağlı (minibusUcreti).
+//
 // Tutarlar kuruş cinsinden tam sayı tutulur: 46,20 ₺ = 4620. Böylece toplama sırasında
 // ondalık yuvarlama hatası birikmez.
 
 import { bacakDuraklari } from './bacak';
+import { mesafeMetre } from './cografya';
+import { isletmeciAdi } from './hat-adi';
 import { hatUcretsizMi, ozelGunBul, type OzelGun } from './ozel-gunler';
 import { metrobusMu } from './metin';
 import { vapurUcreti } from './vapur';
@@ -85,6 +91,49 @@ const M11: Kademe[] = [
   [15, Infinity, 7319, 3372],
 ];
 
+/**
+ * Minibüs taşımacılığı ücret tarifesi, 20.07.2026'dan itibaren (İBB Meclisi 17.07.2026,
+ * 813 sayılı karar; tuhim.ibb.gov.tr → minibüs ücret tarifesi PDF'i).
+ * [en çok km, tam ücret]. Kademe sınırı üst kademeye dahil değil: tam 4 km 43,00 ₺.
+ */
+const MINIBUS: [number, number][] = [
+  [4, 4300],
+  [7, 4500],
+  [11, 4600],
+  [15, 4700],
+  [20, 5200],
+];
+/** 20 km'den sonra her kilometre için eklenen. */
+const MINIBUS_KM_EK = 150;
+/** İlk, orta ve lise öğrencisi; mesafeden bağımsız tek fiyat. */
+const MINIBUS_OGRENCI = 2800;
+/** Bacağın yol uzunluğu bilinmezse kuş uçuşu mesafe bu oranla büyütülür. */
+const YOL_KUS_ORANI = 1.3;
+
+/**
+ * Minibüs ücreti, kuruş. Tarifede indirimli kart (öğretmen, 60–65 yaş) yok: tam ödenir.
+ * Öğrenci tarifesi ilk, orta ve lise öğrencisi için; 30+ öğrenci de aynı fiyatı öder,
+ * çünkü minibüste İstanbulkart'ın aylık biniş sayacı işlemez.
+ */
+export function minibusUcreti(km: number, tur: UcretTuru): number {
+  if (tur === 'ogrenci' || tur === 'ogrenci30') return MINIBUS_OGRENCI;
+  const kademe = MINIBUS.find(([enCok]) => km <= enCok);
+  if (kademe) return kademe[1];
+  // "20 km üzeri her km için ilave 1,50 ₺": başlanan her kilometre sayılıyor.
+  return MINIBUS[MINIBUS.length - 1][1] + Math.ceil(km - 20) * MINIBUS_KM_EK;
+}
+
+function bacakKm(bacak: Bacak): number {
+  if (bacak.distance != null && bacak.distance > 0) return bacak.distance / 1000;
+  const a = { latitude: bacak.from.lat, longitude: bacak.from.lon };
+  const b = { latitude: bacak.to.lat, longitude: bacak.to.lon };
+  return (mesafeMetre(a, b) * YOL_KUS_ORANI) / 1000;
+}
+
+function kmYaz(km: number): string {
+  return `${km.toFixed(1).replace('.', ',')} km`;
+}
+
 /** Aktarma hakkının süresi. */
 const AKTARMA_PENCERESI_DK = 120;
 
@@ -148,12 +197,18 @@ export type YolculukUcreti = {
   ucretsizGun: string | null;
   /** Ücretsizlik İBB hatlarından geliyorsa kişiselleştirilmiş İstanbulkart gerekir. */
   kisiselKart: boolean;
+  /** Güzergâhta minibüs var: İstanbulkart geçmez, ücret mesafeye göre ve yaklaşık. */
+  minibus: boolean;
+  /** Güzergâhta İstanbulkart'la ödenen vapur var ve ücreti yaklaşık. */
+  vapurYaklasik: boolean;
 };
 
 /** Bacağın hangi tarifeye girdiğini belirler. */
-function tarifeSec(bacak: Bacak): 'metrobus' | 'marmaray' | 'm11' | 'vapur' | 'normal' {
+function tarifeSec(bacak: Bacak): 'minibus' | 'metrobus' | 'marmaray' | 'm11' | 'vapur' | 'normal' {
   const kisa = bacak.route?.shortName?.trim() ?? '';
   const mod = (bacak.route?.mode ?? bacak.mode ?? '').toUpperCase();
+  // Önce işletmeci: minibüs hattının kısa adı bir İETT koduna benzese de İETT tarifesine girmez.
+  if (isletmeciAdi(bacak.route?.agency?.name) === 'Minibüs') return 'minibus';
   if (metrobusMu(kisa)) return 'metrobus';
   if (kisa.toUpperCase() === 'M11') return 'm11';
   if (mod === 'RAIL') return 'marmaray';
@@ -175,6 +230,8 @@ export function yolculukUcreti(bacaklar: Bacak[], tur: UcretTuru, ozelGunler: Oz
   let yaklasik = false;
   let gece = false;
   let yeniYolculuk = 0;
+  let minibus = false;
+  let vapurYaklasik = false;
 
   for (const bacak of bacaklar) {
     if (!bacak.transitLeg) {
@@ -195,23 +252,47 @@ export function yolculukUcreti(bacaklar: Bacak[], tur: UcretTuru, ozelGunler: Oz
       continue;
     }
 
-    // Aktarma penceresi dolduysa merdiven baştan başlar.
-    if (pencereBasi != null && !Number.isNaN(binisAn) && binisAn - pencereBasi > AKTARMA_PENCERESI_DK * 60_000) {
-      sira = 0;
-      pencereBasi = binisAn;
-      yeniYolculuk += 1;
-    } else if (pencereBasi == null && !Number.isNaN(binisAn)) {
-      pencereBasi = binisAn;
+    const tarife = tarifeSec(bacak);
+
+    // Minibüs: İstanbulkart sistemine hiç girmiyor. Aktarma sırasını ilerletmez,
+    // 120 dakikalık pencereyi başlatmaz, gece tarifesi yok.
+    if (tarife === 'minibus') {
+      const km = bacakKm(bacak);
+      const tutar = minibusUcreti(km, tur);
+      minibus = true;
+      yaklasik = true;
+      toplam += tutar;
+      sonuc.push({
+        tutar,
+        sira,
+        etiket: 'Ayrı ödeme',
+        yaklasik: true,
+        aciklama: `Minibüs · ${kmYaz(km)} · İstanbulkart geçmez`,
+      });
+      continue;
     }
 
-    const tarife = tarifeSec(bacak);
+    // Vapurun kendi bileti varsa (Turyol Adalar) o da İstanbulkart penceresine girmez.
+    const v = tarife === 'vapur' ? vapurUcreti(bacak.from.name, bacak.to.name, bacak.route?.agency?.name) : null;
+    const kendiBileti = !!v && !v.istanbulkart;
+
+    // Aktarma penceresi dolduysa merdiven baştan başlar.
+    if (!kendiBileti && !Number.isNaN(binisAn)) {
+      if (pencereBasi == null) {
+        pencereBasi = binisAn;
+      } else if (binisAn - pencereBasi > AKTARMA_PENCERESI_DK * 60_000) {
+        sira = 0;
+        pencereBasi = binisAn;
+        yeniYolculuk += 1;
+      }
+    }
+
     const durakSayisi = Math.max(1, bacakDuraklari(bacak).length - 1);
     const indirim = sira === 0 ? 0 : ILK_BINIS[tur] - aktarmaBedeli(tur, sira);
 
     let taban: number;
     let aciklama: string;
     let bacakYaklasik = false;
-    let kendiBileti = false;
 
     if (tarife === 'metrobus') {
       taban = kademeBul(METROBUS, durakSayisi, tur);
@@ -225,15 +306,13 @@ export function yolculukUcreti(bacaklar: Bacak[], tur: UcretTuru, ozelGunler: Oz
       taban = kademeBul(M11, durakSayisi, tur);
       aciklama = `M11 · ${durakSayisi} istasyon`;
       bacakYaklasik = tur === 'indirimli' || tur === 'ogrenci30';
-    } else if (tarife === 'vapur') {
+    } else if (v) {
       // Vapurda mesafe kademesi yok; her hattın kendi fiyatı var (vapur.ts).
-      const v = vapurUcreti(bacak.from.name, bacak.to.name, bacak.route?.agency?.name);
-      if (!v.istanbulkart) {
+      if (kendiBileti) {
         // İşletmecinin kendi bileti (Turyol Adalar): indirimli tür yayımlanmıyor, aktarma
         // indirimi ve gece tarifesi yok.
         taban = tur === 'ogrenci' ? v.ogrenci : v.tam;
         bacakYaklasik = v.yaklasik || tur !== 'tam';
-        kendiBileti = true;
       } else {
         taban =
           tur === 'ogrenci'
@@ -260,6 +339,7 @@ export function yolculukUcreti(bacaklar: Bacak[], tur: UcretTuru, ozelGunler: Oz
 
     toplam += tutar;
     yaklasik = yaklasik || bacakYaklasik;
+    if (v && bacakYaklasik) vapurYaklasik = true;
     sonuc.push({
       tutar,
       sira,
@@ -271,7 +351,17 @@ export function yolculukUcreti(bacaklar: Bacak[], tur: UcretTuru, ozelGunler: Oz
     if (!kendiBileti) sira += 1;
   }
 
-  return { toplam, bacaklar: sonuc, yaklasik, geceTarifesi: gece, yeniYolculuk, ucretsizGun, kisiselKart };
+  return {
+    toplam,
+    bacaklar: sonuc,
+    yaklasik,
+    geceTarifesi: gece,
+    yeniYolculuk,
+    ucretsizGun,
+    kisiselKart,
+    minibus,
+    vapurYaklasik,
+  };
 }
 
 // ---------- gösterim ----------

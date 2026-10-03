@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { Bacak } from '../otp';
-import { ucretKisa, ucretYaz, yolculukUcreti } from '../ucret';
+import { minibusUcreti, ucretKisa, ucretYaz, yolculukUcreti } from '../ucret';
 
 type Secenek = {
   kod?: string;
@@ -19,6 +19,8 @@ type Secenek = {
   varis?: string;
   binis?: string;
   isletmeci?: string;
+  /** Bacağın yol uzunluğu, metre. */
+  metre?: number | null;
 };
 
 /** Testler için en az alanla bir toplu taşıma bacağı üretir. */
@@ -33,7 +35,7 @@ function bacak(s: Secenek = {}): Bacak {
   return {
     mode: s.mod ?? 'BUS',
     duration: 600,
-    distance: 4000,
+    distance: s.metre === undefined ? 4000 : s.metre,
     transitLeg: true,
     headsign: s.yon ?? '',
     start: { scheduledTime: s.saat ?? '2026-09-22T09:00:00+03:00', estimated: null },
@@ -247,19 +249,106 @@ describe('yolculukUcreti: özel günler', () => {
     assert.equal(u.bacaklar[0]?.aciklama, 'Ücretsiz · Cumhuriyet Bayramı');
   });
 
-  it('ücretsiz bacak aktarma sırasını ilerletmez: sonraki minibüs ilk biniş sayılır', () => {
+  it('ücretsiz bacak aktarma sırasını ilerletmez: sonraki otobüs ilk biniş sayılır', () => {
     const u = yolculukUcreti(
-      [bacak({ saat: bayramda, isletmeci: 'IETT' }), bacak({ saat: bayramda, kod: 'X', isletmeci: 'Minibus' })],
+      [
+        bacak({ saat: bayramda, kod: 'M4', mod: 'SUBWAY', isletmeci: 'Metro Istanbul' }),
+        bacak({ saat: bayramda, kod: 'X', isletmeci: 'Minibus' }),
+        bacak({ saat: bayramda, isletmeci: 'Özel Halk Otobüsü' }),
+      ],
       'tam',
       gunler,
     );
-    assert.equal(u.bacaklar[1]?.etiket, 'İlk biniş');
-    assert.equal(u.toplam, 4620);
+    assert.equal(u.bacaklar[0]?.tutar, 0);
+    assert.equal(u.bacaklar[1]?.tutar, 4300, 'minibüs bayramda da ücretli');
+    assert.equal(u.bacaklar[2]?.etiket, 'İlk biniş');
   });
 
   it('olağan günde değişen bir şey yok', () => {
     const u = yolculukUcreti([bacak({ isletmeci: 'IETT' })], 'tam', gunler);
     assert.equal(u.toplam, 4620);
     assert.equal(u.ucretsizGun, null);
+  });
+});
+
+describe('minibusUcreti', () => {
+  it('20.07.2026 tarifesinin kademeleri; sınır alttaki kademede', () => {
+    const km = [0.5, 4, 4.01, 7, 7.5, 11, 12, 15, 15.2, 20];
+    const beklenen = [4300, 4300, 4500, 4500, 4600, 4600, 4700, 4700, 5200, 5200];
+    assert.deepEqual(km.map((k) => minibusUcreti(k, 'tam')), beklenen);
+  });
+  it('20 km üzerinde başlanan her km 1,50 ₺', () => {
+    assert.equal(minibusUcreti(20.3, 'tam'), 5350);
+    assert.equal(minibusUcreti(23, 'tam'), 5650);
+  });
+  it('öğrenci mesafeden bağımsız 28 ₺; indirimli kart minibüste tam öder', () => {
+    assert.equal(minibusUcreti(3, 'ogrenci'), 2800);
+    assert.equal(minibusUcreti(18, 'ogrenci30'), 2800);
+    assert.equal(minibusUcreti(9, 'indirimli'), 4600);
+  });
+});
+
+describe('yolculukUcreti · minibüs', () => {
+  const minibus = (s: Secenek = {}) => bacak({ kod: 'Kadıköy-Pendik', isletmeci: 'Minibus', ...s });
+
+  it('İETT tarifesiyle değil, mesafeyle ücretlenir', () => {
+    const u = yolculukUcreti([minibus({ metre: 9500 })], 'tam');
+    assert.equal(u.toplam, 4600);
+    assert.equal(u.minibus, true);
+    assert.equal(u.yaklasik, true);
+    assert.equal(u.bacaklar[0]?.etiket, 'Ayrı ödeme');
+    assert.equal(u.bacaklar[0]?.aciklama, 'Minibüs · 9,5 km · İstanbulkart geçmez');
+    assert.equal(ucretKisa(u), '≈46,00 ₺');
+  });
+
+  it('aktarma sayısı fiyatı değiştirmez ve İstanbulkart merdivenini ilerletmez', () => {
+    const u = yolculukUcreti(
+      [
+        bacak({ isletmeci: 'IETT' }),
+        yuru,
+        minibus({ saat: '2026-09-22T09:25:00+03:00', metre: 3000 }),
+        yuru,
+        bacak({ kod: 'M4', mod: 'SUBWAY', saat: '2026-09-22T09:50:00+03:00' }),
+      ],
+      'tam',
+    );
+    assert.equal(u.bacaklar[2]?.tutar, 4300, 'ikinci biniş de olsa minibüs tam tarife');
+    assert.equal(u.bacaklar[4]?.etiket, '1. aktarma', 'metro, otobüsten sonraki ilk aktarma');
+    assert.equal(u.toplam, 4620 + 4300 + 3440);
+  });
+
+  it('ilk binişse İstanbulkart penceresini başlatmaz', () => {
+    const u = yolculukUcreti(
+      [
+        minibus({ saat: '2026-09-22T07:00:00+03:00', metre: 3000 }),
+        bacak({ saat: '2026-09-22T08:30:00+03:00' }),
+        bacak({ kod: 'M4', mod: 'SUBWAY', saat: '2026-09-22T09:10:00+03:00' }),
+      ],
+      'tam',
+    );
+    assert.equal(u.bacaklar[1]?.etiket, 'İlk biniş');
+    assert.equal(u.bacaklar[2]?.etiket, '1. aktarma', 'pencere otobüsle 08:30\'da başladı, dolmadı');
+    assert.equal(u.yeniYolculuk, 0);
+  });
+
+  it('gece tarifesi minibüse uygulanmaz', () => {
+    const u = yolculukUcreti([minibus({ saat: '2026-09-22T01:30:00+03:00', metre: 3000 })], 'tam');
+    assert.equal(u.toplam, 4300);
+    assert.equal(u.geceTarifesi, false);
+  });
+
+  it('yol uzunluğu yoksa kuş uçuşu mesafeden tahmin eder', () => {
+    const u = yolculukUcreti([minibus({ metre: null })], 'tam');
+    // Test bacağında biniş-iniş arası ~13,9 km kuş uçuşu; ×1,3 → ~18 km.
+    assert.equal(u.toplam, 5200);
+  });
+
+  it('öğrenci kartıyla 28 ₺', () => {
+    assert.equal(yolculukUcreti([minibus({ metre: 16000 })], 'ogrenci').toplam, 2800);
+  });
+
+  it('dolmuş minibüs sayılmaz', () => {
+    const u = yolculukUcreti([bacak({ isletmeci: 'Taksi Dolmus' })], 'tam');
+    assert.equal(u.minibus, false);
   });
 });
