@@ -287,7 +287,7 @@ export default function AnaEkran() {
                     <View style={s.seferRozet}>
                       <HatRozeti hat={k.trip?.route} />
                     </View>
-                    <View style={{ flex: 1, minWidth: 0 }}>
+                    <View style={s.seferMetin}>
                       <Text style={s.seferYon} numberOfLines={1}>
                         {baslikYap(k.trip?.pattern?.headsign) || baslikYap(k.headsign)}
                       </Text>
@@ -306,7 +306,7 @@ export default function AnaEkran() {
                   <View style={s.seferRozet}>
                     <HatRozeti hat={g.hatlar[0]} />
                   </View>
-                  <View style={{ flex: 1, minWidth: 0 }}>
+                  <View style={s.seferMetin}>
                     <Text style={s.seferYon} numberOfLines={1}>
                       {g.adlar.join(', ')}
                     </Text>
@@ -466,5 +466,8 @@ const stiller = (t: Tema) =>
   saatsizYazi: { fontSize: 11.5, color: t.soluk },
   sefer: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 3 },
   seferRozet: { minWidth: ROZET_SUTUNU },
-  seferYon: { flex: 1, fontSize: 13, color: t.soluk },
+  // Yazı sütunu satırın ortasında: metro dairesi otobüs rozetinden uzun, satır ona göre
+  // büyüyor. Yazıda `flex: 1` sütunu satır boyuna uzatıp yazıyı tepeye yapıştırıyordu.
+  seferMetin: { flex: 1, minWidth: 0, justifyContent: 'center' },
+  seferYon: { fontSize: 13, color: t.soluk },
 });
