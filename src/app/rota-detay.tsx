@@ -29,7 +29,14 @@ import { hemenBildir, izinIste, useHatirlaticilar } from '@/lib/bildirim';
 import { sesliTarifKaydet, useKayitlar } from '@/lib/kayitlar';
 import { polylineCoz, type Nokta } from '@/lib/cografya';
 import { araclariYerlestir, kalanYaz, yaklasanOtobus, yasYaz, type YerlesikArac } from '@/lib/arac-konum';
-import { bacakDuraklari, hatKalkislariGetir, kopruyeIlgiBildir, seferAraclariGetir, type Bacak } from '@/lib/otp';
+import {
+  bacakDuraklari,
+  hatKalkislariGetir,
+  kopruyeIlgiBildir,
+  seferAraclariGetir,
+  yuruyusPlanla,
+  type Bacak,
+} from '@/lib/otp';
 import { guzergahGetir } from '@/lib/secim';
 import { seferBilgisi, sikliktanYazi, type SeferBilgisi } from '@/lib/sefer';
 import { aracAdi, baslikYap, haritaRengi, hatEtiketi, hatRengi, useTema, type Tema } from '@/lib/tema';
@@ -39,6 +46,8 @@ import {
   adimlariKur,
   baslangicDurumu,
   durumuIlerlet,
+  KISA_YURUME_M,
+  yenidenCizilmeli,
   type BacakOzeti,
   type YolculukDurumu,
 } from '@/lib/yolculuk';
@@ -66,7 +75,8 @@ export default function RotaDetayEkrani() {
   const s = useStiller(stiller);
   const { height } = useWindowDimensions();
   const { sira, hedef } = useLocalSearchParams<{ sira: string; hedef?: string }>();
-  const guzergah = guzergahGetir(Number(sira));
+  // Güzergâh durumda tutuluyor: yolculukta yürüme bacağı bulunulan yerden yeniden çizilebiliyor.
+  const [guzergah, setGuzergah] = useState(() => guzergahGetir(Number(sira)));
   const harita = useRef<MapView>(null);
 
   // Yolculuktaki otobüs hatlarını köprü öncelikle tarasın: bineceğin otobüs canlı görünsün.
@@ -87,7 +97,7 @@ export default function RotaDetayEkrani() {
   const [seferler, setSeferler] = useState<Record<number, SeferBilgisi>>({});
   const [hatirlatAcik, setHatirlatAcik] = useState(false);
   const { hatirlaticilar, yenile: hatirlaticilariYenile } = useHatirlaticilar();
-  const { ucretTuru, ekranAcik, sesliTarif, sesCinsiyeti } = useKayitlar();
+  const { ucretTuru, ekranAcik, sesliTarif, sesCinsiyeti, rotaSecenekleri } = useKayitlar();
   const aboneligi = useRef<Location.LocationSubscription | null>(null);
   const simulasyon = useRef<ReturnType<typeof setInterval> | null>(null);
   const uyarilanlar = useRef(new Set<string>());
@@ -247,6 +257,37 @@ export default function RotaDetayEkrani() {
     [seferleriYukle],
   );
 
+  // Yürüyüşü bulunulan yerden yeniden çizme (yolculuk başında ve yürürken yoldan sapınca).
+  // Binilecek hat ve durak değişmiyor; yalnız oraya yürüme yolu. Bkz. yolculuk.ts.
+  const durumRef = useRef(durum);
+  durumRef.current = durum;
+  const cizim = useRef<{ ilkKonum: boolean; son: number | null; suruyor: AbortController | null }>({
+    ilkKonum: true,
+    son: null,
+    suruyor: null,
+  });
+  const erisilebilir = rotaSecenekleri.erisilebilir;
+  const yuruyusuYenidenCiz = useCallback(
+    async (nokta: Nokta, i: number) => {
+      const b = bacaklar[i];
+      if (!b || b.transitLeg) return;
+      const iptal = new AbortController();
+      cizim.current.suruyor = iptal;
+      cizim.current.son = Date.now();
+      try {
+        const yeni = await yuruyusPlanla(nokta, b, erisilebilir, iptal.signal);
+        // Durağın dibindeyse (çok kısa yürüyüş) eskisi kalsın: adım listesi değişmesin.
+        if (iptal.signal.aborted || !yeni || (yeni.distance ?? 0) < KISA_YURUME_M) return;
+        setGuzergah((g) => (g ? { ...g, legs: g.legs.map((x, j) => (j === i ? yeni : x)) } : g));
+      } catch {
+        // Sunucuya ulaşılamadı: eski çizgi kalır, "rotadan uzaklaştın" uyarısı yol gösterir.
+      } finally {
+        if (cizim.current.suruyor === iptal) cizim.current.suruyor = null;
+      }
+    },
+    [bacaklar, erisilebilir],
+  );
+
   const konumuIsle = useCallback(
     (nokta: Nokta, dogruluk?: number | null) => {
       sonKonum.current = nokta;
@@ -255,9 +296,32 @@ export default function RotaDetayEkrani() {
       // ama adım geçişine karar vermez: yanlışlıkla "otobüse bindin" denmesin.
       if (dogruluk != null && dogruluk > KOTU_DOGRULUK_M) return;
       setDurum((d) => (d ? durumuIlerlet(d, nokta, adimlar, ozetler) : d));
+
+      const d = durumRef.current;
+      const adim = d ? adimlar[d.adim] : undefined;
+      const c = cizim.current;
+      if (!d || c.suruyor) return;
+      const karar = yenidenCizilmeli({
+        durum: d,
+        adim,
+        ilkKonum: c.ilkKonum,
+        konum: nokta,
+        cizgi: adim ? cizgiler[adim.bacak] ?? [] : [],
+        bitis: adim ? ozetler[adim.bacak].bitis : nokta,
+        dogruluk,
+        simdi: Date.now(),
+        sonCizim: c.son,
+      });
+      // İlk konum, doğruluğu yeterli ilk konumla tüketiliyor; kaba bir ilk konum hakkı yakmasın.
+      if (dogruluk == null || dogruluk <= KOTU_DOGRULUK_M) c.ilkKonum = false;
+      if (karar && adim) yuruyusuYenidenCiz(nokta, adim.bacak);
     },
-    [adimlar, ozetler],
+    [adimlar, ozetler, cizgiler, yuruyusuYenidenCiz],
   );
+  // Konum aboneliği yolculuk başında kuruluyor; güzergâh sonradan değişince (yeniden çizim)
+  // abonelik eski adım listesiyle kalmasın diye her zaman güncel işleyiciyi çağırıyor.
+  const konumuIsleRef = useRef(konumuIsle);
+  konumuIsleRef.current = konumuIsle;
 
   // İnişe yaklaşırken titreşim; bir durak kala bildirim ("sıradaki durakta in").
   useEffect(() => {
@@ -284,6 +348,8 @@ export default function RotaDetayEkrani() {
     sonKonum.current = null;
     setTumAdimlarAcik(false);
     uyarilanlar.current.clear();
+    cizim.current.suruyor?.abort();
+    cizim.current = { ilkKonum: true, son: null, suruyor: null };
   }, []);
 
   useEffect(() => takibiDurdur, [takibiDurdur]);
@@ -317,7 +383,7 @@ export default function RotaDetayEkrani() {
     // bir bakılabilsin. Pil daha çok gider ama yalnız yolculuk sürerken.
     aboneligi.current = await Location.watchPositionAsync(
       { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 5, timeInterval: 2000 },
-      (k) => konumuIsle({ latitude: k.coords.latitude, longitude: k.coords.longitude }, k.coords.accuracy),
+      (k) => konumuIsleRef.current({ latitude: k.coords.latitude, longitude: k.coords.longitude }, k.coords.accuracy),
     );
   };
 
@@ -342,7 +408,7 @@ export default function RotaDetayEkrani() {
         simulasyon.current = null;
         return;
       }
-      konumuIsle(d);
+      konumuIsleRef.current(d);
     }, 1500);
   };
 

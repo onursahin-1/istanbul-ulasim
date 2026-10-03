@@ -13,6 +13,8 @@ import {
   yuruyusKonumu,
   durumuIlerlet,
   siradakiDuraklar,
+  yenidenCizilmeli,
+  YENIDEN_CIZ_ARA_MS,
   type BacakOzeti,
 } from '../yolculuk';
 
@@ -169,5 +171,47 @@ describe('süre yazımı', () => {
 
   it('yola çıkış: kalkıştan yürüme ve 2 dk pay düşülür', () => {
     assert.equal(yolaCikisAni(60 * 60_000, 300), 60 * 60_000 - 300_000 - 120_000);
+  });
+});
+
+describe('yenidenCizilmeli', () => {
+  // Kuzeye 300 m'lik yürüyüş; sonunda durak.
+  const cizgi = [n(0), n(0.0027)];
+  const temel = {
+    durum: { adim: 0, faz: 'yuru' as const, kalanDurak: null, durakta: false },
+    adim: { bacak: 0, tur: 'yuru' as const, rol: 'baslangic' as const },
+    ilkKonum: false,
+    konum: n(0.001),
+    cizgi,
+    bitis: n(0.0027),
+    dogruluk: 10,
+    simdi: 1_000_000,
+    sonCizim: null,
+  };
+  // 0.0005° boylam ≈ 42 m (41. enlemde).
+  const yanda = (enlem: number, boylamFarki: number) => n(enlem, 29 + boylamFarki);
+
+  it('çizginin üstünde yürürken çizilmez', () => {
+    assert.equal(yenidenCizilmeli(temel), false);
+  });
+  it('yolculuğun ilk konumu başlangıçtan uzaksa çizgi oradan başlar', () => {
+    assert.equal(yenidenCizilmeli({ ...temel, ilkKonum: true, konum: yanda(0, 0.0005) }), true);
+    assert.equal(yenidenCizilmeli({ ...temel, ilkKonum: true, konum: n(0.00005) }), false, '~6 m: aynı yer');
+  });
+  it('ilk konum değilse yalnız çizgiden sapma sayılır', () => {
+    assert.equal(yenidenCizilmeli({ ...temel, konum: n(0.0015) }), false);
+    assert.equal(yenidenCizilmeli({ ...temel, konum: yanda(0.0015, 0.0005) }), true);
+  });
+  it('kötü doğrulukta, kısa arayla ya da durağa varmışken çizilmez', () => {
+    const sapmis = { ...temel, konum: yanda(0.0015, 0.0005) };
+    assert.equal(yenidenCizilmeli({ ...sapmis, dogruluk: 60 }), false);
+    assert.equal(yenidenCizilmeli({ ...sapmis, sonCizim: temel.simdi - YENIDEN_CIZ_ARA_MS + 1 }), false);
+    assert.equal(yenidenCizilmeli({ ...sapmis, sonCizim: temel.simdi - YENIDEN_CIZ_ARA_MS }), true);
+    assert.equal(yenidenCizilmeli({ ...temel, ilkKonum: true, konum: yanda(0.0027, 0.0003) }), false);
+  });
+  it('araçtayken ya da beklerken çizilmez', () => {
+    const sapmis = { ...temel, konum: yanda(0.0015, 0.0005) };
+    assert.equal(yenidenCizilmeli({ ...sapmis, durum: { ...temel.durum, faz: 'bekle' } }), false);
+    assert.equal(yenidenCizilmeli({ ...sapmis, adim: { bacak: 0, tur: 'arac' } }), false);
   });
 });

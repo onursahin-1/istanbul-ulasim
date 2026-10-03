@@ -15,7 +15,7 @@
 //
 // Bağımlılıksız: React Native'e dokunmuyor, testlerden çağrılabiliyor.
 
-import { cizgiUzerindeYer, mesafeMetre, type Nokta } from './cografya';
+import { cizgiUzerindeYer, cizgiyeUzaklik, mesafeMetre, type Nokta } from './cografya';
 
 /** Bundan kısa yürüyüşler (aynı duraktaki aktarma, OTP'nin birkaç metrelik bacakları) adım sayılmaz. */
 export const KISA_YURUME_M = 30;
@@ -253,4 +253,48 @@ export function kalanSureYaz(dakika: number): string {
 /** Durağa yetişmek için en geç yola çıkış: kalkıştan yürüme süresi ve 2 dk pay düşülür. */
 export function yolaCikisAni(kalkisMs: number, yurumeSn: number): number {
   return kalkisMs - yurumeSn * 1000 - 2 * 60_000;
+}
+
+// ---------------------------------------------------------------- yürüyüşü yeniden çizme
+//
+// Rota, aramanın yapıldığı yerden çiziliyor. Yolculuk başladığında telefon başka bir
+// yerdeyse (konum aramada kabaca alınmış, ya da yolcu o arada yürümüş) ya da yürürken
+// yanlış sokağa saparsa, yürüyüş bulunulan yerden aynı durağa yeniden çiziliyor.
+// Binilecek hat ve durak değişmiyor; yalnız oraya yürüme yolu.
+
+/** Yolculuğun ilk konumu yürüyüşün başından bu kadar uzaksa çizgi bulunulan yerden başlar. */
+export const BASLANGIC_KAYMA_M = 15;
+/** Yürürken çizgiden bu kadar uzaklaşınca yürüyüş yeniden çizilir. */
+export const YENIDEN_CIZ_M = 25;
+/** Bundan kötü doğruluklu konum yeniden çizdirmez: GPS kaymasıyla yol oynamasın. */
+export const YENIDEN_CIZ_DOGRULUK_M = 35;
+/** İki yeniden çizim arası en az bu kadar. */
+export const YENIDEN_CIZ_ARA_MS = 15_000;
+
+export type YenidenCizimGirdisi = {
+  durum: YolculukDurumu | null;
+  adim: Adim | undefined;
+  /** Yolculuğun ilk (doğruluğu yeterli) konumu mu. */
+  ilkKonum: boolean;
+  konum: Nokta;
+  /** Şimdiki yürüme bacağının çizgisi. */
+  cizgi: Nokta[];
+  /** Yürüme bacağının bittiği yer (biniş durağı ya da varış). */
+  bitis: Nokta;
+  dogruluk: number | null | undefined;
+  simdi: number;
+  /** Son yeniden çizimin zamanı; hiç çizilmediyse null. */
+  sonCizim: number | null;
+};
+
+/** Yürüyüş bulunulan yerden yeniden çizilmeli mi. */
+export function yenidenCizilmeli(g: YenidenCizimGirdisi): boolean {
+  if (!g.durum || g.durum.faz !== 'yuru' || g.adim?.tur !== 'yuru') return false;
+  if (g.dogruluk != null && g.dogruluk > YENIDEN_CIZ_DOGRULUK_M) return false;
+  if (g.sonCizim != null && g.simdi - g.sonCizim < YENIDEN_CIZ_ARA_MS) return false;
+  // Durağa varmak üzereyken yeni yol çizmenin anlamı yok.
+  if (mesafeMetre(g.konum, g.bitis) <= VARIS_M) return false;
+  if (g.cizgi.length < 2) return true;
+  if (g.ilkKonum && mesafeMetre(g.konum, g.cizgi[0]) > BASLANGIC_KAYMA_M) return true;
+  return cizgiyeUzaklik(g.konum, g.cizgi) > YENIDEN_CIZ_M;
 }

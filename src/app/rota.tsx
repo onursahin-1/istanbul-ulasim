@@ -26,6 +26,7 @@ import { OtpHatasi, rotaPlanlaYedekli, type Guzergah, type Konum, type RotaTerci
 import { rayliMi, rotalariSirala } from '@/lib/rota-secimi';
 import { kapaliTurKullaniyor, VASITA_ADLARI, type VasitaTuru } from '@/lib/vasita';
 import { rotaSecenekleriKaydet, useKayitlar } from '@/lib/kayitlar';
+import { tazeKonum } from '@/lib/konum';
 import { guzergahlariSakla } from '@/lib/secim';
 import { ozelGunBul, ozelGunNotu } from '@/lib/ozel-gunler';
 import { OZEL_GUNLER } from '@/lib/ozel-gun-verisi';
@@ -208,7 +209,15 @@ export default function RotaEkrani() {
         const aramaZamani = zaman
           ? { tur: zaman.tur, an: istanbulZamanYap(zaman.gun, zaman.saat, zaman.dakika) }
           : { tur: 'kalkis' as const, an: istanbulSimdi() };
-        const sonuc = await rotaPlanlaYedekli(nereden, nereye, aramaZamani, rotaSecenekleri, sinyal);
+        // "Konumum" başlangıcı: önceki ekranın aldığı nokta eskimiş ya da kaba olabilir
+        // (evde açılıp sokakta aranan rota). Başlangıç bulunulan yer olsun diye o an yeniden soruluyor.
+        let baslangic = nereden;
+        if (nereden.ad === 'Konumum') {
+          const simdiki = await tazeKonum();
+          if (eski()) return;
+          if (simdiki) baslangic = { ...nereden, lat: simdiki.latitude, lon: simdiki.longitude };
+        }
+        const sonuc = await rotaPlanlaYedekli(baslangic, nereye, aramaZamani, rotaSecenekleri, sinyal);
         if (eski()) return;
         setGuzergahlar(sonuc.guzergahlar);
         setCevrimdisi(sonuc.cevrimdisi);

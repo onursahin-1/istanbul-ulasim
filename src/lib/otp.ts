@@ -47,6 +47,7 @@ import { yonAdi } from './metin';
 import { kapaliTurleriAyikla, minibussuzSuzgec, vasitaSuzgeci, type VasitaTuru } from './vasita';
 import { gunuKaydir } from './onbellek';
 import { onbellegeYaz, onbellektenOku } from './onbellek-depo';
+import { istanbulSimdi } from './zaman';
 
 const {
   YAKIN_DURAKLAR,
@@ -405,6 +406,41 @@ export async function rotaPlanla(
   };
   if (sonuc.guzergahlar.length) void onbellegeYaz(rotaAnahtari(nereden, nereye, secenekler, zaman.tur), sonuc);
   return sonuc;
+}
+
+/**
+ * Bulunulan yerden bir yürüme bacağının hedefine yalnız yürüyüş. Canlı yol tarifinde
+ * telefon çizgiden uzaktaysa yürüme yolu oradan yeniden çiziliyor; binilecek hat ve
+ * durak aynı kalıyor. Bacağın varış ucu (durak bilgisiyle) korunuyor.
+ */
+export async function yuruyusPlanla(
+  nereden: { latitude: number; longitude: number },
+  bacak: Bacak,
+  erisilebilir: boolean,
+  sinyal?: AbortSignal,
+): Promise<Bacak | null> {
+  type Cevap = { planConnection: { edges: ({ node: Guzergah } | null)[] | null } | null };
+  const cevap = await sorgula<Cevap>(
+    ROTA_PLANLA,
+    {
+      nereden: { label: 'Konumum', location: { coordinate: nereden } },
+      nereye: {
+        label: bacak.to.name ?? 'Hedef',
+        location: { coordinate: { latitude: bacak.to.lat, longitude: bacak.to.lon } },
+      },
+      zaman: { earliestDeparture: istanbulSimdi() },
+      tercihler: erisilebilir ? { accessibility: { wheelchair: { enabled: true } } } : null,
+      modlar: { direct: ['WALK'], directOnly: true },
+    },
+    sinyal,
+  );
+  const yuruyus = cevap.planConnection?.edges?.[0]?.node.legs.find((b) => !b.transitLeg);
+  if (!yuruyus) return null;
+  return {
+    ...yuruyus,
+    from: { name: 'Konumum', lat: nereden.latitude, lon: nereden.longitude, stop: null },
+    to: bacak.to,
+  };
 }
 
 /** Aynı yolculuğun onbellekteki karşılığı. Koordinatlar ~11 m'ye yuvarlanıyor. */
