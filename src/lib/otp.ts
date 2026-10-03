@@ -55,6 +55,7 @@ const {
   DURAK_ARA,
   ROTA_PLANLA,
   HAT_KALKISLARI,
+  DURAK_TARIFESI,
   HATLAR,
   HAT_DETAYI,
   SUNUCU_BILGISI,
@@ -292,6 +293,32 @@ export async function hatKalkislariGetir(
     .map((k) => ({ saniye: k.realtimeDeparture ?? k.scheduledDeparture ?? 0, serviceDay: k.serviceDay ?? 0 }))
     .filter((k) => k.saniye > 0)
     .sort((a, b) => a.serviceDay + a.saniye - (b.serviceDay + b.saniye));
+}
+
+/**
+ * Bir hattın (verilen desenlerin) bir duraktan bir hizmet günündeki bütün kalkışları:
+ * hizmet gününün başından saniye, sıralı. Desen kodu verilmezse duraktaki bütün desenler.
+ *
+ * @param gun YYYYMMDD
+ */
+export async function durakTarifesiGetir(
+  durakId: string,
+  desenKodlari: string[],
+  gun: string,
+  sinyal?: AbortSignal,
+): Promise<number[]> {
+  type Cevap = {
+    stop: {
+      tarife: ({ pattern: { code: string } | null; stoptimes: ({ scheduledDeparture: number | null } | null)[] | null } | null)[] | null;
+    } | null;
+  };
+  const veri = await sorgula<Cevap>(DURAK_TARIFESI, { durak: durakId, gun }, sinyal);
+  const istenen = new Set(desenKodlari);
+  return (veri.stop?.tarife ?? [])
+    .filter((t) => !!t?.pattern && (!istenen.size || istenen.has(t.pattern.code)))
+    .flatMap((t) => (t?.stoptimes ?? []).map((st) => st?.scheduledDeparture ?? -1))
+    .filter((saniye) => saniye >= 0)
+    .sort((a, b) => a - b);
 }
 
 /** Aramanın zaman şartı: bu saatten sonra çık, ya da en geç bu saatte var. */

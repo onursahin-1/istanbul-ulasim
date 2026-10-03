@@ -35,9 +35,9 @@ import {
 import { polylineCoz, type Nokta } from '@/lib/cografya';
 import { canliBilgi } from '@/lib/canli';
 import { trKucuk } from '@/lib/metin';
-import { duyurulariGetir, hatAraclariGetir, hatDetayiKardesleriyle, OtpHatasi, type HatDetayi } from '@/lib/otp';
+import { duyurulariGetir, hatAraclariGetir, hatDetayiKardesleriyle, OtpHatasi, saatsizHatMi, type HatDetayi } from '@/lib/otp';
 import { aracAdi, baslikYap, haritaRengi, hatRengi, useTema, yaziRengi, type Tema } from '@/lib/tema';
-import { secimTiki } from '@/lib/dokunsal';
+import { secimTiki, vurus } from '@/lib/dokunsal';
 import { useCanliAralik } from '@/lib/canli-aralik';
 import { ekranAc, geriDon } from '@/lib/gezinti';
 
@@ -137,6 +137,36 @@ export default function HatEkrani() {
     const ad = trKucuk(durakAd ?? '').trim();
     return ad ? duraklar.findIndex((d) => trKucuk(d.name ?? '').trim() === ad) : -1;
   }, [duraklar, gelinenDurak, durakAd]);
+
+  // Tarife: gelinen durağın (yoksa ilk durağın) bu yöndeki bütün günkü kalkışları.
+  // Minibüs ve dolmuşun saati yok; onlarda tarife düğmesi çıkmıyor.
+  const tarifeVar = !!hat && !saatsizHatMi(hat);
+  const tarifeDuragi = isaretli >= 0 ? duraklar[isaretli] : duraklar[0];
+  const tarifeAc = (d: { gtfsId: string; name: string } | undefined) => {
+    if (!d || !secili || !hat) return;
+    // Aynı yöndeki bütün desenler (kısa dönüşler dahil); durak bu desenlerde son durak değilse.
+    const kodlar = desenler
+      .filter((x) =>
+        secili.directionId == null ? x.code === secili.code : x.directionId === secili.directionId,
+      )
+      .filter((x) => (x.stops ?? []).slice(0, -1).some((st) => st.gtfsId === d.gtfsId))
+      .map((x) => x.code);
+    if (!kodlar.length) return;
+    const hedef = baslikYap(secili.headsign) || baslikYap(duraklar[duraklar.length - 1]?.name);
+    ekranAc({
+      pathname: '/tarife',
+      params: {
+        durak: d.gtfsId,
+        durakAd: d.name,
+        desenler: kodlar.join(','),
+        baslik: hedef ? `${baslikYap(d.name)} → ${hedef}` : baslikYap(d.name),
+        kisaAd: hat.shortName ?? '',
+        mod: hat.mode ?? '',
+        renk: hat.color ?? '',
+        isletmeci: hat.agency?.name ?? '',
+      },
+    });
+  };
 
   const otobusler = useMemo(
     () => (secili ? araclariYerlestir(duraklar, araclar[secili.code], simdi) : []),
@@ -372,6 +402,25 @@ export default function HatEkrani() {
                 </View>
               )}
               {yonSecici}
+              {tarifeVar && tarifeDuragi && tarifeDuragi !== duraklar[duraklar.length - 1] && (
+                <Pressable
+                  style={s.tarifeDugme}
+                  onPress={() => tarifeAc(tarifeDuragi)}
+                  accessibilityRole="button"
+                  accessibilityHint="Bu yönde, bu duraktan bütün günün kalkış saatleri"
+                >
+                  <Ikon ad="time-outline" boyut={20} renkKodu={tema.vurguYazi} />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={s.tarifeBaslik} numberOfLines={1}>
+                      {`${baslikYap(tarifeDuragi.name)} durağından tarife`}
+                    </Text>
+                    <Text style={s.tarifeAlt} numberOfLines={1}>
+                      Hafta içi, Cumartesi, Pazar · bütün gün
+                    </Text>
+                  </View>
+                  <Ikon ad="chevron-forward" boyut={17} renkKodu={tema.vurguYazi} />
+                </Pressable>
+              )}
               {duraklar.length === 0 && <Text style={s.bos}>Bu hattın durak bilgisi veride yok.</Text>}
               <View style={s.liste}>
                 {duraklar.map((d, i) => {
@@ -395,7 +444,17 @@ export default function HatEkrani() {
                       <Pressable
                         style={s.durak}
                         onPress={() => ekranAc({ pathname: '/durak/[id]', params: { id: d.gtfsId } })}
+                        // Basılı tutunca bu durağın tarifesi (son durakta kalkış yok).
+                        onLongPress={
+                          tarifeVar && !son
+                            ? () => {
+                                vurus();
+                                tarifeAc(d);
+                              }
+                            : undefined
+                        }
                         accessibilityRole="button"
+                        accessibilityHint={tarifeVar && !son ? 'Basılı tutarsan bu durağın tarifesi açılır' : undefined}
                       >
                         <View style={s.cizgiSutun}>
                           {!ilk && <View style={[s.cizgiUst, { backgroundColor: renkKodu }]} />}
@@ -560,6 +619,18 @@ const stiller = (t: Tema) =>
     durakAd: { flex: 1, fontSize: 14, color: t.yazi },
     durakAdKalin: { fontWeight: '700' },
     bos: { color: t.soluk, textAlign: 'center', padding: 20 },
+    tarifeDugme: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      marginBottom: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      borderRadius: 12,
+      backgroundColor: t.vurgu,
+    },
+    tarifeBaslik: { fontSize: 15, fontWeight: '700', color: t.vurguYazi },
+    tarifeAlt: { fontSize: 12.5, color: t.vurguYazi, opacity: 0.85, marginTop: 1 },
     dipnot: { color: t.soluk, fontSize: 12, lineHeight: 18, paddingTop: 18 },
     kalin: { fontWeight: '700', color: t.yazi },
     duyurular: { gap: 8, paddingBottom: 10 },

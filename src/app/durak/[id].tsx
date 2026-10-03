@@ -289,7 +289,12 @@ export default function DurakEkrani() {
                   {hatlar.map((h) => (
                     <Pressable
                       key={h.gtfsId}
-                      onPress={() => ekranAc({ pathname: '/hat/[id]', params: { id: h.gtfsId } })}
+                      onPress={() =>
+                        ekranAc({
+                          pathname: '/hat/[id]',
+                          params: { id: h.gtfsId, durak: durak?.gtfsId ?? '', durakAd: durak?.name ?? '' },
+                        })
+                      }
                       accessibilityRole="button"
                       accessibilityLabel={`${h.shortName ?? ''} hattının detayı`}
                     >
@@ -412,7 +417,12 @@ export default function DurakEkrani() {
                 <Pressable
                   key={`siklik-${h.gtfsId}`}
                   style={s.sefer}
-                  onPress={() => ekranAc({ pathname: '/hat/[id]', params: { id: h.gtfsId } })}
+                  onPress={() =>
+                        ekranAc({
+                          pathname: '/hat/[id]',
+                          params: { id: h.gtfsId, durak: durak?.gtfsId ?? '', durakAd: durak?.name ?? '' },
+                        })
+                      }
                   accessibilityRole="button"
                   accessibilityLabel={[h.shortName ?? '', baslikYap(h.longName), metin].filter(Boolean).join(' · ')}
                 >
@@ -440,7 +450,12 @@ export default function DurakEkrani() {
                     <Pressable
                       key={h.gtfsId}
                       style={s.sefer}
-                      onPress={() => ekranAc({ pathname: '/hat/[id]', params: { id: h.gtfsId } })}
+                      onPress={() =>
+                        ekranAc({
+                          pathname: '/hat/[id]',
+                          params: { id: h.gtfsId, durak: durak?.gtfsId ?? '', durakAd: durak?.name ?? '' },
+                        })
+                      }
                       accessibilityRole="button"
                       accessibilityLabel={`${guzergah || h.shortName || ''}, saat bilgisi yok`}
                     >

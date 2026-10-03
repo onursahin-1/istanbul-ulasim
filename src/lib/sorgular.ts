@@ -71,6 +71,18 @@ query HatKalkislari($durak: String!, $aralik: Int!) {
   }
 }`;
 
+// Tarife ekranı: bir duraktan bir hizmet günündeki bütün kalkışlar, desen desen. Hangi
+// hattın hangi yönü olduğu desen koduyla süzülüyor (otp.ts, durakTarifesiGetir).
+const DURAK_TARIFESI = `
+query DurakTarifesi($durak: String!, $gun: String!) {
+  stop(id: $durak) {
+    tarife: stoptimesForServiceDate(date: $gun, omitNonPickups: true, omitCanceled: true) {
+      pattern { code }
+      stoptimes { scheduledDeparture }
+    }
+  }
+}`;
+
 // Durak ekranı: o duraktan geçen her hattın kendi yönüyle birlikte sıradaki kalkışları.
 // stoptimesWithoutPatterns hepsini tek listede karıştırdığı için kalabalık duraklarda
 // bazı hatlar hiç görünmüyor; desen başına sormak her hatta yer garantiliyor.
@@ -382,6 +394,7 @@ export const SORGULAR = {
   DURAK_ARA,
   ROTA_PLANLA,
   HAT_KALKISLARI,
+  DURAK_TARIFESI,
   HATLAR,
   HAT_DETAYI,
   HAT_ARACLARI,
