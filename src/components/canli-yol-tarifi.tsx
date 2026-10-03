@@ -37,6 +37,7 @@ import { baslikYap, hatRengi, useTema, type Tema } from '@/lib/tema';
 import {
   aktarmaPayi,
   binmeIfadesi,
+  durakSozcugu,
   kalanSureYaz,
   SAPMA_M,
   SIMDI_M,
@@ -46,7 +47,7 @@ import {
   type YolculukDurumu,
 } from '@/lib/yolculuk';
 import type { YuruyusAdimi } from '@/lib/yuruyus';
-import { istanbulSaatiYaz, mesafeYaz, saatYaz, saniyedenSaat, sureYaz } from '@/lib/zaman';
+import { durakVarisMetni, istanbulSaatiYaz, mesafeYaz, saatEkli, saatYaz, saniyedenSaat, sureYaz } from '@/lib/zaman';
 
 export type YolTarifiVerisi = {
   bacaklar: Bacak[];
@@ -70,6 +71,17 @@ export type YolTarifiVerisi = {
 };
 
 const iso = (b: Bacak, uc: 'start' | 'end') => b[uc].estimated?.time ?? b[uc].scheduledTime;
+
+/**
+ * Bir bacağın bittiği yerin adı: araç bacağında kendi türü, yürüyüşte sonunda
+ * binilecek aracınki (metroya yürünüyorsa "istasyonuna", vapura "iskelesine").
+ */
+function bitisSozcugu(bacaklar: Bacak[], i: number) {
+  const b = bacaklar[i];
+  if (b?.transitLeg) return durakSozcugu(b.route?.mode ?? b.mode);
+  const sonraki = bacaklar[i + 1];
+  return durakSozcugu(sonraki?.transitLeg ? (sonraki.route?.mode ?? sonraki.mode) : null);
+}
 const an = (b: Bacak, uc: 'start' | 'end') => Date.parse(iso(b, uc) ?? '');
 
 /** Sekmede ve listede adımın kısa adı. */
@@ -162,12 +174,15 @@ export function KonumSeridi({
     const m = Math.round(mesafeMetre(konum, hedefNokta));
     const ad = durum.faz === 'bekle' ? baslikYap(b.from.name) : baslikYap(b.to.name);
     const varis = durum.faz === 'yuru' && (a.rol === 'varis' || a.rol === 'tek');
+    const sozcuk = bitisSozcugu(bacaklar, a.bacak);
     ikon = durum.faz === 'bekle' ? 'bus' : 'walk';
     if (durum.faz === 'bekle' && m <= 60) {
-      ana = `${ad} durağındasın`;
-      yan = `${b.route?.shortName ?? ''} bekleniyor`;
+      ana = `${ad} ${sozcuk.desin}`;
+      // "M3 bekleniyor" yerine ne zaman: "M3 22:54'te".
+      const kalkis = Date.parse(b.start.estimated?.time ?? b.start.scheduledTime ?? '');
+      yan = `${b.route?.shortName ?? ''} ${Number.isNaN(kalkis) ? 'bekleniyor' : saatEkli(kalkis / 1000)}`.trim();
     } else {
-      ana = varis ? `Varış noktasına ${mesafeYaz(m)}` : `${ad} durağına ${mesafeYaz(m)}`;
+      ana = varis ? `Varış noktasına ${mesafeYaz(m)}` : `${ad} ${sozcuk.e} ${mesafeYaz(m)}`;
     }
   }
 
@@ -231,7 +246,7 @@ export function useSesliTarif(v: YolTarifiVerisi | null, acik: boolean, cinsiyet
       const tarif = v.tarifler[a.bacak] ?? [];
       g.tarif = tarif;
       g.yer = v.konum ? yuruyusKonumu(tarif, v.cizgiler[a.bacak] ?? [], v.konum) : null;
-      g.hedefAdi = b.to.stop ? `${baslikYap(b.to.name)} durağı` : 'varış noktası';
+      g.hedefAdi = b.to.stop ? `${baslikYap(b.to.name)} ${bitisSozcugu(v.bacaklar, a.bacak).ad}` : 'varış noktası';
       g.toplamMetre = b.distance;
       g.toplamDakika = b.duration != null ? b.duration / 60 : null;
     } else {
@@ -411,13 +426,13 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
   if (a.tur === 'yuru') {
     const sonrakiAdim = v.adimlar.slice(sira + 1).find((x) => x.tur === 'arac');
     const sonraki = sonrakiAdim ? v.bacaklar[sonrakiAdim.bacak] : null;
-    const hedefDurak = baslikYap(b.to.name);
+    const hedefDurak = `${baslikYap(b.to.name)} ${bitisSozcugu(v.bacaklar, a.bacak).e}`;
     const komut =
       a.rol === 'aktarma' && sonraki
-        ? `${sonraki.route?.shortName ?? ''} için ${hedefDurak} durağına yürü`
+        ? `${sonraki.route?.shortName ?? ''} için ${hedefDurak} yürü`
         : a.rol === 'varis' || a.rol === 'tek'
           ? 'Varış noktasına yürü'
-          : `${hedefDurak} durağına yürü`;
+          : `${hedefDurak} yürü`;
     return sar(
       <>
         {etiketler}
@@ -464,7 +479,9 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
       <>
         {etiketler}
         <Text style={s.komut}>
-          {kalan === 0 ? `Şimdi in: ${baslikYap(b.to.name)}` : `${baslikYap(b.to.name)} durağında in`}
+          {kalan === 0
+            ? `Şimdi in: ${baslikYap(b.to.name)}`
+            : `${baslikYap(b.to.name)} ${durakSozcugu(b.route?.mode ?? b.mode).de} in`}
         </Text>
         <View style={s.buyukSatir}>
           <Text style={s.sayac}>
@@ -487,6 +504,16 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
   const uzak = dk >= 60;
   const canli = bacakCanli(b.start.scheduledTime, b.start.estimated?.time);
   const otobus = v.binisOtobusleri[a.bacak];
+  // Sayacın altı: saat ve kaynağı, kaçırılırsa sonraki sefer. Canlıysa durağa varış saati
+  // (yakındaki duraklardaki gibi), değilse tarife saati.
+  const sonrakiSefer = v.seferler[a.bacak]?.sonrakiSaniye;
+  const kalkisYazisi = [
+    canli ? `Canlı · ${durakVarisMetni(kalkis / 1000)}` : uzak ? `${kalanSureYaz(dk)} sonra` : saatYaz(iso(b, 'start')),
+    canli ? '' : 'tarifeye göre',
+    sonrakiSefer != null ? `kaçırırsan sonraki ${saniyedenSaat(sonrakiSefer)}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
   return sar(
     <>
       {etiketler}
@@ -503,18 +530,20 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
       )}
       <View style={s.buyukSatir}>
         <View>
-          <View style={s.sayacSatir}>
-            {canli && <NabizNoktasi renk={canliRenk(canli.sinif, tema)} />}
+          {/* Sayının ne olduğu yanında yazıyor: "Kalkışa 9 dk". Bir saatten uzaksa saat. */}
+          <View
+            style={s.sayacSatir}
+            accessible
+            accessibilityLabel={uzak ? `Kalkış ${saatYaz(iso(b, 'start'))}` : dk === 0 ? 'Kalkıyor' : `Kalkışa ${dk} dakika`}
+          >
+            {canli && <NabizNoktasi renk={tema.vurgu} />}
             <Text style={s.sayac}>
-              {uzak ? saatYaz(iso(b, 'start')) : dk}
-              <Text style={s.sayacBirim}>{uzak ? '' : ' dk'}</Text>
+              <Text style={s.sayacBirim}>{uzak ? 'Kalkış ' : dk === 0 ? '' : 'Kalkışa '}</Text>
+              {uzak ? saatYaz(iso(b, 'start')) : dk === 0 ? 'Kalkıyor' : dk}
+              <Text style={s.sayacBirim}>{uzak || dk === 0 ? '' : ' dk'}</Text>
             </Text>
           </View>
-          <Text style={[s.detay, canli && { color: canliRenk(canli.sinif, tema), fontWeight: '600' }]}>
-            {uzak
-              ? `${kalanSureYaz(dk)} sonra · ${canli ? canli.metin : 'tarifeye göre'}`
-              : `${saatYaz(iso(b, 'start'))} · ${canli ? canli.metin : 'tarifeye göre'}`}
-          </Text>
+          <Text style={[s.detay, canli && { color: tema.vurgu, fontWeight: '600' }]}>{kalkisYazisi}</Text>
         </View>
         {otobus && <YaklasmaSeridi kalan={otobus.kalan} renk={renk} soluk={otobus.otobus.sinif === 'eski'} />}
       </View>
@@ -590,7 +619,12 @@ function DurakCizelgesi({
             >
               {baslikYap(d.ad)}
             </Text>
-            {burada && j !== son && <Text style={[s.cizelgeEtiket, { color: tema.konum }]}>şu an</Text>}
+            {burada && j !== son && (
+              // Biniş durağında bekliyorsan saat kaybolmasın: "şu an" metro şimdi geliyor gibi okunuyordu.
+              <Text style={[s.cizelgeEtiket, { color: tema.konum }]}>
+                {j === 0 ? `buradasın · bin ${binisSaati}` : 'şu an'}
+              </Text>
+            )}
             {j === 0 && !burada && <Text style={s.cizelgeEtiket}>{`bin · ${binisSaati}`}</Text>}
             {j === son && <Text style={[s.cizelgeEtiket, { color: tema.yazi }]}>{`in · ${inisSaati}`}</Text>}
           </View>
@@ -640,7 +674,7 @@ function TarifKutusu({
   }, [yer?.simdiki, ustY]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!tarif.length) return null;
-  const varisAdi = b.to.stop ? `${baslikYap(b.to.name)} durağı` : 'Varış noktası';
+  const varisAdi = b.to.stop ? `${baslikYap(b.to.name)} ${bitisSozcugu(v.bacaklar, bacak).ad}` : 'Varış noktası';
 
   return (
     <View style={s.tarif}>
@@ -799,16 +833,16 @@ export function TumAdimlar({
                     <View style={s.komutSatir}>
                       <HatRozeti hat={b.route} kucuk />
                       <Text style={s.satirBaslik} numberOfLines={1}>
-                        {`${baslikYap(b.to.name)} durağına`}
+                        {`${baslikYap(b.to.name)} ${bitisSozcugu(v.bacaklar, a.bacak).e}`}
                       </Text>
                     </View>
                   ) : (
                     <Text style={s.satirBaslik} numberOfLines={1}>
                       {a.rol === 'aktarma'
-                        ? `Aktarma: ${baslikYap(b.to.name)} durağına yürü`
+                        ? `Aktarma: ${baslikYap(b.to.name)} ${bitisSozcugu(v.bacaklar, a.bacak).e} yürü`
                         : a.rol === 'varis' || a.rol === 'tek'
                           ? 'Varış noktasına yürü'
-                          : `${baslikYap(b.to.name)} durağına yürü`}
+                          : `${baslikYap(b.to.name)} ${bitisSozcugu(v.bacaklar, a.bacak).e} yürü`}
                     </Text>
                   )}
                   <Text style={s.satirAlt} numberOfLines={1}>

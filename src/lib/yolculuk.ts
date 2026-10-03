@@ -298,3 +298,38 @@ export function yenidenCizilmeli(g: YenidenCizimGirdisi): boolean {
   if (g.ilkKonum && mesafeMetre(g.konum, g.cizgi[0]) > BASLANGIC_KAYMA_M) return true;
   return cizgiyeUzaklik(g.konum, g.cizgi) > YENIDEN_CIZ_M;
 }
+
+// ---------------------------------------------------------------- durak, istasyon, iskele
+
+export type DurakSozcugu = {
+  /** "durağı", "istasyonu", "iskelesi" */
+  ad: string;
+  /** "durağına" */
+  e: string;
+  /** "durağında" */
+  de: string;
+  /** "durağındasın" */
+  desin: string;
+};
+
+const DURAK: DurakSozcugu = { ad: 'durağı', e: 'durağına', de: 'durağında', desin: 'durağındasın' };
+const ISTASYON: DurakSozcugu = { ad: 'istasyonu', e: 'istasyonuna', de: 'istasyonunda', desin: 'istasyonundasın' };
+const ISKELE: DurakSozcugu = { ad: 'iskelesi', e: 'iskelesine', de: 'iskelesinde', desin: 'iskelesindesin' };
+
+/** Aracın türüne göre bekleme yerinin adı: otobüs durağı, metro istasyonu, vapur iskelesi. */
+export function durakSozcugu(mode?: string | null): DurakSozcugu {
+  switch ((mode ?? '').toUpperCase()) {
+    case 'SUBWAY':
+    case 'MONORAIL':
+    case 'RAIL':
+    case 'TRAM':
+    case 'FUNICULAR':
+    case 'CABLE_CAR':
+    case 'GONDOLA':
+      return ISTASYON;
+    case 'FERRY':
+      return ISKELE;
+    default:
+      return DURAK;
+  }
+}

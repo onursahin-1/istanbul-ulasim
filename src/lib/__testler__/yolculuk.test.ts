@@ -11,6 +11,7 @@ import {
   kalanSureYaz,
   yolaCikisAni,
   yuruyusKonumu,
+  durakSozcugu,
   durumuIlerlet,
   siradakiDuraklar,
   yenidenCizilmeli,
@@ -213,5 +214,17 @@ describe('yenidenCizilmeli', () => {
     const sapmis = { ...temel, konum: yanda(0.0015, 0.0005) };
     assert.equal(yenidenCizilmeli({ ...sapmis, durum: { ...temel.durum, faz: 'bekle' } }), false);
     assert.equal(yenidenCizilmeli({ ...sapmis, adim: { bacak: 0, tur: 'arac' } }), false);
+  });
+});
+
+describe('durakSozcugu', () => {
+  it('otobüs durak, raylı istasyon, vapur iskele', () => {
+    assert.equal(durakSozcugu('BUS').desin, 'durağındasın');
+    assert.equal(durakSozcugu('SUBWAY').desin, 'istasyonundasın');
+    assert.equal(durakSozcugu('RAIL').e, 'istasyonuna');
+    assert.equal(durakSozcugu('TRAM').de, 'istasyonunda');
+    assert.equal(durakSozcugu('FERRY').desin, 'iskelesindesin');
+    assert.equal(durakSozcugu('FERRY').ad, 'iskelesi');
+    assert.equal(durakSozcugu(null).e, 'durağına');
   });
 });
