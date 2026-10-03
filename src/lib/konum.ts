@@ -4,10 +4,11 @@
 //   • useKonum: ekranların (keşfet, arama, durak) "buradayım" noktası. Açılışta bir kez
 //     alınıyor; uygulama arka plandan dönünce, konum bir dakikadan eskiyse tazeleniyor.
 //     Yoksa evde açılıp dışarıda kullanılan uygulama rotayı evden çiziyordu.
-//   • useKonum({ izle: true }): Keşfet ekranı için. Ekran görünürken konum izleniyor;
-//     yolcu 40 m'den çok yer değiştirince yeni nokta yayılıyor, yakındaki duraklar
-//     yürüdükçe değişiyor. Ekran başka bir ekranın altındayken ya da uygulama arka
-//     plandayken izleme duruyor (pil).
+//   • useKonum({ izle: true }): Keşfet ekranı için. Konum sürekli izleniyor, üstte başka
+//     bir ekran açıkken de; yolcu 40 m'den çok yer değiştirince yeni nokta yayılıyor,
+//     yakındaki duraklar yürüdükçe değişiyor. Uygulama arka plandayken iOS bu izlemeye
+//     konum vermiyor (arka plan konumu Expo Go'da yok, geliştirme derlemesi ister);
+//     öne gelince izleme kaldığı yerden sürüyor.
 //   • tazeKonum: rota aranırken "Konumum"un o anki hâli. Başlangıç noktası bulunulan
 //     yer olsun diye arama anında yeniden soruluyor.
 //
@@ -15,7 +16,6 @@
 // razı oluyordu: rota caddenin karşı yakasından, yanlış duraktan başlayabiliyordu.
 
 import * as Location from 'expo-location';
-import { useIsFocused } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
@@ -71,8 +71,6 @@ export async function tazeKonum(sure = TAZE_KONUM_SURESI_MS): Promise<Nokta | nu
 export function useKonum({ izle = false }: { izle?: boolean } = {}) {
   const [durum, setDurum] = useState<KonumDurumu>({ tur: 'bekleniyor', nokta: VARSAYILAN_KONUM });
   const sonAlinma = useRef(0);
-  const odakli = useIsFocused();
-  const [onde, setOnde] = useState(AppState.currentState === 'active');
 
   const yenile = useCallback(async () => {
     try {
@@ -101,17 +99,16 @@ export function useKonum({ izle = false }: { izle?: boolean } = {}) {
   // Arka plandan dönünce: konum eskidiyse yeniden al.
   useEffect(() => {
     const abone = AppState.addEventListener('change', (hal) => {
-      setOnde(hal === 'active');
       if (hal === 'active' && sonAlinma.current && Date.now() - sonAlinma.current > ESKIME_MS) yenile();
     });
     return () => abone.remove();
   }, [yenile]);
 
-  // Canlı izleme: ekran görünür ve uygulama öndeyken. Gerçek konum alınmadıysa (izin yok,
-  // İstanbul dışı) izlenmez.
+  // Canlı izleme: ekran açık olduğu sürece (üstünde başka ekran olsa da). Gerçek konum
+  // alınmadıysa (izin yok, İstanbul dışı) izlenmez.
   const gercek = durum.tur === 'gercek';
   useEffect(() => {
-    if (!izle || !odakli || !onde || !gercek) return;
+    if (!izle || !gercek) return;
     let bitti = false;
     let abone: Location.LocationSubscription | null = null;
     Location.watchPositionAsync({ accuracy: Location.Accuracy.High, distanceInterval: 20 }, (k) => {
@@ -130,7 +127,7 @@ export function useKonum({ izle = false }: { izle?: boolean } = {}) {
       bitti = true;
       abone?.remove();
     };
-  }, [izle, odakli, onde, gercek]);
+  }, [izle, gercek]);
 
   return { ...durum, yenile };
 }
