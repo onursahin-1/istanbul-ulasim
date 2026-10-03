@@ -46,6 +46,7 @@ import {
   adimlariKur,
   baslangicDurumu,
   durumuIlerlet,
+  durumuZamanla,
   KISA_YURUME_M,
   yenidenCizilmeli,
   type BacakOzeti,
@@ -59,6 +60,14 @@ type Takip = { bacak: number; kalanDurak: number } | null;
 
 /** Bundan kötü doğruluklu konum adım geçişine karar vermez (metre). */
 const KOTU_DOGRULUK_M = 50;
+
+function anOku(iso?: string | null): number | null {
+  const an = Date.parse(iso ?? '');
+  return Number.isNaN(an) ? null : an;
+}
+
+/** Yolculukta konum gelmese de (metro tüneli) ilerleme bu aralıkla saatten tazelenir. */
+const ZAMAN_ADIMI_MS = 3_000;
 
 function bacakNoktalari(b: Bacak): Nokta[] {
   const cizgi = polylineCoz(b.legGeometry?.points);
@@ -92,6 +101,8 @@ export default function RotaDetayEkrani() {
   const [tumAdimlarAcik, setTumAdimlarAcik] = useState(false);
   const [simdi, setSimdi] = useState(() => Date.now());
   const sonKonum = useRef<Nokta | null>(null);
+  /** Son konumun zamanı ve doğruluğu: tazeyse ilerlemeyi konum, değilse saat belirliyor. */
+  const sonGps = useRef<{ an: number; dogruluk?: number | null } | null>(null);
   const [konum, setKonum] = useState<Nokta | null>(null);
   const [acikBacaklar, setAcikBacaklar] = useState<Record<number, boolean>>({});
   const [seferler, setSeferler] = useState<Record<number, SeferBilgisi>>({});
@@ -115,6 +126,8 @@ export default function RotaDetayEkrani() {
         mesafe: b.distance ?? null,
         bitis: { latitude: b.to.lat, longitude: b.to.lon },
         duraklar: duraklar[i].map((d) => ({ latitude: d.lat, longitude: d.lon })),
+        binisMs: anOku(b.start.estimated?.time ?? b.start.scheduledTime),
+        inisMs: anOku(b.end.estimated?.time ?? b.end.scheduledTime),
       })),
     [bacaklar, duraklar],
   );
@@ -291,6 +304,7 @@ export default function RotaDetayEkrani() {
   const konumuIsle = useCallback(
     (nokta: Nokta, dogruluk?: number | null) => {
       sonKonum.current = nokta;
+      sonGps.current = { an: Date.now(), dogruluk };
       setKonum(nokta);
       // Doğruluğu kötü konum (kapalı alan, dar sokak: 50 m'den kötü) ekranda gösterilir
       // ama adım geçişine karar vermez: yanlışlıkla "otobüse bindin" denmesin.
@@ -323,6 +337,18 @@ export default function RotaDetayEkrani() {
   const konumuIsleRef = useRef(konumuIsle);
   konumuIsleRef.current = konumuIsle;
 
+  // Konum gelmezken de (metro tüneli, istasyon içi) ilerleme saatle sürsün: mavi nokta
+  // duraktan durağa kaysın, kalkış geçince "metrodasın"a geçilsin. Taze konum varken
+  // durumuZamanla hiçbir şey yapmıyor; konum belirliyor.
+  useEffect(() => {
+    if (!takipAcik) return;
+    const z = setInterval(
+      () => setDurum((d) => (d ? durumuZamanla(d, Date.now(), adimlar, ozetler, sonGps.current) : d)),
+      ZAMAN_ADIMI_MS,
+    );
+    return () => clearInterval(z);
+  }, [takipAcik, adimlar, ozetler]);
+
   // İnişe yaklaşırken titreşim; bir durak kala bildirim ("sıradaki durakta in").
   useEffect(() => {
     if (!takip) return;
@@ -346,6 +372,7 @@ export default function RotaDetayEkrani() {
     setDurum(null);
     setKonum(null);
     sonKonum.current = null;
+    sonGps.current = null;
     setTumAdimlarAcik(false);
     uyarilanlar.current.clear();
     cizim.current.suruyor?.abort();

@@ -15,6 +15,11 @@ import {
   durumuIlerlet,
   siradakiDuraklar,
   yenidenCizilmeli,
+  durumuZamanla,
+  zamanlaIlerleme,
+  konumlaIlerleme,
+  KALKIS_PAYI_MS,
+  INIS_PAYI_MS,
   YENIDEN_CIZ_ARA_MS,
   type BacakOzeti,
 } from '../yolculuk';
@@ -56,6 +61,10 @@ describe('adimlariKur', () => {
   });
 });
 
+/** Durumu karşılaştırmak için: kesirli ilerleme iki basamağa yuvarlanır. */
+const yuvarla = (d: ReturnType<typeof baslangicDurumu>) =>
+  d.ilerleme == null ? d : { ...d, ilerleme: Math.round(d.ilerleme * 100) / 100 };
+
 describe('durumuIlerlet', () => {
   const ilerlet = (d: ReturnType<typeof baslangicDurumu>, ...konumlar: ReturnType<typeof n>[]) =>
     konumlar.reduce((x, k) => durumuIlerlet(x, k, ADIMLAR, BACAKLAR), d);
@@ -70,7 +79,7 @@ describe('durumuIlerlet', () => {
   it('biniş durağında beklerken "içinde" sayılmaz, sonraki durağa gelince sayılır', () => {
     const bekle = ilerlet(baslangicDurumu(ADIMLAR), n(0));
     assert.equal(ilerlet(bekle, n(0.0002)).faz, 'bekle');
-    assert.deepEqual(ilerlet(bekle, n(0.01)), { adim: 1, faz: 'icinde', kalanDurak: 2, durakta: false });
+    assert.deepEqual(yuvarla(ilerlet(bekle, n(0.01))), { adim: 1, faz: 'icinde', kalanDurak: 2, durakta: false, ilerleme: 1 });
   });
 
   it('kalan durak geri saymaz; inişe varıp uzaklaşınca aktarmaya geçer', () => {
@@ -78,13 +87,23 @@ describe('durumuIlerlet', () => {
     assert.equal(icinde.kalanDurak, 1);
     assert.equal(ilerlet(icinde, n(0.01)).kalanDurak, 1); // GPS geri kaydı
     const inis = ilerlet(icinde, n(0.03));
-    assert.deepEqual(inis, { adim: 1, faz: 'icinde', kalanDurak: 0, durakta: true });
+    assert.deepEqual(yuvarla(inis), { adim: 1, faz: 'icinde', kalanDurak: 0, durakta: true, ilerleme: 3 });
     assert.deepEqual(ilerlet(inis, n(0.03, 29.001)), { adim: 2, faz: 'yuru', kalanDurak: null, durakta: false });
   });
 
   it('arada konum gelmediyse sıradaki aracın duraklarına atlar', () => {
     const d0 = baslangicDurumu(ADIMLAR);
-    assert.deepEqual(ilerlet(d0, n(0.02)), { adim: 1, faz: 'icinde', kalanDurak: 1, durakta: false });
+    assert.deepEqual(yuvarla(ilerlet(d0, n(0.02))), { adim: 1, faz: 'icinde', kalanDurak: 1, durakta: false, ilerleme: 2 });
+  });
+
+  it('duraklar arasında kesirli ilerler; durağa varmadan o durak sayılmaz', () => {
+    const icinde = ilerlet(baslangicDurumu(ADIMLAR), n(0), n(0.01));
+    const arada = ilerlet(icinde, n(0.014));
+    assert.equal(yuvarla(arada).ilerleme, 1.4);
+    assert.equal(arada.kalanDurak, 2, '2. duraktan %40 ileride: kalan hâlâ 2');
+    const yaklasti = ilerlet(icinde, n(0.0188));
+    assert.equal(yaklasti.kalanDurak, 1, '%88: sıradaki durakta sayılır');
+    assert.equal(ilerlet(arada, n(0.012)).ilerleme, arada.ilerleme, 'geri gitmez');
   });
 
   it('son yürüyüş bitince varıldı', () => {
@@ -226,5 +245,52 @@ describe('durakSozcugu', () => {
     assert.equal(durakSozcugu('FERRY').desin, 'iskelesindesin');
     assert.equal(durakSozcugu('FERRY').ad, 'iskelesi');
     assert.equal(durakSozcugu(null).e, 'durağına');
+  });
+});
+
+describe('konumlaIlerleme / zamanlaIlerleme', () => {
+  const duraklar = [n(0), n(0.01), n(0.03)]; // ilk ara 1,1 km, ikinci 2,2 km
+  it('konum duraklar çizgisine izdüşer; çizgiden uzaksa null', () => {
+    assert.equal(Math.round(konumlaIlerleme(duraklar, n(0.005))! * 100) / 100, 0.5);
+    assert.equal(Math.round(konumlaIlerleme(duraklar, n(0.02, 29.0005))! * 100) / 100, 1.5);
+    assert.equal(konumlaIlerleme(duraklar, n(0.02, 29.01)), null);
+  });
+  it('saatle tahmin mesafeye göre bölüşür', () => {
+    // Toplam 3,3 km, 30 dk: 10. dakikada 1,1 km → tam 1. durak.
+    const t0 = 1_000_000;
+    assert.equal(zamanlaIlerleme(duraklar, t0, t0 + 30 * 60_000, t0 - 60_000), 0);
+    assert.equal(Math.round(zamanlaIlerleme(duraklar, t0, t0 + 30 * 60_000, t0 + 10 * 60_000) * 100) / 100, 1);
+    assert.equal(Math.round(zamanlaIlerleme(duraklar, t0, t0 + 30 * 60_000, t0 + 20 * 60_000) * 100) / 100, 1.5);
+    assert.equal(zamanlaIlerleme(duraklar, t0, t0 + 30 * 60_000, t0 + 40 * 60_000), 2);
+  });
+});
+
+describe('durumuZamanla', () => {
+  const t0 = 5_000_000;
+  // BACAKLAR'ın 89T bacağı: 3,3 km, 15 dakika.
+  const zamanli = BACAKLAR.map((b, i) => (i === 1 ? { ...b, binisMs: t0, inisMs: t0 + 15 * 60_000 } : b));
+  const bekle = { adim: 1, faz: 'bekle' as const, kalanDurak: null, durakta: false };
+
+  it('kalkış geçip konum gelmiyorsa binilmiş sayar ve saate göre ilerletir', () => {
+    assert.equal(durumuZamanla(bekle, t0 + 10_000, ADIMLAR, zamanli, null), bekle, 'kalkışa daha var');
+    const d = durumuZamanla(bekle, t0 + KALKIS_PAYI_MS + 1, ADIMLAR, zamanli, null);
+    assert.equal(d.faz, 'icinde');
+    const yarisi = durumuZamanla(d, t0 + 7.5 * 60_000, ADIMLAR, zamanli, null);
+    assert.equal(Math.round(yarisi.ilerleme! * 100) / 100, 1.5);
+    assert.equal(yarisi.kalanDurak, 2);
+  });
+
+  it('taze ve iyi konum varken karışmaz (durakta bekleyen metroyu kaçırmış olabilir)', () => {
+    const gps = { an: t0 + KALKIS_PAYI_MS - 5_000, dogruluk: 10 };
+    assert.equal(durumuZamanla(bekle, t0 + KALKIS_PAYI_MS + 1, ADIMLAR, zamanli, gps), bekle);
+    const kotu = { ...gps, dogruluk: 80 };
+    assert.equal(durumuZamanla(bekle, t0 + KALKIS_PAYI_MS + 1, ADIMLAR, zamanli, kotu).faz, 'icinde');
+  });
+
+  it('inişe varınca durakta; konum hiç gelmezse bir süre sonra sonraki adıma geçer', () => {
+    const icinde = durumuZamanla(bekle, t0 + 15 * 60_000, ADIMLAR, zamanli, null);
+    assert.equal(icinde.durakta, true);
+    assert.equal(durumuZamanla(icinde, t0 + 15 * 60_000 + 30_000, ADIMLAR, zamanli, null), icinde);
+    assert.equal(durumuZamanla(icinde, t0 + 15 * 60_000 + INIS_PAYI_MS + 1, ADIMLAR, zamanli, null).adim, 2);
   });
 });

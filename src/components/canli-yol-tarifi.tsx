@@ -10,6 +10,7 @@
 
 import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import {
   ScrollView,
   StyleSheet,
@@ -37,7 +38,9 @@ import { baslikYap, hatRengi, useTema, type Tema } from '@/lib/tema';
 import {
   aktarmaPayi,
   binmeIfadesi,
+  durakSirasi,
   durakSozcugu,
+  DURAKTA_PAYI,
   kalanSureYaz,
   SAPMA_M,
   SIMDI_M,
@@ -154,17 +157,28 @@ export function KonumSeridi({
     ikon = 'flag';
     ana = 'Vardın';
     yan = v.hedef ? baslikYap(v.hedef) : '';
+  } else if (durum.faz === 'icinde') {
+    // Araçta konum gelmese de (tünel) ilerleme saatten sürüyor; "konum bekleniyor" denmez.
+    const liste = v.duraklar[a.bacak];
+    const son = liste.length - 1;
+    const kalan = durum.kalanDurak ?? son;
+    const ilerleme = durum.ilerleme ?? son - kalan;
+    const sira = durakSirasi(ilerleme, son);
+    const arada = sira < son && ilerleme - sira >= DURAKTA_PAYI;
+    ikon = 'bus';
+    if (kalan === 0) {
+      ana = `Şimdi in: ${baslikYap(liste[son]?.ad)}`;
+    } else if (arada) {
+      // İki durak arasında: gidilen durak.
+      ana = `Sıradaki: ${baslikYap(liste[sira + 1]?.ad)}`;
+      yan = sira + 1 === son ? 'orada in' : `${kalan} durak kaldı`;
+    } else {
+      ana = `Şu an: ${baslikYap(liste[sira]?.ad)}`;
+      yan = `sonraki: ${baslikYap(liste[sira + 1]?.ad)}`;
+    }
   } else if (!konum) {
     ikon = 'time-outline';
     ana = 'Konum bekleniyor…';
-  } else if (durum.faz === 'icinde') {
-    const liste = v.duraklar[a.bacak];
-    const kalan = durum.kalanDurak ?? liste.length - 1;
-    const simdiki = liste[liste.length - 1 - kalan];
-    const sonraki = liste[liste.length - kalan];
-    ikon = 'bus';
-    ana = kalan === 0 ? `Şimdi in: ${baslikYap(simdiki?.ad)}` : `Şu an: ${baslikYap(simdiki?.ad)}`;
-    yan = kalan === 0 ? '' : `sonraki: ${baslikYap(sonraki?.ad)}`;
   } else {
     // Yürürken ve beklerken: gidilen noktaya kalan mesafe.
     const hedefNokta =
@@ -460,13 +474,17 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
     v.durum.faz === 'bekle' &&
     !!v.konum &&
     mesafeMetre(v.konum, { latitude: b.from.lat, longitude: b.from.lon }) <= 60;
-  const simdikiDurak = kalan != null ? liste.length - 1 - kalan : duraktaBekliyor ? 0 : bitti ? liste.length : -1;
+  // Mavi noktanın yeri: araçta duraklar arası kesirli (kayarak ilerler), beklerken biniş durağı.
+  const ilerleme =
+    kalan != null ? (v.durum.ilerleme ?? liste.length - 1 - kalan) : duraktaBekliyor ? 0 : null;
 
   const cizelge = (
     <DurakCizelgesi
       duraklar={liste}
       renk={renk}
-      simdiki={simdikiDurak}
+      ilerleme={ilerleme}
+      bitti={bitti}
+      beklerken={duraktaBekliyor}
       binisSaati={saatYaz(iso(b, 'start'))}
       inisSaati={saatYaz(iso(b, 'end'))}
       odak={setOdakY}
@@ -559,24 +577,32 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
 }
 
 const CIZELGE_SATIR = 30;
+const KONUM_NOKTASI = 16;
 
 /**
- * Biniş ile iniş arasındaki bütün duraklar, alt alta. Geçilenler soluk, şu anki
- * mavi noktayla işaretli, iniş kalın. Otobüste giderken nerede olduğunu buradan
- * okursun; liste uzunsa kart kayar ve şu anki durak görünür tutulur.
+ * Biniş ile iniş arasındaki bütün duraklar, alt alta. Geçilenler soluk, iniş kalın.
+ * Mavi nokta telefonun yeri: duraklar arasında kayarak ilerler (1.4 = ikinci duraktan
+ * %40 ileride), bir durağa varınca onun üstünde durur. Otobüste giderken nerede
+ * olduğunu buradan okursun; liste uzunsa kart kayar ve mavi nokta görünür tutulur.
  */
 function DurakCizelgesi({
   duraklar,
   renk,
-  simdiki,
+  ilerleme,
+  bitti,
+  beklerken,
   binisSaati,
   inisSaati,
   odak,
 }: {
   duraklar: { ad: string }[];
   renk: string;
-  /** Şu anki durağın sırası; bilinmiyorsa -1, hepsi geçildiyse duraklar.length. */
-  simdiki: number;
+  /** Duraklar arası kesirli konum; bilinmiyorsa null. */
+  ilerleme: number | null;
+  /** Bu bacak bitti: bütün duraklar geçildi, nokta yok. */
+  bitti: boolean;
+  /** Biniş durağında araç bekleniyor. */
+  beklerken: boolean;
   binisSaati: string;
   inisSaati: string;
   odak: (y: number | null) => void;
@@ -585,51 +611,82 @@ function DurakCizelgesi({
   const s = useStiller(stiller);
   const [ustY, setUstY] = useState(0);
   const son = duraklar.length - 1;
+  const yer = bitti || ilerleme == null ? null : Math.max(0, Math.min(son, ilerleme));
+  // Noktanın oturduğu durak (varsa) ve iki durak arasındaysa gidilen durak.
+  const sira = yer == null ? -1 : durakSirasi(yer, son);
+  const arada = yer != null && sira < son && yer - sira >= DURAKTA_PAYI;
+  const durakta = yer != null && !arada ? sira : -1;
+  const gidilen = arada ? sira + 1 : -1;
 
+  // Nokta yeni yerine yumuşakça kayar; ilk açılışta oraya atlar.
+  const y = useSharedValue(yer ?? 0);
+  const ilk = useRef(true);
   useEffect(() => {
-    odak(simdiki >= 0 && simdiki <= son ? ustY + simdiki * CIZELGE_SATIR : null);
-  }, [simdiki, ustY, son, odak]);
+    if (yer == null) return;
+    if (ilk.current) {
+      y.value = yer;
+      ilk.current = false;
+    } else {
+      y.value = withTiming(yer, { duration: 900, easing: Easing.out(Easing.cubic) });
+    }
+  }, [yer, y]);
+  const noktaStili = useAnimatedStyle(() => ({
+    transform: [{ translateY: y.value * CIZELGE_SATIR + (CIZELGE_SATIR - KONUM_NOKTASI) / 2 }],
+  }));
+
+  const odakSirasi = yer == null ? null : Math.round(yer);
+  useEffect(() => {
+    odak(odakSirasi == null ? null : ustY + odakSirasi * CIZELGE_SATIR);
+  }, [odakSirasi, ustY, odak]);
+
+  // Çizginin geçilen kısmı soluk: her satırın üst yarısı durağa gelirken, alt yarısı çıkarken.
+  const gecildiMi = (konum: number) => bitti || (yer != null && yer >= konum);
 
   return (
     <View style={s.cizelge} onLayout={(e) => setUstY(e.nativeEvent.layout.y)}>
       {duraklar.map((d, j) => {
-        const gecildi = simdiki >= 0 && j < simdiki;
-        const burada = j === simdiki;
+        const gecildi = bitti || (yer != null && j < yer - DURAKTA_PAYI && j !== durakta);
         const uc = j === 0 || j === son;
+        const burada = j === durakta;
+        let etiket: { yazi: string; renk?: string } | null = null;
+        if (j === son) etiket = { yazi: `in · ${inisSaati}`, renk: tema.yazi };
+        else if (burada && j === 0 && beklerken) etiket = { yazi: `buradasın · bin ${binisSaati}`, renk: tema.konum };
+        else if (burada) etiket = { yazi: 'şu an', renk: tema.konum };
+        else if (j === gidilen) etiket = { yazi: 'sıradaki', renk: tema.konum };
+        else if (j === 0) etiket = { yazi: `bin · ${binisSaati}` };
         return (
           <View key={j} style={[s.cizelgeSatir, { height: CIZELGE_SATIR }]}>
             <View style={s.cizelgeSutun}>
-              {j > 0 && <View style={[s.cizelgeUst, { backgroundColor: renk, opacity: gecildi || burada ? 0.35 : 1 }]} />}
-              {j < son && <View style={[s.cizelgeAlt, { backgroundColor: renk, opacity: gecildi ? 0.35 : 1 }]} />}
-              {burada ? (
-                <View style={[s.cizelgeBurada, { backgroundColor: tema.konum, borderColor: tema.yuzey }]} />
-              ) : (
-                <View
-                  style={[
-                    uc ? s.cizelgeUc : s.cizelgeNokta,
-                    { borderColor: renk, backgroundColor: j === son ? renk : tema.yuzey },
-                    gecildi && { opacity: 0.45 },
-                  ]}
-                />
+              {j > 0 && (
+                <View style={[s.cizelgeUst, { backgroundColor: renk, opacity: gecildiMi(j) ? 0.35 : 1 }]} />
               )}
+              {j < son && (
+                <View style={[s.cizelgeAlt, { backgroundColor: renk, opacity: gecildiMi(j + 0.5) ? 0.35 : 1 }]} />
+              )}
+              <View
+                style={[
+                  uc ? s.cizelgeUc : s.cizelgeNokta,
+                  { borderColor: renk, backgroundColor: j === son ? renk : tema.yuzey },
+                  gecildi && { opacity: 0.45 },
+                ]}
+              />
             </View>
             <Text
-              style={[s.cizelgeAd, (uc || burada) && s.kalin, gecildi && { color: tema.soluk }]}
+              style={[s.cizelgeAd, (uc || burada || j === gidilen) && s.kalin, gecildi && { color: tema.soluk }]}
               numberOfLines={1}
             >
               {baslikYap(d.ad)}
             </Text>
-            {burada && j !== son && (
-              // Biniş durağında bekliyorsan saat kaybolmasın: "şu an" metro şimdi geliyor gibi okunuyordu.
-              <Text style={[s.cizelgeEtiket, { color: tema.konum }]}>
-                {j === 0 ? `buradasın · bin ${binisSaati}` : 'şu an'}
-              </Text>
-            )}
-            {j === 0 && !burada && <Text style={s.cizelgeEtiket}>{`bin · ${binisSaati}`}</Text>}
-            {j === son && <Text style={[s.cizelgeEtiket, { color: tema.yazi }]}>{`in · ${inisSaati}`}</Text>}
+            {etiket && <Text style={[s.cizelgeEtiket, etiket.renk ? { color: etiket.renk } : null]}>{etiket.yazi}</Text>}
           </View>
         );
       })}
+      {yer != null && (
+        <Animated.View
+          pointerEvents="none"
+          style={[s.cizelgeBurada, s.cizelgeKonum, { backgroundColor: tema.konum, borderColor: tema.yuzey }, noktaStili]}
+        />
+      )}
     </View>
   );
 }
@@ -933,7 +990,9 @@ const stiller = (t: Tema) =>
     cizelgeAlt: { position: 'absolute', bottom: 0, height: '50%', width: 3 },
     cizelgeNokta: { width: 9, height: 9, borderRadius: 5, borderWidth: 2.5 },
     cizelgeUc: { width: 13, height: 13, borderRadius: 7, borderWidth: 3 },
-    cizelgeBurada: { width: 16, height: 16, borderRadius: 8, borderWidth: 3 },
+    cizelgeBurada: { width: KONUM_NOKTASI, height: KONUM_NOKTASI, borderRadius: KONUM_NOKTASI / 2, borderWidth: 3 },
+    // Satırların üstünde kayan nokta: sütunun ortasına hizalı (sütun 16 pt, nokta 16 pt).
+    cizelgeKonum: { position: 'absolute', left: 0, top: 0 },
     cizelgeAd: { flex: 1, fontSize: 13.5, color: t.yazi },
     cizelgeEtiket: { fontSize: 12, fontWeight: '700', color: t.soluk, fontVariant: ['tabular-nums'] },
     manevraSokak: { fontSize: 13, color: t.soluk },
