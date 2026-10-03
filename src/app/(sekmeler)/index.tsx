@@ -64,7 +64,8 @@ export default function AnaEkran() {
   const kenar = useSafeAreaInsets();
   const tema = useTema();
   const s = useStiller(stiller);
-  const konum = useKonum();
+  // Konum izleniyor: yürüdükçe yakındaki duraklar ve harita yeni yere göre güncelleniyor.
+  const konum = useKonum({ izle: true });
   const { yerler, favoriler, favoriYerler } = useKayitlar();
   /** Haritada basılı tutulan nokta; seçenek yaprağı açıkken dolu. adres: undefined aranıyor, null bulunamadı. */
   const [secim, setSecim] = useState<{ lat: number; lon: number; adres?: Adres | null } | null>(null);
@@ -81,15 +82,20 @@ export default function AnaEkran() {
   const { latitude, longitude } = konum.nokta;
   const hazir = konum.tur !== 'bekleniyor';
 
+  // Yürürken yükler üst üste binebilir; yalnız en son istenen konumun sonucu yazılır.
+  const sonYukleme = useRef(0);
   const duraklariYukle = useCallback(async () => {
+    const no = ++sonYukleme.current;
     try {
       const liste = await yakinDuraklariGetir(latitude, longitude);
+      if (no !== sonYukleme.current) return;
       setDuraklar(liste);
       // Yakındaki ilk durakların otobüs hatlarını köprü öncelikle tarasın: evden çıkarken
       // bakılan durakta otobüsler canlı görünsün.
       kopruyeIlgiBildir(liste.slice(0, 4).flatMap((y) => (y.durak.routes ?? []).map((r) => r.shortName)));
       setHata(null);
     } catch (e) {
+      if (no !== sonYukleme.current) return;
       setHata(e instanceof OtpHatasi ? e.message : 'Yakındaki duraklar yüklenemedi.');
     }
   }, [latitude, longitude]);
@@ -100,17 +106,30 @@ export default function AnaEkran() {
   // Ana ekran başka bir ekranın altındayken (durak, rota) yenileme durur, dönünce tazelenir.
   useCanliAralik(duraklariYukle, YENILEME_ARALIGI, hazir);
 
+  // Harita konumu izliyor; kullanıcı haritayı kaydırınca bırakıyor (başka yere bakıyordur),
+  // konum düğmesi ya da sekmeye yeniden dokunma tekrar konuma bağlıyor. İlk ortalama
+  // yakınlaştırmayı da ayarlar; izlerken yakınlık korunur, yalnız merkez kayar.
+  const haritaTakip = useRef(true);
+  const ilkOrtalama = useRef(true);
+  const konumaOrtala = useCallback(() => {
+    haritaTakip.current = true;
+    harita.current?.animateToRegion({ latitude, longitude, latitudeDelta: 0.012, longitudeDelta: 0.012 }, 400);
+  }, [latitude, longitude]);
   useEffect(() => {
-    if (!hazir) return;
-    harita.current?.animateToRegion({ latitude, longitude, latitudeDelta: 0.012, longitudeDelta: 0.012 }, 500);
+    if (!hazir || !haritaTakip.current) return;
+    if (ilkOrtalama.current) {
+      ilkOrtalama.current = false;
+      harita.current?.animateToRegion({ latitude, longitude, latitudeDelta: 0.012, longitudeDelta: 0.012 }, 500);
+    } else {
+      harita.current?.animateCamera({ center: { latitude, longitude } }, { duration: 500 });
+    }
   }, [hazir, latitude, longitude]);
 
   // Keşfet sekmesine yeniden dokununca harita konumuna döner (iPhone Haritalar'daki gibi).
   const ortala = useRef({ scrollToTop: () => {} });
   useEffect(() => {
-    ortala.current.scrollToTop = () =>
-      harita.current?.animateToRegion({ latitude, longitude, latitudeDelta: 0.012, longitudeDelta: 0.012 }, 400);
-  }, [latitude, longitude]);
+    ortala.current.scrollToTop = konumaOrtala;
+  }, [konumaOrtala]);
   useScrollToTop(ortala);
 
   const buradan = { kLat: String(latitude), kLon: String(longitude), kAd: konum.tur === 'gercek' ? 'Konumum' : 'Kadıköy (örnek konum)' };
@@ -166,6 +185,10 @@ export default function AnaEkran() {
         showsPointsOfInterests={false}
         toolbarEnabled={false}
         onLongPress={haritadanSec}
+        // Parmak haritada kayınca (kaydırma, yakınlaştırma) harita konumu izlemeyi bırakır.
+        onTouchMove={() => {
+          haritaTakip.current = false;
+        }}
         mapPadding={{ top: 150, right: 0, bottom: yaprakBoyu, left: 0 }}
       >
         {konum.tur === 'varsayilan' && <Marker coordinate={konum.nokta} title="Örnek konum" pinColor={tema.konum} />}
@@ -195,7 +218,15 @@ export default function AnaEkran() {
         >
           <Ikon ad="search" />
           <Text style={s.aramaYazi}>Nereye gidiyorsun?</Text>
-          <Pressable hitSlop={8} onPress={konum.yenile} accessibilityLabel="Konumumu yenile" style={s.konumDugme}>
+          <Pressable
+            hitSlop={8}
+            onPress={() => {
+              konumaOrtala();
+              konum.yenile();
+            }}
+            accessibilityLabel="Konumumu yenile"
+            style={s.konumDugme}
+          >
             <Ikon ad="locate" renkKodu={tema.vurguYazi} boyut={18} />
           </Pressable>
         </Pressable>
