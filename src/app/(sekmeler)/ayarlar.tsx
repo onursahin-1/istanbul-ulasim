@@ -170,8 +170,8 @@ export default function AyarlarEkrani() {
         ))}
       </View>
       <Text style={s.disAciklama}>
-        Kapattığın türler rotalarda geri planda kalır: aynı yere başka türlerle makul bir yol varsa o öne çıkar. Başka
-        yol yoksa kapalı türü kullanan rota yine gösterilir. En az bir tür açık kalır.
+        Kapattığın türler rotalarda hiç kullanılmaz. Onlar olmadan gidilemeyen bir yer ararsan uyarılırsın. En az bir
+        tür açık kalır.
       </Text>
 
       <Text style={s.bolumBaslik}>HATIRLATICILAR</Text>

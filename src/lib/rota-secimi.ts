@@ -3,7 +3,7 @@
 // Bağımlılıksız: testlerden çağrılabiliyor.
 
 import { EN_COK_YURUME_RAYLI_SN, EN_COK_YURUME_SN, type RotaTercihi } from './sorgular';
-import { kapaliTurKullaniyor, kapaliTurleriGeriAl, type VasitaTuru } from './vasita';
+import { kapaliTurKullaniyor, kapaliTurleriAyikla, minibusPayi, type VasitaTuru } from './vasita';
 
 /** Burada gereken kadarı: OTP'nin itinerary alanları. */
 export type SiralanacakRota = {
@@ -78,21 +78,36 @@ export function otobusSuresi(g: SiralanacakRota): number {
  * Önerilen sıralamanın puanı (saniye gibi okunur, küçük olan iyi): süre + yürümenin
  * yarısı + aktarma başına 5 dk + otobüste geçen sürenin beşte biri. Aynı süreli iki
  * rotadan az yürüyen, az aktarmalı ve trafiğe daha az bağlı olanı öne çıkar.
+ *
+ * Minibüs ve dolmuş ayrıca cezalı: her bacak 10 dk, içinde geçen süre yarı yarıya fazla
+ * sayılıyor. Saatleri yok (sıklıkla tanımlı), duraktan ne zaman geçeceği belli değil;
+ * tarifeli bir otobüs, metro ya da vapur birkaç dakika uzun sürse de daha güvenilir.
  */
 export function oneriPuani(g: SiralanacakRota): number {
-  return (g.duration ?? Infinity) + 0.5 * (g.walkTime ?? 0) + 300 * g.numberOfTransfers + 0.2 * otobusSuresi(g);
+  const minibus = minibusPayi(g);
+  return (
+    (g.duration ?? Infinity) +
+    0.5 * (g.walkTime ?? 0) +
+    300 * g.numberOfTransfers +
+    0.2 * otobusSuresi(g) +
+    0.5 * minibus.sure +
+    MINIBUS_BACAK_CEZASI * minibus.bacak
+  );
 }
+
+/** Önerilen sıralamada her minibüs ya da dolmuş bacağının cezası (saniye). */
+export const MINIBUS_BACAK_CEZASI = 600;
 
 /**
  * Listeyi seçilen tercihe göre sıralar (yeni dizi). Kapalı vasıta türünü kullanan
- * rotalar, onu kullanmayan makul rotaların arkasına geçer (bkz. vasita.ts).
+ * rota listede yer almaz (bkz. vasita.ts).
  */
 export function rotalariSirala<T extends SiralanacakRota>(
   liste: T[],
   tercih: RotaTercihi,
   kapali: VasitaTuru[] = [],
 ): T[] {
-  return kapaliTurleriGeriAl(tercihSirasi(liste, tercih, kapali), kapali);
+  return tercihSirasi(kapaliTurleriAyikla(liste, kapali), tercih, kapali);
 }
 
 function tercihSirasi<T extends SiralanacakRota>(liste: T[], tercih: RotaTercihi, kapali: VasitaTuru[]): T[] {

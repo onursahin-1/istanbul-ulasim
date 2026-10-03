@@ -151,6 +151,8 @@ export default function RotaEkrani() {
   const p = useLocalSearchParams<Parametreler>();
   const [guzergahlar, setGuzergahlar] = useState<Guzergah[] | null>(null);
   const [bilgi, setBilgi] = useState<string | null>(null);
+  /** Rota yok çünkü Ayarlar'da kapatılan türler olmadan gidilemiyor. */
+  const [kapaliUyarisi, setKapaliUyarisi] = useState(false);
   const [hata, setHata] = useState<string | null>(null);
   const [cevrimdisi, setCevrimdisi] = useState<number | null>(null);
   const [aramaSaati, setAramaSaati] = useState(istanbulSaat());
@@ -199,6 +201,7 @@ export default function RotaEkrani() {
       setGuzergahlar(null);
       setHata(null);
       setBilgi(null);
+      setKapaliUyarisi(false);
       setCevrimdisi(null);
       setAramaSaati(istanbulSaat());
       try {
@@ -209,7 +212,9 @@ export default function RotaEkrani() {
         if (eski()) return;
         setGuzergahlar(sonuc.guzergahlar);
         setCevrimdisi(sonuc.cevrimdisi);
-        if (sonuc.guzergahlar.length === 0) {
+        if (sonuc.guzergahlar.length === 0 && sonuc.kapaliYuzunden) {
+          setKapaliUyarisi(true);
+        } else if (sonuc.guzergahlar.length === 0) {
           const kod = sonuc.hatalar[0]?.code;
           const temel = (kod && HATA_METINLERI[kod]) ?? 'Bu saatte uygun bir rota bulunamadı.';
           // Tercihler sonucu daraltmış olabilir; kullanıcı neyi gevşetebileceğini bilsin.
@@ -358,6 +363,22 @@ export default function RotaEkrani() {
         {hata && <HataKutusu mesaj={hata} tekrarDene={() => ara()} />}
         {!hata && !guzergahlar && <Yukleniyor metin="En uygun rotalar hesaplanıyor…" />}
         {bilgi && <Text style={s.bilgi}>{bilgi}</Text>}
+        {kapaliUyarisi && (
+          <View style={s.kapaliUyari}>
+            <View style={s.kapaliUyariUst}>
+              <Ikon ad="alert-circle-outline" boyut={20} renkKodu={tema.uyari} />
+              <Text style={s.kapaliUyariBaslik}>Kapalı vasıta türleri yüzünden rota yok</Text>
+            </View>
+            <Text style={s.kapaliUyariYazi}>
+              {`Bu yolculuk ancak kapattığın türlerle yapılabiliyor: ${rotaSecenekleri.kapali
+                .map((t) => VASITA_ADLARI[t])
+                .join(', ')}. Vasıta tercihlerinden birini açarsan rotalar görünür.`}
+            </Text>
+            <Pressable style={s.kapaliUyariDugme} onPress={() => router.navigate('/ayarlar')} accessibilityRole="button">
+              <Text style={s.kapaliUyariDugmeYazi}>Vasıta tercihlerini aç</Text>
+            </Pressable>
+          </View>
+        )}
         {ozelGun && (
           <View style={s.ozelGun} accessible accessibilityLabel={ozelGunNotu(ozelGun)}>
             <Ikon ad="flag-outline" boyut={16} renkKodu={tema.vurgu} />
@@ -631,11 +652,10 @@ export default function RotaEkrani() {
               >
                 <View style={{ flex: 1 }}>
                   <Text style={s.tercihBaslik}>
-                    {`Geri planda: ${rotaSecenekleri.kapali.map((t) => VASITA_ADLARI[t]).join(', ')}`}
+                    {`Kullanılmıyor: ${rotaSecenekleri.kapali.map((t) => VASITA_ADLARI[t]).join(', ')}`}
                   </Text>
                   <Text style={s.tercihAlt}>
-                    Başka makul yol varsa bu türleri kullanan rotalar listenin sonunda. Değiştirmek için Ayarlar ›
-                    Vasıta türü tercihleri.
+                    Bu türler rotalarda hiç kullanılmaz. Değiştirmek için Ayarlar › Vasıta türü tercihleri.
                   </Text>
                 </View>
                 <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.soluk} />
@@ -704,6 +724,26 @@ const stiller = (t: Tema) =>
   filtreYazi: { fontSize: 12.5, fontWeight: '600', color: t.soluk },
   sonuclar: { padding: 12, gap: 10 },
   bilgi: { color: t.soluk, textAlign: 'center', padding: 20, lineHeight: 20 },
+  kapaliUyari: {
+    margin: 16,
+    padding: 14,
+    gap: 8,
+    borderRadius: 14,
+    backgroundColor: t.uyariAcik,
+  },
+  kapaliUyariUst: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  kapaliUyariBaslik: { flex: 1, fontSize: 15.5, fontWeight: '700', color: t.yazi },
+  kapaliUyariYazi: { fontSize: 13.5, lineHeight: 19, color: t.yazi },
+  kapaliUyariDugme: {
+    alignSelf: 'flex-start',
+    marginTop: 2,
+    height: 38,
+    paddingHorizontal: 14,
+    borderRadius: 19,
+    justifyContent: 'center',
+    backgroundColor: t.vurgu,
+  },
+  kapaliUyariDugmeYazi: { fontSize: 14, fontWeight: '700', color: t.vurguYazi },
   ozelGun: {
     flexDirection: 'row',
     gap: 9,

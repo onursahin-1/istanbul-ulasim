@@ -6,10 +6,10 @@
 
 
 // Rozetlerin doğru renk ve simgeyi seçebilmesi için hat sorgularında araç tipi ve renk de istenir.
-import { kapaliTurleriDuzelt, kipCarpani, type VasitaTuru } from './vasita';
+import { kapaliTurleriDuzelt, kipAcikMi, type TasimaSuzgeci, type VasitaTuru } from './vasita';
 
 // agency: minibüs ile dolmuşu ayırmak için gerekiyor; ikisinin de kısa adı güzergâhın tamamı.
-const HAT_ALANLARI = `gtfsId shortName longName mode color textColor agency { name }`;
+const HAT_ALANLARI = `gtfsId shortName longName mode color textColor agency { gtfsId name }`;
 
 const KALKIS_ALANLARI = `
   scheduledDeparture
@@ -281,16 +281,14 @@ const TUM_KIPLER = ['BUS', 'TROLLEYBUS', 'COACH', 'RAIL', 'SUBWAY', 'TRAM', 'MON
 
 /**
  * Otobüsü `isteksizlik` kadar pahalı sayan araç kipleri (öbür kipler 1). Kapalı vasıta
- * türlerinin kipleri ayrıca kipCarpani kadar pahalanıyor.
+ * türlerinin kipleri listede yok: rota motoru onları hiç kullanmıyor.
  */
 function otobusIsteksiz(isteksizlik: number, kapali: VasitaTuru[] = []): Record<string, unknown> {
   return {
     transit: {
-      transit: TUM_KIPLER.map((mode) => ({
+      transit: TUM_KIPLER.filter((mode) => kipAcikMi(mode, kapali)).map((mode) => ({
         mode,
-        cost: {
-          reluctance: (['BUS', 'TROLLEYBUS', 'COACH'].includes(mode) ? isteksizlik : 1) * kipCarpani(mode, kapali),
-        },
+        cost: { reluctance: ['BUS', 'TROLLEYBUS', 'COACH'].includes(mode) ? isteksizlik : 1 },
       })),
     },
   };
@@ -300,13 +298,19 @@ function otobusIsteksiz(isteksizlik: number, kapali: VasitaTuru[] = []): Record<
  * Seçenekleri OTP'nin `PlanPreferencesInput` yapısına çevirir.
  * Hiçbir tercih seçilmediyse null döner; o zaman sunucunun kendi varsayılanları geçerli olur.
  */
-export function tercihleriYap(secenekler: RotaSecenekleri): Record<string, unknown> | null {
+export function tercihleriYap(
+  secenekler: RotaSecenekleri,
+  suzgec: TasimaSuzgeci[] | null = null,
+): Record<string, unknown> | null {
   const tercihler: Record<string, unknown> = {};
   if (secenekler.tercih === 'azYurume') {
     tercihler.street = { walk: { reluctance: YURUME_ISTEKSIZLIGI } };
   }
   if (secenekler.tercih === 'azAktarma') {
     tercihler.transit = { transfer: { cost: AKTARMA_BEDELI } };
+  }
+  if (suzgec?.length) {
+    tercihler.transit = { ...((tercihler.transit as object) ?? {}), filters: suzgec };
   }
   if (secenekler.erisilebilir) {
     tercihler.accessibility = { wheelchair: { enabled: true } };
@@ -318,13 +322,33 @@ export function tercihleriYap(secenekler: RotaSecenekleri): Record<string, unkno
 export type RotaAramasi = { tercihler: Record<string, unknown> | null; modlar: Record<string, unknown> | null };
 
 /**
- * Bir tercih için yapılacak aramalar. Önerilen aramada iki arama birleşiyor: raylıyı
- * hafif kayıran ve kayırmayan. OTP tek aramada 12 rota veriyor ama çoğu aynı hattın
- * sonraki seferleri; iki arama farklı araç karışımlarını birlikte getiriyor.
+ * Aramalarda kullanılan hat süzgeçleri; ikisi de hat listesinden kuruluyor (otp.ts).
+ * @property kapali     kapalı vasıta türlerini dışarıda bırakan (vasitaSuzgeci)
+ * @property minibussuz minibüs ve dolmuşu dışarıda bırakan (minibussuzSuzgec)
  */
-export function aramalariYap(secenekler: RotaSecenekleri): RotaAramasi[] {
-  const tercihler = tercihleriYap(secenekler);
+export type AramaSuzgecleri = { kapali: TasimaSuzgeci[] | null; minibussuz: TasimaSuzgeci[] | null };
+
+/**
+ * Bir tercih için yapılacak aramalar. Önerilen aramada üç arama birleşiyor: raylıyı
+ * hafif kayıran, kayırmayan ve güçlü kayıran. OTP tek aramada 12 rota veriyor ama çoğu
+ * aynı hattın sonraki seferleri; birkaç arama farklı araç karışımlarını birlikte getiriyor.
+ *
+ * Minibüs ve dolmuş: GTFS'te saatleri yok, sıklıkla tanımlı (frequencies.txt); rota
+ * motoru onları "her an hazır" bir araç gibi görüyor ve hemen her rotaya sokuyordu.
+ * Önerilen ve raylı aramalarda yalnız biri minibüse izin veriyor, öbürleri minibüssüz;
+ * böylece listede her zaman minibüssüz seçenekler de var, sıralama minibüsü geride
+ * tutuyor (rota-secimi.ts, oneriPuani).
+ */
+export function aramalariYap(
+  secenekler: RotaSecenekleri,
+  suzgecler: AramaSuzgecleri = { kapali: null, minibussuz: null },
+): RotaAramasi[] {
   const kapali = secenekler.kapali ?? [];
+  const minibusAcik = !kapali.includes('minibus');
+  // Minibüssüz arama: kapalı türlerin süzgecine minibüs süzgeci eklenir.
+  const birlesik = [...(suzgecler.kapali ?? []), ...(minibusAcik ? (suzgecler.minibussuz ?? []) : [])];
+  const tercihler = tercihleriYap(secenekler, suzgecler.kapali);
+  const minibussuzTercihler = tercihleriYap(secenekler, birlesik.length ? birlesik : null);
   // Kapalı tür yoksa kayırmasız arama sunucunun varsayılanıyla (modes gönderilmez).
   const notr = kapali.length ? otobusIsteksiz(1, kapali) : null;
   switch (secenekler.tercih) {
@@ -332,17 +356,20 @@ export function aramalariYap(secenekler: RotaSecenekleri): RotaAramasi[] {
       // Üçüncü arama raylıyı güçlü kayırıyor: en iyi raylı seçenek her zaman elde olsun
       // (listede ilk üçe konuyor, bkz. rota-secimi.ts).
       return [
-        { tercihler, modlar: otobusIsteksiz(OTOBUS_HAFIF, kapali) },
+        { tercihler: minibussuzTercihler, modlar: otobusIsteksiz(OTOBUS_HAFIF, kapali) },
         { tercihler, modlar: notr },
-        { tercihler, modlar: otobusIsteksiz(OTOBUS_GUCLU, kapali) },
+        { tercihler: minibussuzTercihler, modlar: otobusIsteksiz(OTOBUS_GUCLU, kapali) },
       ];
     case 'rayli':
       return [
-        { tercihler, modlar: otobusIsteksiz(OTOBUS_GUCLU, kapali) },
+        { tercihler: minibussuzTercihler, modlar: otobusIsteksiz(OTOBUS_GUCLU, kapali) },
         { tercihler, modlar: otobusIsteksiz(OTOBUS_HAFIF, kapali) },
       ];
     default:
-      return [{ tercihler, modlar: notr }];
+      return [
+        { tercihler, modlar: notr },
+        ...(minibusAcik && suzgecler.minibussuz ? [{ tercihler: minibussuzTercihler, modlar: notr }] : []),
+      ];
   }
 }
 

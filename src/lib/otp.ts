@@ -36,7 +36,7 @@ export { SORGULAR, VARSAYILAN_SECENEKLER, secenekleriDuzelt, tercihleriYap } fro
 // Bacak yardımcıları bağımlılıksız bir dosyada; çağrı yerleri değişmesin diye buradan da açılıyor.
 export { bacakDuraklari } from './bacak';
 export type { RotaSecenekleri, RotaTercihi } from './sorgular';
-import { SORGULAR as S, VARSAYILAN_SECENEKLER, aramalariYap, type RotaSecenekleri } from './sorgular';
+import { SORGULAR as S, VARSAYILAN_SECENEKLER, aramalariYap, type AramaSuzgecleri, type RotaSecenekleri } from './sorgular';
 import { rotalariBirlestir, yurumeSiniri } from './rota-secimi';
 import type { HamArac } from './arac-konum';
 import type { Duyuru } from './duyuru';
@@ -44,6 +44,7 @@ import { isletmeciAdi } from './hat-adi';
 import { desenleriBirlestir, kardesKimlikleri } from './hat-tekil';
 import { aramayiIndir, ayniAdliSaatsizHatlar, saatsizHatlariKatla, yakinlariIndir, type Ebeveynli } from './istasyon';
 import { yonAdi } from './metin';
+import { kapaliTurleriAyikla, minibussuzSuzgec, vasitaSuzgeci, type VasitaTuru } from './vasita';
 import { gunuKaydir } from './onbellek';
 import { onbellegeYaz, onbellektenOku } from './onbellek-depo';
 
@@ -126,7 +127,7 @@ export type Hat = {
   mode?: string | null;
   color?: string | null;
   textColor?: string | null;
-  agency?: { name: string } | null;
+  agency?: { gtfsId?: string | null; name: string } | null;
 };
 
 export type Kalkis = {
@@ -198,7 +199,7 @@ export type Guzergah = {
 
 export type Konum = { ad: string; lat: number; lon: number };
 
-export type HatOzeti = Hat & { agency: { name: string } | null };
+export type HatOzeti = Hat & { agency: { gtfsId?: string | null; name: string } | null };
 
 export type HatDeseni = {
   code: string;
@@ -301,7 +302,25 @@ export type RotaSonucu = {
   hatalar: { code: string; description: string }[];
   /** Hiçbir rota 20 dakikadan az yürütmüyor; en az yürüyenler gösteriliyor. */
   yurumeAsildi?: boolean;
+  /**
+   * Rota yok, ama kapalı vasıta türleri açık olsaydı olacaktı. Ekran yolcuyu uyarıp
+   * vasıta tercihlerine yönlendiriyor.
+   */
+  kapaliYuzunden?: boolean;
 };
+
+/**
+ * Arama süzgeçleri hat listesinden kuruluyor (minibüs işletmecileri, Metrobüs hatları).
+ * Hat listesi alınamazsa süzgeçsiz aranır; kapalı türler yine de sonuçtan ayıklanır.
+ */
+async function aramaSuzgecleri(kapali: VasitaTuru[], sinyal?: AbortSignal): Promise<AramaSuzgecleri> {
+  try {
+    const hatlar = await hatlariGetir(sinyal);
+    return { kapali: vasitaSuzgeci(kapali, hatlar), minibussuz: minibussuzSuzgec(hatlar) };
+  } catch {
+    return { kapali: null, minibussuz: null };
+  }
+}
 
 export async function rotaPlanla(
   nereden: Konum,
@@ -317,26 +336,37 @@ export async function rotaPlanla(
     } | null;
   };
   const yer = (k: Konum) => ({ label: k.ad, location: { coordinate: { latitude: k.lat, longitude: k.lon } } });
-  // Tercihe göre bir ya da iki arama (bkz. aramalariYap); sonuçlar birleşiyor.
-  const cevaplar = await Promise.all(
-    aramalariYap(secenekler).map((arama) =>
-      sorgula<Cevap>(
-        ROTA_PLANLA,
-        {
-          nereden: yer(nereden),
-          nereye: yer(nereye),
-          zaman: zaman.tur === 'varis' ? { latestArrival: zaman.an } : { earliestDeparture: zaman.an },
-          tercihler: arama.tercihler,
-          // OTP 2.10 `modes: null` gelince çöküyor ("modesArgs is null"); yoksa hiç gönderilmez.
-          ...(arama.modlar ? { modlar: arama.modlar } : {}),
-        },
-        sinyal,
+  const kapali = secenekler.kapali ?? [];
+  const suzgecler = await aramaSuzgecleri(kapali, sinyal);
+  // Tercihe göre birkaç arama (bkz. aramalariYap); sonuçlar birleşiyor.
+  const ara = (aramalar: ReturnType<typeof aramalariYap>) =>
+    Promise.all(
+      aramalar.map((arama) =>
+        sorgula<Cevap>(
+          ROTA_PLANLA,
+          {
+            nereden: yer(nereden),
+            nereye: yer(nereye),
+            zaman: zaman.tur === 'varis' ? { latestArrival: zaman.an } : { earliestDeparture: zaman.an },
+            tercihler: arama.tercihler,
+            // OTP 2.10 `modes: null` gelince çöküyor ("modesArgs is null"); yoksa hiç gönderilmez.
+            ...(arama.modlar ? { modlar: arama.modlar } : {}),
+          },
+          sinyal,
+        ),
       ),
-    ),
-  );
-  const hepsi = rotalariBirlestir(
-    cevaplar.map((c) => (c.planConnection?.edges ?? []).flatMap((e) => (e ? [e.node] : []))),
-  );
+    );
+  const rotalar = (c: Cevap[]) =>
+    rotalariBirlestir(c.map((x) => (x.planConnection?.edges ?? []).flatMap((e) => (e ? [e.node] : []))));
+  const cevaplar = await ara(aramalariYap(secenekler, suzgecler));
+  // Süzgece ek güvence: kapalı türü kullanan rota listeye hiç girmez.
+  const hepsi = kapaliTurleriAyikla(rotalar(cevaplar), kapali);
+  // Hiç rota yoksa: kapalı türler açık olsa çıkar mıydı? Çıkıyorsa sebep tercihler.
+  let kapaliYuzunden = false;
+  if (!hepsi.length && kapali.length) {
+    const deneme = await ara(aramalariYap({ ...secenekler, kapali: [] }).slice(0, 1));
+    kapaliYuzunden = rotalar(deneme).some((g) => g.legs.some((b) => b.transitLeg));
+  }
   const { rotalar: guzergahlar, asildi } = yurumeSiniri(hepsi);
   // Varışa göre aramada OTP en geç çıkanı başa koyuyor; liste her zaman kalkışa göre okunsun.
   if (zaman.tur === 'varis') guzergahlar.sort((a, b) => (a.start ?? '').localeCompare(b.start ?? ''));
@@ -344,6 +374,7 @@ export async function rotaPlanla(
     guzergahlar,
     hatalar: cevaplar.find((c) => c.planConnection?.routingErrors?.length)?.planConnection?.routingErrors ?? [],
     ...(asildi ? { yurumeAsildi: true } : {}),
+    ...(kapaliYuzunden ? { kapaliYuzunden: true } : {}),
   };
   if (sonuc.guzergahlar.length) void onbellegeYaz(rotaAnahtari(nereden, nereye, secenekler, zaman.tur), sonuc);
   return sonuc;

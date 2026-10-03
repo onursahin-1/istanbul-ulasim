@@ -7,14 +7,16 @@ import { rotalariSirala } from '../rota-secimi.ts';
 import { aramalariYap } from '../sorgular.ts';
 import {
   bacakTuru,
-  KAPALI_ISTEKSIZLIK,
+  kapaliTurleriAyikla,
   kapaliTurleriDuzelt,
-  kapaliTurleriGeriAl,
   kapaliTurKullaniyor,
-  kipCarpani,
+  kipAcikMi,
+  minibussuzSuzgec,
   turuDegistir,
+  vasitaSuzgeci,
   VASITA_TURLERI,
 } from '../vasita.ts';
+import { MINIBUS_BACAK_CEZASI, oneriPuani } from '../rota-secimi.ts';
 
 const bacak = (mode: string, dk: number, kisaAd = 'H', isletmeci = 'İETT') => ({
   mode,
@@ -65,56 +67,91 @@ describe('kapalı tür listesi', () => {
   });
 });
 
-describe('OTP isteksizliği', () => {
-  it('kapalı türün kipi pahalanır, öbürleri değişmez', () => {
-    assert.equal(kipCarpani('FERRY', ['vapur']), KAPALI_ISTEKSIZLIK);
-    assert.equal(kipCarpani('SUBWAY', ['vapur']), 1);
-    assert.equal(kipCarpani('GONDOLA', ['funikuler']), KAPALI_ISTEKSIZLIK);
+const hat = (gtfsId: string, kisaAd: string, mode: string, isletme: string, isletmeAdi: string) => ({
+  gtfsId,
+  shortName: kisaAd,
+  mode,
+  agency: { gtfsId: isletme, name: isletmeAdi },
+});
+const HATLAR = [
+  hat('1:500T', '500T', 'BUS', '1:1', 'IETT'),
+  hat('1:15F', '15F', 'BUS', '1:1', 'IETT'),
+  hat('1:34', '34', 'BUS', '1:1', 'IETT'),
+  hat('2:M1', 'M1', 'SUBWAY', '2:11', 'Metro İstanbul'),
+  hat('2:MB1', 'KADIKÖY-BOSTANCI', 'BUS', '2:37', 'Minibus'),
+  hat('2:TD1', 'TAKSİM-BEŞİKTAŞ', 'BUS', '2:19', 'Taksi Dolmus'),
+];
+
+describe('rota motoru süzgeci', () => {
+  it('kapalı türün kipi aramaya girmez; otobüs kipi üç türü de kapanınca çıkar', () => {
+    assert.equal(kipAcikMi('FERRY', ['vapur']), false);
+    assert.equal(kipAcikMi('SUBWAY', ['vapur']), true);
+    assert.equal(kipAcikMi('GONDOLA', ['funikuler']), false);
+    assert.equal(kipAcikMi('BUS', ['minibus']), true);
+    assert.equal(kipAcikMi('BUS', ['otobus', 'metrobus', 'minibus']), false);
   });
 
-  it('otobüs kipi, Metrobüs açıkken yarım ceza alır; üçü kapalıysa tam', () => {
-    assert.ok(kipCarpani('BUS', ['otobus']) > 1 && kipCarpani('BUS', ['otobus']) < KAPALI_ISTEKSIZLIK);
-    assert.equal(kipCarpani('BUS', ['metrobus']), 1);
-    assert.equal(kipCarpani('BUS', ['otobus', 'metrobus', 'minibus']), KAPALI_ISTEKSIZLIK);
+  it('minibüs kapalıysa minibüs ve dolmuş işletmecileri dışarıda', () => {
+    assert.deepEqual(vasitaSuzgeci(['minibus'], HATLAR), [{ exclude: [{ agencies: ['2:37', '2:19'] }] }]);
+  });
+
+  it('Metrobüs kapalıysa yalnız Metrobüs hatları dışarıda', () => {
+    assert.deepEqual(vasitaSuzgeci(['metrobus'], HATLAR), [{ exclude: [{ routes: ['1:34'] }] }]);
+  });
+
+  it('otobüs kapalı, Metrobüs açıksa İETT yerine izin verilenler listelenir', () => {
+    const [s] = vasitaSuzgeci(['otobus'], HATLAR)!;
+    assert.deepEqual(s.include, [{ agencies: ['2:11', '2:37', '2:19'] }, { routes: ['1:34'] }]);
+    assert.equal(s.exclude, undefined);
+  });
+
+  it('yalnız kip düzeyinde türler kapalıysa süzgeç gerekmez', () => {
+    assert.equal(vasitaSuzgeci(['vapur', 'metro'], HATLAR), null);
+    assert.equal(vasitaSuzgeci([], HATLAR), null);
+  });
+
+  it('minibüssüz süzgeç', () => {
+    assert.deepEqual(minibussuzSuzgec(HATLAR), [{ exclude: [{ agencies: ['2:37', '2:19'] }] }]);
   });
 
   it('aramalara işlenir; kapalı tür yoksa sunucunun varsayılanı kalır', () => {
     assert.deepEqual(aramalariYap({ tercih: 'hizli', erisilebilir: false, kapali: [] }), [
       { tercihler: null, modlar: null },
     ]);
-    const [a] = aramalariYap({ tercih: 'hizli', erisilebilir: false, kapali: ['vapur'] });
-    const kipler = (a.modlar as any).transit.transit as { mode: string; cost: { reluctance: number } }[];
-    assert.equal(kipler.find((k) => k.mode === 'FERRY')!.cost.reluctance, KAPALI_ISTEKSIZLIK);
-    assert.equal(kipler.find((k) => k.mode === 'SUBWAY')!.cost.reluctance, 1);
-    const d = aramalariYap({ tercih: 'dengeli', erisilebilir: false, kapali: ['vapur'] });
-    assert.ok(d.every((x) => x.modlar), 'önerilenin üç aramasında da vapur pahalı');
+    const suzgecler = { kapali: vasitaSuzgeci(['minibus', 'vapur'], HATLAR), minibussuz: minibussuzSuzgec(HATLAR) };
+    const aramalar = aramalariYap({ tercih: 'dengeli', erisilebilir: false, kapali: ['minibus', 'vapur'] }, suzgecler);
+    for (const a of aramalar) {
+      const kipler = (a.modlar as any).transit.transit.map((k: any) => k.mode);
+      assert.ok(!kipler.includes('FERRY'), 'vapur kipi aramada olmamalı');
+      assert.deepEqual((a.tercihler as any).transit.filters[0], { exclude: [{ agencies: ['2:37', '2:19'] }] });
+    }
+  });
+
+  it('minibüs açıkken önerilen aramaların ikisi minibüssüz', () => {
+    const suzgecler = { kapali: null, minibussuz: minibussuzSuzgec(HATLAR) };
+    const aramalar = aramalariYap({ tercih: 'dengeli', erisilebilir: false, kapali: [] }, suzgecler);
+    const minibussuz = aramalar.filter((a) => (a.tercihler as any)?.transit?.filters);
+    assert.equal(aramalar.length, 3);
+    assert.equal(minibussuz.length, 2);
   });
 });
 
-describe('liste sırası', () => {
+describe('liste', () => {
   const vapurlu = rota('vapur', 35, bacak('FERRY', 20, 'KDK-EMN', 'Şehirhatları A.Ş.'));
   const metrolu = rota('metro', 42, bacak('SUBWAY', 25, 'M4'), bacak('RAIL', 10, 'Marmaray'));
-  const uzun = rota('uzun', 95, bacak('BUS', 80, '500T'));
 
-  it('kapalı türü kullanan rota makul seçeneğin arkasına geçer', () => {
-    const sonuc = kapaliTurleriGeriAl([vapurlu, metrolu], ['vapur']);
-    assert.deepEqual(sonuc.map((r) => r.start), ['metro', 'vapur']);
+  it('kapalı türü kullanan rota listede hiç yer almaz', () => {
+    assert.deepEqual(kapaliTurleriAyikla([vapurlu, metrolu], ['vapur']).map((r) => r.start), ['metro']);
     assert.ok(kapaliTurKullaniyor(vapurlu, ['vapur']));
-  });
-
-  it('makul olmayan (çok uzun) seçenek kapalı türlünün önüne geçmez', () => {
-    const sonuc = kapaliTurleriGeriAl([vapurlu, uzun], ['vapur']);
-    assert.deepEqual(sonuc.map((r) => r.start), ['vapur', 'uzun']);
-  });
-
-  it('bütün rotalar kapalı türü kullanıyorsa sıra değişmez (adalara vapursuz yol yok)', () => {
-    const ikinci = rota('vapur2', 50, bacak('FERRY', 40, 'ADALAR', 'Turyol'));
-    assert.deepEqual(kapaliTurleriGeriAl([vapurlu, ikinci], ['vapur']).map((r) => r.start), ['vapur', 'vapur2']);
-  });
-
-  it('tercih sıralamasıyla birlikte çalışır', () => {
-    const sonuc = rotalariSirala([vapurlu, metrolu], 'hizli', ['vapur']);
-    assert.deepEqual(sonuc.map((r) => r.start), ['metro', 'vapur']);
+    assert.deepEqual(rotalariSirala([vapurlu, metrolu], 'hizli', ['vapur']).map((r) => r.start), ['metro']);
     assert.deepEqual(rotalariSirala([vapurlu, metrolu], 'hizli').map((r) => r.start), ['vapur', 'metro']);
+  });
+
+  it('önerilen sıralamada minibüs geride kalır', () => {
+    const minibuslu = rota('minibus', 30, bacak('BUS', 25, 'KADIKÖY-BOSTANCI', 'Minibus'));
+    const otobuslu = rota('otobus', 36, bacak('BUS', 30, '16D'));
+    assert.ok(oneriPuani(minibuslu) > oneriPuani(otobuslu), 'altı dakika kısa minibüs, otobüsün önüne geçmemeli');
+    assert.ok(MINIBUS_BACAK_CEZASI >= 300);
+    assert.deepEqual(rotalariSirala([minibuslu, otobuslu], 'dengeli').map((r) => r.start), ['otobus', 'minibus']);
   });
 });

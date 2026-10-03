@@ -1,14 +1,16 @@
-// Vasıta türü tercihleri: Ayarlar'da kapatılan türler rotalarda geri planda kalır.
+// Vasıta türü tercihleri: Ayarlar'da kapatılan türler rotalarda hiç kullanılmaz.
 //
-// Anlamı Moovit'teki gibi "öncelik", yasak değil. Kapalı tür iki yerde geri itiliyor:
-//   1. Rota motoru (OTP): o türün araç kipi pahalı sayılıyor (isteksizlik), böylece
-//      kapalı türü kullanmayan seçenekler de aramadan çıkıyor.
-//   2. Liste sırası: kapalı türü kullanmayan makul bir rota varsa kapalı türlülerin önüne
-//      geçiyor. Makul yoksa (adalara vapursuz yol yok) kapalı türlü rota yine gösteriliyor;
-//      "rota bulunamadı" hiç olmuyor.
+// İlk sürümde kapalı tür yalnız "geri planda" kalıyordu (pahalı sayılıp listenin sonuna
+// itiliyordu); minibüsü kapatan yolcu yine minibüslü rota görüyordu. Şimdi:
+//   1. Rota motoru (OTP) kapalı türü hiç kullanmıyor: araç kipi listeden çıkıyor
+//      (metro, Marmaray, tramvay, füniküler, vapur), otobüs kipi içindeki türler
+//      (Metrobüs, minibüs, dolmuş) hat ve işletmeci süzgeciyle ayıklanıyor.
+//   2. Güvence: gelen sonuçlarda yine de kapalı türlü rota varsa liste dışı kalıyor.
+//   3. Kapalı türler yüzünden hiç rota bulunamazsa yolcu uyarılıyor ve vasıta
+//      tercihlerine yönlendiriliyor (rota.tsx).
 //
-// Metrobüs, minibüs ve dolmuş OTP'de otobüsle aynı kip (BUS). Motor onları ayıramıyor;
-// ayrım liste sırasında, hattın kodu ve işletmecisiyle yapılıyor.
+// Metrobüs, minibüs ve dolmuş OTP'de otobüsle aynı kip (BUS); ayrım hattın kodu ve
+// işletmecisiyle yapılıyor.
 //
 // Bağımlılıksız: testlerden çağrılabiliyor.
 
@@ -53,7 +55,7 @@ export function turuDegistir(kapali: VasitaTuru[], tur: VasitaTuru, acik: boolea
   return yeni.length >= VASITA_TURLERI.length ? kapali : VASITA_TURLERI.filter((t) => yeni.includes(t));
 }
 
-type Bacak = {
+export type Bacak = {
   mode?: string | null;
   transitLeg?: boolean | null;
   route?: { shortName?: string | null; agency?: { name?: string | null } | null } | null;
@@ -96,15 +98,6 @@ export function kapaliTurKullaniyor(rota: { legs: Bacak[] }, kapali: VasitaTuru[
   });
 }
 
-/** Kapalı türün OTP'deki isteksizlik çarpanı: 3 kat pahalı (raylı tercihteki otobüs kadar). */
-export const KAPALI_ISTEKSIZLIK = 3;
-/**
- * Otobüs kapalı ama Metrobüs ya da minibüs açıkken BUS kipinin çarpanı. Üçü aynı kip;
- * tam ceza açık kalan Metrobüs'ü de aramadan atardı, ceza yok da otobüssüz seçenek
- * getirmezdi.
- */
-export const KISMI_ISTEKSIZLIK = 1.8;
-
 const KIP_TURLERI: Record<string, VasitaTuru> = {
   SUBWAY: 'metro',
   MONORAIL: 'metro',
@@ -116,33 +109,111 @@ const KIP_TURLERI: Record<string, VasitaTuru> = {
   FERRY: 'vapur',
 };
 const OTOBUS_KIPLERI = ['BUS', 'TROLLEYBUS', 'COACH'];
+const OTOBUS_TURLERI: VasitaTuru[] = ['otobus', 'metrobus', 'minibus'];
 
-/** Bir OTP araç kipinin (BUS, SUBWAY, …) kapalı türlerden gelen isteksizlik çarpanı. */
-export function kipCarpani(kip: string, kapali: VasitaTuru[]): number {
+/**
+ * Bir OTP araç kipi (BUS, SUBWAY, …) aramaya girsin mi. Otobüs kipi ancak otobüs,
+ * Metrobüs ve minibüsün üçü de kapalıysa çıkar; biri açıksa kip kalır, kapalı olanlar
+ * süzgeçle ayıklanır (vasitaSuzgeci).
+ */
+export function kipAcikMi(kip: string, kapali: VasitaTuru[]): boolean {
   const k = kip.toUpperCase();
-  if (OTOBUS_KIPLERI.includes(k)) {
-    const otobusTurleri: VasitaTuru[] = ['otobus', 'metrobus', 'minibus'];
-    if (otobusTurleri.every((t) => kapali.includes(t))) return KAPALI_ISTEKSIZLIK;
-    return kapali.includes('otobus') ? KISMI_ISTEKSIZLIK : 1;
-  }
+  if (OTOBUS_KIPLERI.includes(k)) return !OTOBUS_TURLERI.every((t) => kapali.includes(t));
   const tur = KIP_TURLERI[k];
-  return tur && kapali.includes(tur) ? KAPALI_ISTEKSIZLIK : 1;
+  return !tur || !kapali.includes(tur);
+}
+
+/** Süzgeç kurmak için gereken hat bilgisi (OTP `routes` sorgusu). */
+export type SuzgecHatti = {
+  gtfsId: string;
+  shortName?: string | null;
+  mode?: string | null;
+  agency?: { gtfsId?: string | null; name?: string | null } | null;
+};
+
+/** OTP'nin `TransitFilterInput`'u: dışarıda bırakılan ve izin verilen işletmeci/hatlar. */
+export type TasimaSuzgeci = {
+  exclude?: ({ agencies: string[] } | { routes: string[] })[];
+  include?: ({ agencies: string[] } | { routes: string[] })[];
+};
+
+/** Bir hattın vasıta türü (bacakTuru ile aynı kural). */
+export function hatTuru(h: SuzgecHatti): VasitaTuru | null {
+  return bacakTuru({ mode: h.mode, transitLeg: true, route: { shortName: h.shortName, agency: h.agency } });
 }
 
 /**
- * Kapalı türü kullanan rotaları, kapalı türü kullanmayan makul rotaların arkasına alır.
- * Makul: en kısa rotanın bir buçuk katından ve 10 dakikadan fazla uzun olmayan. Sıra
- * [makul temiz rotalar, kapalı türlüler, kalan temizler]; her grubun içinde tercihin sırası.
+ * Kapalı türleri rota motorundan çıkaran süzgeç; kapalı tür yoksa ya da yalnız kip
+ * düzeyinde kapatılan türler varsa (metro, vapur… kip listesinden çıkıyor) null.
+ *
+ * İşletmecinin bütün hatları kapalıysa işletmeci dışarıda (minibüs, dolmuş). Bir
+ * kısmıysa: kapalı hat azsa onlar dışarıda (Metrobüs kapalı: 113 hat); çoksa izin
+ * verilenler listeleniyor (otobüs kapalı ama Metrobüs açık: İETT'nin 9.000'i aşkın
+ * hattını tek tek dışarıda bırakmak yerine yalnız Metrobüs hatlarına izin).
  */
-export function kapaliTurleriGeriAl<T extends { duration: number | null; legs: Bacak[] }>(
-  liste: T[],
-  kapali: VasitaTuru[],
-): T[] {
-  if (!kapali.length || liste.length < 2) return liste;
-  const kullanan = liste.filter((g) => kapaliTurKullaniyor(g, kapali));
-  if (!kullanan.length || kullanan.length === liste.length) return liste;
-  const enKisa = Math.min(...liste.map((g) => g.duration ?? Infinity));
-  const makulMu = (g: T) => (g.duration ?? Infinity) <= enKisa * 1.5 + 600;
-  const temiz = liste.filter((g) => !kapaliTurKullaniyor(g, kapali));
-  return [...temiz.filter(makulMu), ...kullanan, ...temiz.filter((g) => !makulMu(g))];
+export function vasitaSuzgeci(kapali: VasitaTuru[], hatlar: SuzgecHatti[]): TasimaSuzgeci[] | null {
+  if (!kapali.some((t) => OTOBUS_TURLERI.includes(t))) return null;
+  const isletmeciler = new Map<string, { acik: string[]; kapali: string[] }>();
+  for (const h of hatlar) {
+    const isl = h.agency?.gtfsId;
+    if (!isl || !h.gtfsId) continue;
+    const kayit = isletmeciler.get(isl) ?? { acik: [], kapali: [] };
+    const tur = hatTuru(h);
+    (tur && kapali.includes(tur) ? kayit.kapali : kayit.acik).push(h.gtfsId);
+    isletmeciler.set(isl, kayit);
+  }
+  const disaridaIsletme: string[] = [];
+  const disaridaHat: string[] = [];
+  const tamAcik: string[] = [];
+  const izinliHat: string[] = [];
+  let izinListesi = false;
+  for (const [isl, { acik, kapali: kapaliHat }] of isletmeciler) {
+    if (!kapaliHat.length) tamAcik.push(isl);
+    else if (!acik.length) disaridaIsletme.push(isl);
+    else if (kapaliHat.length <= acik.length) {
+      disaridaHat.push(...kapaliHat);
+      tamAcik.push(isl);
+    } else {
+      izinListesi = true;
+      izinliHat.push(...acik);
+    }
+  }
+  const exclude: NonNullable<TasimaSuzgeci['exclude']> = [];
+  if (disaridaIsletme.length) exclude.push({ agencies: disaridaIsletme });
+  if (disaridaHat.length) exclude.push({ routes: disaridaHat });
+  const suzgec: TasimaSuzgeci = {};
+  if (exclude.length) suzgec.exclude = exclude;
+  if (izinListesi) {
+    suzgec.include = [
+      ...(tamAcik.length ? [{ agencies: tamAcik }] : []),
+      ...(izinliHat.length ? [{ routes: izinliHat }] : []),
+    ];
+  }
+  return suzgec.exclude || suzgec.include ? [suzgec] : null;
+}
+
+/** Minibüs ve dolmuş işletmecilerini dışarıda bırakan süzgeç (önerilen aramanın çeşitliliği için). */
+export function minibussuzSuzgec(hatlar: SuzgecHatti[]): TasimaSuzgeci[] | null {
+  const isletmeler = [
+    ...new Set(hatlar.filter((h) => hatTuru(h) === 'minibus').map((h) => h.agency?.gtfsId).filter((x): x is string => !!x)),
+  ];
+  return isletmeler.length ? [{ exclude: [{ agencies: isletmeler }] }] : null;
+}
+
+/** Kapalı türü kullanan rotaları listeden çıkarır (rota motoru süzgecine ek güvence). */
+export function kapaliTurleriAyikla<T extends { legs: Bacak[] }>(liste: T[], kapali: VasitaTuru[]): T[] {
+  if (!kapali.length) return liste;
+  return liste.filter((g) => !kapaliTurKullaniyor(g, kapali));
+}
+
+/** Rotadaki minibüs ve dolmuş süresi (saniye) ve bacak sayısı. */
+export function minibusPayi(rota: { legs: (Bacak & { duration?: number | null })[] }): { sure: number; bacak: number } {
+  let sure = 0;
+  let bacak = 0;
+  for (const b of rota.legs) {
+    if (bacakTuru(b) !== 'minibus') continue;
+    sure += b.duration ?? 0;
+    bacak += 1;
+  }
+  return { sure, bacak };
 }
