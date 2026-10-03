@@ -165,11 +165,10 @@ const ROZET_KOYU: Record<string, string> = {
 
 /**
  * Resmî rozeti daire olan raylı hatlar (metro.istanbul'daki gibi: hat renginde daire,
- * içinde kod). Açık renkli zeminlerde yazı koyu: resmî rozette beyaz ama M9 sarısında,
- * M6 bejinde, M7 pembesinde okunmuyor.
+ * içinde beyaz kod). Yazı her hatta resmî rozetteki gibi beyaz; M6, M7, M9, T2 ve
+ * teleferikler de dahil.
  */
 const DAIRE_ROZETLI = new Set(Object.keys(HARITA_RENKLERI).filter((k) => k !== 'MARMARAY'));
-const KOYU_YAZILI = new Set(['M6', 'M7', 'M9', 'TF1', 'TF2', 'T2']);
 
 /**
  * Hattın resmî daire rozeti; yoksa (otobüs, Marmaray, vapur) null. Otobüs olarak
@@ -180,7 +179,7 @@ export function resmiRozet(hat: HatBilgisi): { renk: string; yazi: string; kod: 
   const kod = hatAnahtari(shortName?.trim() ?? '');
   if (!kod || !DAIRE_ROZETLI.has(kod)) return null;
   if (['BUS', 'TROLLEYBUS', 'COACH', 'FERRY'].includes((mode ?? '').toUpperCase())) return null;
-  return { renk: HARITA_RENKLERI[kod], yazi: KOYU_YAZILI.has(kod) ? '#1b1b1b' : '#ffffff', kod };
+  return { renk: HARITA_RENKLERI[kod], yazi: '#ffffff', kod };
 }
 
 /** Hat kodu bilinmeyen raylı sistem ve vapur hatları için araç tipinin rengi. */
