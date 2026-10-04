@@ -1,27 +1,33 @@
-# İETT seferlerinin ara durak saatlerini, otobüslerin gerçekte ölçülen yol süreleriyle doldurur.
+# İETT seferlerinin ara durak saatlerini ve süresini, otobüslerin gerçekte ölçülen yol
+# süreleriyle yeniden kurar.
 #
 # Sorun: İETT tarifesinde bir seferin yalnız ilk ve son durağının saati var; aradaki
-# duraklar boş. OTP bunları mesafeye göre eşit dağıtıyor: trafikteki
-# ana cadde ile boş sokak aynı hızda geçiliyor sayılıyor. Rota motoru aktarma paylarını,
-# varış saatlerini ve "hangi rota daha hızlı" kararını bu uydurma saatlerle veriyordu.
+# duraklar boş. OTP bunları mesafeye göre eşit dağıtıyor: trafikteki ana cadde ile boş
+# sokak aynı hızda geçiliyor sayılıyor. Üstelik uç saatler planlanmış süre: sabah
+# yoğunluğunda 41ST, 50M, 97M gibi hatlarda otobüsler tarifeden ~%30 yavaş (köprünün
+# ölçümü). Rota motoru bu yüzden Moovit'in 1 sa 9 dk dediği yolculuğa 45 dk diyordu.
 #
 # Çözüm: canlı veri köprüsü (kopru/) her gün binlerce otobüsün iki durak arası gerçek
 # süresini ölçüyor (kopru/segment.mjs → kopru/kayit/segment-sureleri.json). Süreler saat
 # dilimine (00–06, 06–10, 10–16, 16–20, 20–24) ve hafta içi / hafta sonuna göre ayrı.
-# Köprünün kendi ölçümünde bu süreler tarifenin eşit dağıtımından belirgin biçimde iyi:
-# 4 durak sonrası ortalama sapma 2,2 → 1,1 dk, 10 durak sonrası 4,3 → 2,3 dk.
 #
 # Kural:
-#   • İETT'nin verdiği saatlere (uç duraklar; betik bunları timepoint=1 işaretler) dokunulmaz. Aradaki süre,
-#     durak çiftlerinin öğrenilen sürelerine göre bölüştürülür (toplam tarifeye eşit kalır).
-#     Böylece seferin kalkış ve varış saati İETT'nin planı, ama aradaki duraklara varış
-#     yolun gerçek akışına göre: trafikli kısım uzun, açık yol kısa.
-#   • Öğrenilmemiş durak çiftinde süre mesafeden, aynı seferin öğrenilen kısımlarındaki
-#     hızla tahmin edilir; seferde hiç öğrenilen kısım yoksa eşit dağıtım (eski davranış).
-#   • Durak çiftinin o saat dilimi için yeterli ölçümü yoksa (en az 4) aynı gün türünün
+#   • Seferin İETT'deki kalkış saati (ilk durak) olduğu gibi kalır: otobüs garajdan o
+#     saatte çıkıyor.
+#   • Her durak arası: ölçüm varsa ölçülen süre. Yoksa tarifenin o aradaki süresi (uç
+#     saatlerin mesafeye göre bölüşümü), seferin ölçülen kısımlarındaki "gerçek / tarife"
+#     oranıyla düzeltilmiş. Ölçülen kısım seferin küçük bir parçasıysa oran 1'e çekilir
+#     (az ölçüme fazla güvenilmesin) ve 0,7–1,8 aralığında tutulur.
+#   • Böylece ara duraklar yolun gerçek akışına göre dağılıyor VE seferin toplam süresi
+#     gerçekçi oluyor (yoğun saatte uzun, gece kısa). Son durak saati de buna göre değişir.
+#   • Durak çiftinin o saat dilimi için yeterli ölçümü (en az 4) yoksa aynı gün türünün
 #     öbür dilimlerinin ortalaması kullanılır.
-#   • Doldurulan satırlar timepoint=0 kalır. Betik tekrar çalıştırılabilir: her seferinde
-#     timepoint=0 satırlar yeniden hesaplanır (yeni ölçümlerle güncellenir).
+#
+# Özgün tarife korunur: betik her çalıştığında İETT'nin boş ara saatli özgün zip'inden
+# başlar. İlk çalışmada (zip İBB'den yeni gelmişken) özgünün bir kopyası
+# `C:\otp\iett-gtfs-ozgun.zip`'e yazılır (OTP'nin okuduğu istanbul klasörünün dışına:
+# orada ikinci bir besleme sayılırdı). Sonraki çalışmalar oradan başlar; köprü yeni ölçüm
+# topladıkça betik yeniden çalıştırılabilir.
 #
 # Kullanım:
 #   python iett-sure-uygula.py C:\otp\istanbul\istanbul-iett-gtfs.zip ..\kopru\kayit\segment-sureleri.json
@@ -32,6 +38,8 @@ import csv, io, json, math, os, shutil, sys, time, zipfile
 EN_AZ_OLCUM = 4          # kopru/segment.mjs ile aynı eşik
 EN_KISA_SN = 10          # iki durak arası en az bu kadar
 DILIMLER = [(0, 6), (6, 10), (10, 16), (16, 20), (20, 24)]
+GUVEN_PAYI = 0.3         # seferin bu kadarı ölçülmüşse oran tam kullanılır
+ORAN_ALT, ORAN_UST = 0.7, 1.8
 
 
 def dilim_no(saniye):
@@ -83,19 +91,47 @@ def ogrenilenleri_oku(yol):
     return tam, yedek
 
 
+def ara_saatleri_bos_mu(zip_yolu):
+    """İBB'den yeni gelmiş zip mi: ilk seferde saati boş ara durak var mı."""
+    with zipfile.ZipFile(zip_yolu) as z:
+        okuyucu = csv.reader(io.TextIOWrapper(z.open('stop_times.txt'), encoding='utf-8-sig'))
+        baslik = next(okuyucu)
+        v = baslik.index('arrival_time')
+        for n, satir in enumerate(okuyucu):
+            if n > 200:
+                return False
+            if len(satir) > v and not satir[v]:
+                return True
+    return False
+
+
 def main(zip_yolu, sure_yolu):
     basla = time.time()
+    ozgun = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(zip_yolu))), 'iett-gtfs-ozgun.zip')
+    if ara_saatleri_bos_mu(zip_yolu):
+        shutil.copyfile(zip_yolu, ozgun)
+        kaynak = ozgun
+        print(f'Özgün tarife saklandı: {ozgun}')
+    elif os.path.exists(ozgun):
+        kaynak = ozgun
+        print(f'Özgün tarifeden başlanıyor: {ozgun}')
+    else:
+        raise SystemExit(
+            f'{zip_yolu} daha önce işlenmiş, özgün tarife ({ozgun}) yok. '
+            'Önce veriyi yenile (yenile.ps1) ya da yedekteki özgün zip\'i oraya kopyala.')
+
     tam, yedek = ogrenilenleri_oku(sure_yolu)
     print(f'Öğrenilen süre: {len(tam)} durak çifti-dilim, {len(yedek)} gün türü yedeği')
 
-    with zipfile.ZipFile(zip_yolu) as z:
+    with zipfile.ZipFile(kaynak) as z:
         duraklar = {s['stop_id']: (float(s['stop_lat']), float(s['stop_lon'])) for s in tablo(z, 'stops.txt')}
         hafta_ici = {}
         for c in tablo(z, 'calendar.txt'):
             hafta_ici[c['service_id']] = any(c[g] == '1' for g in ('monday', 'tuesday', 'wednesday', 'thursday', 'friday'))
         sefer_gun = {t['trip_id']: ('i' if hafta_ici.get(t['service_id'], True) else 'h') for t in tablo(z, 'trips.txt')}
 
-    sayac = {'sefer': 0, 'doldurulan': 0, 'ogrenilen': 0, 'yedek': 0, 'tahmin': 0, 'esit': 0, 'fark_toplam': 0, 'fark_sayi': 0}
+    sayac = {'sefer': 0, 'doldurulan': 0, 'ogrenilen': 0, 'yedek': 0, 'tarife': 0,
+             'sure_tarife': 0, 'sure_yeni': 0}
 
     def sure(a, b, gun, an):
         cift = f'{a}>{b}'
@@ -105,66 +141,69 @@ def main(zip_yolu, sure_yolu):
         d = yedek.get(f'{cift}|{gun}')
         if d is not None:
             return d, 'yedek'
-        return None, None
+        return None, 'tarife'
 
-    def seferi_doldur(satirlar, gun):
-        """satirlar: [ [trip_id, stop_id, seq, arr, dep, timepoint], ... ] (sıralı). Yerinde doldurur."""
-        if any(not r[3] and not r[4] for r in satirlar):
-            # İlk kez: İETT'nin saat yazdığı satırlar çapa. Onlar timepoint=1 işaretlenir
-            # (son durak veride timepoint=0 geliyor); betik yeniden çalışınca çapalar bunlar.
-            capalar = [i for i, r in enumerate(satirlar) if r[3] or r[4]]
-            for i in capalar:
-                satirlar[i][5] = '1'
-        else:
-            capalar = [i for i, r in enumerate(satirlar) if r[5] == '1']
+    def seferi_kur(satirlar, gun):
+        """satirlar: [ [trip_id, stop_id, seq, arr, dep, timepoint], ... ] (sıralı). Yerinde kurar."""
+        capalar = [i for i, r in enumerate(satirlar) if r[3] or r[4]]
         if len(capalar) < 2:
             return
+        for i in capalar:
+            satirlar[i][5] = '1'
+        son_capa = capalar[-1]
+        kayma = 0  # önceki aralıkta son saatin tarifeden ne kadar kaydığı
         for i, j in zip(capalar, capalar[1:]):
-            if j - i < 2:
-                continue
             t0 = saniye_oku(satirlar[i][4] or satirlar[i][3])
             t1 = saniye_oku(satirlar[j][3] or satirlar[j][4])
             if t0 is None or t1 is None or t1 <= t0:
                 continue
+            bas = t0 + kayma
             yol = [mesafe(duraklar.get(satirlar[k][1]), duraklar.get(satirlar[k + 1][1])) for k in range(i, j)]
             toplam_yol = sum(yol) or 1.0
-            # Dilim için önce eşit dağıtımla kabaca geçiş anı.
-            gecis, birik = [], 0.0
-            for m in yol:
-                gecis.append(t0 + (t1 - t0) * birik / toplam_yol)
-                birik += m
-            sureler, turler = [], []
+            tarife = [(t1 - t0) * m / toplam_yol for m in yol]
+            # Dilim için kabaca geçiş anı (tarifeye göre).
+            gecis, an = [], float(bas)
+            for d in tarife:
+                gecis.append(an)
+                an += d
+            olculen, turler = [], []
             for n, k in enumerate(range(i, j)):
                 d, tur = sure(satirlar[k][1], satirlar[k + 1][1], gun, int(gecis[n]))
-                sureler.append(d)
+                olculen.append(d)
                 turler.append(tur)
-            bilinen_yol = sum(m for m, d in zip(yol, sureler) if d is not None)
-            bilinen_sure = sum(d for d in sureler if d is not None)
-            if bilinen_sure > 0 and bilinen_yol > 0:
-                hiz = bilinen_yol / bilinen_sure
-            else:
-                hiz = toplam_yol / (t1 - t0)
-            for n, d in enumerate(sureler):
-                if d is None:
-                    sureler[n] = yol[n] / hiz if hiz > 0 else (t1 - t0) / len(yol)
-                    turler[n] = 'tahmin' if bilinen_sure > 0 else 'esit'
-            olcek = (t1 - t0) / (sum(sureler) or 1.0)
-            an = float(t0)
-            for n, k in enumerate(range(i + 1, j)):
-                an += max(sureler[n] * olcek, EN_KISA_SN)
-                yeni = min(int(round(an)), t1)
-                eski_dogrusal = t0 + (t1 - t0) * (sum(yol[: n + 1]) / toplam_yol)
-                sayac['fark_toplam'] += abs(yeni - eski_dogrusal)
-                sayac['fark_sayi'] += 1
+            bilinen_tarife = sum(t for t, d in zip(tarife, olculen) if d is not None)
+            bilinen_olcum = sum(d for d in olculen if d is not None)
+            oran = 1.0
+            if bilinen_tarife > 0:
+                ham = bilinen_olcum / bilinen_tarife
+                agirlik = min(1.0, (bilinen_tarife / (t1 - t0)) / GUVEN_PAYI)
+                oran = min(ORAN_UST, max(ORAN_ALT, 1 + (ham - 1) * agirlik))
+            sureler = [d if d is not None else t * oran for d, t in zip(olculen, tarife)]
+            if j != son_capa:
+                # Ara bir çapa (İETT'de nadir): o saat korunur, aradaki süre ona sığdırılır.
+                olcek = (t1 - bas) / (sum(sureler) or 1.0)
+                sureler = [d * olcek for d in sureler]
+            an = float(bas)
+            for n, k in enumerate(range(i + 1, j + 1)):
+                an += max(sureler[n], EN_KISA_SN)
+                if k == j and j != son_capa:
+                    yeni = t1
+                else:
+                    yeni = int(round(an))
                 metin = saniye_yaz(yeni)
                 satirlar[k][3] = metin
                 satirlar[k][4] = metin
-                sayac['doldurulan'] += 1
+                if k != j:
+                    sayac['doldurulan'] += 1
+            if j == son_capa:
+                sayac['sure_tarife'] += t1 - saniye_oku(satirlar[capalar[0]][4] or satirlar[capalar[0]][3])
+                sayac['sure_yeni'] += saniye_oku(satirlar[j][3]) - saniye_oku(satirlar[capalar[0]][4] or satirlar[capalar[0]][3])
+            kayma = (saniye_oku(satirlar[j][3]) - t1) if j == son_capa else 0
             for t in turler:
                 sayac[t] += 1
 
     gecici = zip_yolu + '.gecici'
-    with zipfile.ZipFile(zip_yolu) as eski, zipfile.ZipFile(gecici, 'w', zipfile.ZIP_DEFLATED) as yeni:
+    with zipfile.ZipFile(kaynak) as eski, zipfile.ZipFile(gecici, 'w', zipfile.ZIP_DEFLATED) as yeni:
         for bilgi in eski.infolist():
             if bilgi.filename != 'stop_times.txt':
                 yeni.writestr(bilgi, eski.read(bilgi.filename))
@@ -189,7 +228,7 @@ def main(zip_yolu, sure_yolu):
                     raise SystemExit(f'stop_times.txt sefere göre sıralı değil ({mevcut} iki kez geçiyor)')
                 gorulen.add(mevcut)
                 satirlar.sort(key=lambda r: int(r[2]))
-                seferi_doldur(satirlar, sefer_gun.get(mevcut, 'i'))
+                seferi_kur(satirlar, sefer_gun.get(mevcut, 'i'))
                 yazici.writerows(satirlar)
                 sayac['sefer'] += 1
 
@@ -204,13 +243,13 @@ def main(zip_yolu, sure_yolu):
             hedef.detach()
     shutil.move(gecici, zip_yolu)
 
-    parca = sayac['ogrenilen'] + sayac['yedek'] + sayac['tahmin'] + sayac['esit']
+    parca = sayac['ogrenilen'] + sayac['yedek'] + sayac['tarife']
     yuzde = lambda x: f'%{100 * x / parca:.1f}' if parca else '-'
-    print(f"{sayac['sefer']} sefer, {sayac['doldurulan']} ara durak saati dolduruldu ({time.time() - basla:.0f} sn)")
-    print(f"Durak arası süreler: öğrenilen {yuzde(sayac['ogrenilen'])}, öğrenilen (başka dilim) {yuzde(sayac['yedek'])}, "
-          f"mesafeden tahmin {yuzde(sayac['tahmin'])}, eşit dağıtım {yuzde(sayac['esit'])}")
-    if sayac['fark_sayi']:
-        print(f"Eşit dağıtıma göre ortalama fark: {sayac['fark_toplam'] / sayac['fark_sayi'] / 60:.1f} dk")
+    print(f"{sayac['sefer']} sefer, {sayac['doldurulan']} ara durak saati ({time.time() - basla:.0f} sn)")
+    print(f"Durak arası süreler: ölçülen {yuzde(sayac['ogrenilen'])}, ölçülen (başka dilim) {yuzde(sayac['yedek'])}, "
+          f"tarifeden (oranla düzeltilmiş) {yuzde(sayac['tarife'])}")
+    if sayac['sure_tarife']:
+        print(f"Sefer süreleri toplamda tarifenin %{100 * sayac['sure_yeni'] / sayac['sure_tarife']:.0f}'i")
 
 
 if __name__ == '__main__':

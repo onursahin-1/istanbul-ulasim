@@ -23,8 +23,16 @@ import {
 } from '@/components/ulasim';
 import { bacakCanli } from '@/lib/canli';
 import { kopruyeIlgiBildir, OtpHatasi, rotaPlanlaYedekli, type Guzergah, type Konum, type RotaTercihi } from '@/lib/otp';
-import { benzerleriAyikla, gosterimSirasi, rayliMi, rotalariSirala } from '@/lib/rota-secimi';
-import { kapaliTurKullaniyor, VASITA_ADLARI, type VasitaTuru } from '@/lib/vasita';
+import {
+  bacakHatlari,
+  benzerleriAyikla,
+  esdegerAnahtari,
+  gosterimSirasi,
+  rotaBolumu,
+  rotalariSirala,
+  type RotaBolumu,
+} from '@/lib/rota-secimi';
+import { VASITA_ADLARI, type VasitaTuru } from '@/lib/vasita';
 import { rotaSecenekleriKaydet, useKayitlar } from '@/lib/kayitlar';
 import { tazeKonum } from '@/lib/konum';
 import { guzergahlariSakla } from '@/lib/secim';
@@ -49,7 +57,12 @@ import { ekranAc } from '@/lib/gezinti';
 
 type Parametreler = { kLat: string; kLon: string; kAd: string; vLat: string; vLon: string; vAd: string };
 type Sirali = { g: Guzergah; sira: number };
-type Grup = { ana: Sirali; sonrakiler: Sirali[] };
+type Grup = {
+  ana: Sirali;
+  sonrakiler: Sirali[];
+  /** Her araç bacağında ananınki dışındaki eşdeğer hatlar ("97M / 141M"). */
+  alternatifler: Guzergah['legs'][number]['route'][][];
+};
 
 const SONRAKI_SAYISI = 3;
 
@@ -104,34 +117,40 @@ const TERCIHLER: { anahtar: RotaTercihi; ad: string; kisa: string; aciklama: str
 type ZamanTuru = 'kalkis' | 'varis';
 type ZamanSecimi = { tur: ZamanTuru; gun: number; saat: number; dakika: number } | null;
 
-/**
- * Aynı hatları aynı sırayla ve aynı duraklardan binerek kullanan güzergâhlar "aynı rota" sayılır.
- * Yalnızca yürüyüşten oluşan güzergâhlar kendi başına kalır.
- */
-function rotaAnahtari(g: Guzergah): string {
-  const araclar = g.legs.filter((b) => b.transitLeg);
-  if (!araclar.length) return `yuru-${g.start}`;
-  return araclar.map((b) => `${b.route?.gtfsId ?? b.route?.shortName}@${b.from.stop?.gtfsId ?? b.from.name}`).join('|');
-}
 
 function binisSaati(g: Guzergah): string | null {
   const ilk = g.legs.find((b) => b.transitLeg);
   return ilk ? (ilk.start.estimated?.time ?? ilk.start.scheduledTime) : g.start;
 }
 
+/**
+ * Aynı duraktan binip aynı durakta inen güzergâhlar tek kart: aynı hattın sonraki
+ * kalkışları da, aynı yolu giden başka hatlar da ("97M / 141M › 41ST", Moovit gibi).
+ * Kartta en erken kalkan; öbürleri "sonraki kalkışlar"da. Yalnız yürüyüş kendi başına.
+ */
 function gruplandir(guzergahlar: Guzergah[]): Grup[] {
   const gruplar = new Map<string, Sirali[]>();
   guzergahlar.forEach((g, sira) => {
-    const anahtar = rotaAnahtari(g);
+    const anahtar = esdegerAnahtari(g);
     gruplar.set(anahtar, [...(gruplar.get(anahtar) ?? []), { g, sira }]);
   });
   return [...gruplar.values()].map((liste) => {
     const siralanmis = [...liste].sort((a, b) => Date.parse(a.g.start ?? '') - Date.parse(b.g.start ?? ''));
-    return { ana: siralanmis[0], sonrakiler: siralanmis.slice(1, 1 + SONRAKI_SAYISI) };
+    const ana = siralanmis[0];
+    const hatlar = bacakHatlari(siralanmis.map((x) => x.g));
+    const anaHatlari = ana.g.legs.filter((b) => b.transitLeg).map((b) => b.route?.shortName);
+    const alternatifler = hatlar.map((liste, k) => liste.filter((r) => r?.shortName !== anaHatlari[k]));
+    return { ana, sonrakiler: siralanmis.slice(1, 1 + SONRAKI_SAYISI), alternatifler };
   });
 }
 
 
+
+/** Önerilen listedeki bölüm başlıkları (Moovit'teki gibi). */
+const BOLUM_BASLIKLARI: Record<Exclude<RotaBolumu, 'genel'>, string> = {
+  trafiksiz: 'TRAFİĞE GİRMEYEN GÜZERGÂHLAR',
+  minibus: 'MİNİBÜS VE DOLMUŞ',
+};
 
 // Rota motorunun İngilizce hata kodları için Türkçe açıklamalar.
 const HATA_METINLERI: Record<string, string> = {
@@ -282,10 +301,6 @@ export default function RotaEkrani() {
     );
     return sirali.map((g) => liste.find((x) => x.ana.g === g)!);
   }, [guzergahlar, rotaSecenekleri.tercih, rotaSecenekleri.kapali]);
-  const ilkRayli = useMemo(
-    () => gruplar.findIndex((x) => rayliMi(x.ana.g) && !kapaliTurKullaniyor(x.ana.g, rotaSecenekleri.kapali)),
-    [gruplar, rotaSecenekleri.kapali],
-  );
 
 
   /** Başlangıç ya da varış alanına dokununca arama ekranı açılır; seçim buraya geri döner. */
@@ -413,19 +428,26 @@ export default function RotaEkrani() {
             <Text style={s.ozelGunYazi}>{ozelGunNotu(ozelGun)}</Text>
           </View>
         )}
-        {gruplar.map(({ ana: { g, sira }, sonrakiler }, i) => {
+        {gruplar.map(({ ana: { g, sira }, sonrakiler, alternatifler }, i) => {
+          const cokHatli = alternatifler.some((a) => a.length > 0);
           const ilkArac = g.legs.find((b) => b.transitLeg);
-          const oneri = i === 0 && rotaSecenekleri.tercih === 'dengeli';
-          // Önerilen listede öne alınan metrolu/Marmaraylı seçenek ayrıca işaretlenir.
-          const rayliSecenek = !oneri && rotaSecenekleri.tercih === 'dengeli' && i === ilkRayli;
-          const etiket = oneri ? 'ÖNERİLEN' : rayliSecenek ? 'RAYLI SEÇENEK' : null;
+          const dengeli = rotaSecenekleri.tercih === 'dengeli';
+          const oneri = i === 0 && dengeli;
+          // Önerilende geri kalanlar bölüm bölüm (Moovit gibi): trafiğe girmeyenler ve
+          // minibüslüler kendi başlığı altında. Başlık bölüm değişince bir kez.
+          const bolum = dengeli && i > 0 ? rotaBolumu(g) : null;
+          const oncekiBolum = dengeli && i > 1 ? rotaBolumu(gruplar[i - 1].ana.g) : null;
+          const baslik = bolum && bolum !== 'genel' && bolum !== oncekiBolum ? BOLUM_BASLIKLARI[bolum] : null;
+          const etiket = oneri ? 'ÖNERİLEN' : null;
           return (
-            <Pressable key={sira} style={[s.kart, oneri && s.kartOneri]} onPress={() => detayaGit(sira)}>
+            <View key={sira}>
+            {baslik && <Text style={s.bolumBaslik}>{baslik}</Text>}
+            <Pressable style={[s.kart, oneri && s.kartOneri]} onPress={() => detayaGit(sira)}>
               <View style={s.kartUst}>
                 <Text style={s.sure}>{sureYaz(g.duration)}</Text>
                 {etiket ? <Text style={s.etiket}>{etiket}</Text> : <Text style={s.saat}>{`${saatYaz(g.start)}–${saatYaz(g.end)}`}</Text>}
               </View>
-              <BacakZinciri bacaklar={g.legs} />
+              <BacakZinciri bacaklar={g.legs} alternatifler={alternatifler} />
               <SureSeridi bacaklar={g.legs} />
               <View style={s.kartAlt}>
                 {etiket && <Text style={[s.altYazi, s.kalin]}>{`${saatYaz(g.start)}–${saatYaz(g.end)}`}</Text>}
@@ -472,7 +494,7 @@ export default function RotaEkrani() {
                 })()}
               {sonrakiler.length > 0 && (
                 <View style={s.sonraki}>
-                  <Text style={s.sonrakiBaslik}>{ilkArac ? 'AYNI ROTADA SONRAKİ KALKIŞLAR' : 'SONRAKİ SEÇENEKLER'}</Text>
+                  <Text style={s.sonrakiBaslik}>{ilkArac ? 'AYNI YOLDA SONRAKİ KALKIŞLAR' : 'SONRAKİ SEÇENEKLER'}</Text>
                   <View style={s.hapiSatiri}>
                     {sonrakiler.map((x) => {
                       const saat = binisSaati(x.g);
@@ -480,14 +502,17 @@ export default function RotaEkrani() {
                       // sonra" yazıyordu; ileri bir saat için arandığında "6 sa 30 dk" gibi
                       // anlamsız bir sayı çıkıyordu.
                       const varis = x.g.end ? saatYaz(x.g.end) : null;
+                      // Birden çok hat aynı yolu gidiyorsa kalkışın hangi hatla olduğu.
+                      const hat = cokHatli ? x.g.legs.find((b) => b.transitLeg)?.route?.shortName : null;
                       return (
                         <Pressable hitSlop={5}
                           key={x.sira}
                           style={s.hap}
                           onPress={() => detayaGit(x.sira)}
                           accessibilityRole="button"
-                          accessibilityLabel={`${saatYaz(saat)} kalkışı${varis ? `, varış ${varis}` : ''}. Detayını aç`}
+                          accessibilityLabel={`${hat ? `${hat}, ` : ''}${saatYaz(saat)} kalkışı${varis ? `, varış ${varis}` : ''}. Detayını aç`}
                         >
+                          {hat && <Text style={s.hapHat}>{hat}</Text>}
                           <Text style={s.hapSaat}>{saatYaz(saat)}</Text>
                           {varis && <Text style={s.hapDakika}>{`varış ${varis}`}</Text>}
                         </Pressable>
@@ -497,6 +522,7 @@ export default function RotaEkrani() {
                 </View>
               )}
             </Pressable>
+            </View>
           );
         })}
         {guzergahlar && guzergahlar.length > 0 && (
@@ -814,9 +840,11 @@ const stiller = (t: Tema) =>
   not: { fontSize: 12, color: t.soluk, textAlign: 'center', paddingTop: 6 },
   sonraki: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.cizgi, paddingTop: 10, gap: 7 },
   sonrakiBaslik: { fontSize: 11, letterSpacing: 0.6, color: t.soluk, fontWeight: '700' },
+  bolumBaslik: { fontSize: 12, letterSpacing: 0.8, color: t.soluk, fontWeight: '700', marginTop: 10, marginBottom: 6, marginLeft: 4 },
   hapiSatiri: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   hap: { flexDirection: 'row', alignItems: 'baseline', gap: 4, borderWidth: 1, borderColor: t.cizgi, backgroundColor: t.zemin, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 5 },
   hapSaat: { fontSize: 13, fontWeight: '700', color: t.yazi, fontVariant: ['tabular-nums'] },
+  hapHat: { fontSize: 11.5, fontWeight: '800', color: t.vurgu },
   hapDakika: { fontSize: 11, color: t.soluk },
     zamanSayfa: {
       backgroundColor: t.yuzey,

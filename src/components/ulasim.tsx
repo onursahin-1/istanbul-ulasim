@@ -265,24 +265,48 @@ export function HatRozeti({ hat, kucuk = false }: { hat?: RozetHatti | string | 
 }
 
 /** Bir güzergâhın bacaklarını "yürü 3 › 8A › 34G" biçiminde sıralar. */
-export function BacakZinciri({ bacaklar }: { bacaklar: Bacak[] }) {
+export function BacakZinciri({
+  bacaklar,
+  alternatifler,
+}: {
+  bacaklar: Bacak[];
+  /** Her araç bacağında aynı yolu giden öbür hatlar (sırayla); rozetin yanında "/" ile. */
+  alternatifler?: (RozetHatti | null | undefined)[][];
+}) {
   const tema = useTema();
   const gorunen = bacaklar.filter((b) => b.transitLeg || (b.duration ?? 0) >= 60);
+  let arac = -1;
   return (
     <View style={stil.zincir}>
-      {gorunen.map((b, i) => (
-        <View key={i} style={stil.zincirParca}>
-          {i > 0 && <Ikon ad="chevron-forward" boyut={12} renkKodu={tema.yurume} />}
-          {b.transitLeg ? (
-            <HatRozeti hat={b.route} />
-          ) : (
-            <View style={stil.yuru}>
-              <Ikon ad="walk" boyut={15} renkKodu={tema.soluk} />
-              <Text style={[stil.yuruYazi, { color: tema.soluk }]}>{Math.round((b.duration ?? 0) / 60)}</Text>
-            </View>
-          )}
-        </View>
-      ))}
+      {gorunen.map((b, i) => {
+        if (b.transitLeg) arac += 1;
+        const ek = b.transitLeg ? (alternatifler?.[arac] ?? []).filter((r): r is RozetHatti => !!r) : [];
+        // Yer dar: en çok bir ek rozet, gerisi "+2" gibi.
+        const gosterilen = ek.slice(0, 1);
+        const kalan = ek.length - gosterilen.length;
+        return (
+          <View key={i} style={stil.zincirParca}>
+            {i > 0 && <Ikon ad="chevron-forward" boyut={12} renkKodu={tema.yurume} />}
+            {b.transitLeg ? (
+              <View style={stil.esdeger} accessibilityLabel={[b.route?.shortName, ...ek.map((r) => r.shortName)].filter(Boolean).join(' ya da ')}>
+                <HatRozeti hat={b.route} />
+                {gosterilen.map((r, k) => (
+                  <View key={k} style={stil.esdeger}>
+                    <Text style={[stil.esdegerAyrac, { color: tema.soluk }]}>/</Text>
+                    <HatRozeti hat={r} />
+                  </View>
+                ))}
+                {kalan > 0 && <Text style={[stil.esdegerAyrac, { color: tema.soluk }]}>{`+${kalan}`}</Text>}
+              </View>
+            ) : (
+              <View style={stil.yuru}>
+                <Ikon ad="walk" boyut={15} renkKodu={tema.soluk} />
+                <Text style={[stil.yuruYazi, { color: tema.soluk }]}>{Math.round((b.duration ?? 0) / 60)}</Text>
+              </View>
+            )}
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -635,6 +659,8 @@ const stil = StyleSheet.create({
   rozetYaziKucuk: { fontSize: 11.5, paddingHorizontal: 7 },
   zincir: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', rowGap: 6 },
   zincirParca: { flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: 4 },
+  esdeger: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  esdegerAyrac: { fontSize: 13, fontWeight: '700' },
   yuru: { flexDirection: 'row', alignItems: 'center' },
   yuruYazi: { fontSize: 12, fontWeight: '600' },
   serit: { flexDirection: 'row', height: 6, borderRadius: 3, overflow: 'hidden', gap: 2 },

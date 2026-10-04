@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  bacakHatlari,
+  esdegerAnahtari,
+  rotaBolumu,
   gosterimSirasi,
   yuruyusleKiyasla,
   benzerleriAyikla,
@@ -314,5 +317,42 @@ describe('ekrandaki sıra', () => {
     const sonra = rota(saat(20), 40, 8, 0, bacak('SUBWAY', 32, 'M2'));
     const ref = Date.parse(saat(0));
     assert.equal(oneriPuani(sonra, ref) - oneriPuani(simdi, ref), 20 * 60);
+  });
+});
+
+describe('eşdeğer hatlar ve bölümler', () => {
+  // Biniş ve iniş durağı adlı bacak.
+  const ab = (mode: string, dk: number, hat: string, bin: string, in_: string, isletmeci?: string) => ({
+    ...bacak(mode, dk, hat),
+    route: { gtfsId: `1:${hat}`, shortName: hat, agency: isletmeci ? { name: isletmeci } : null },
+    from: { stop: { gtfsId: `s-${bin}` }, name: bin },
+    to: { stop: { gtfsId: `s-${in_}` }, name: in_ },
+  });
+  const saat = (dk: number) => new Date(Date.parse('2026-10-05T07:45:00+03:00') + dk * 60_000).toISOString();
+
+  it('aynı duraktan binip aynı durakta inen farklı hatlar eşdeğer', () => {
+    const a = rota(saat(3), 45, 5, 1, ab('BUS', 25, '97M', 'Göztepe Meydanı', 'Ayvansaray'), ab('BUS', 8, '41ST', 'Ayvansaray', 'Üniversite'));
+    const b = rota(saat(1), 46, 5, 1, ab('BUS', 26, '141M', 'GÖZTEPE MEYDANI', 'AYVANSARAY'), ab('BUS', 8, '41ST', 'Ayvansaray', 'Üniversite'));
+    const c = rota(saat(1), 44, 9, 1, ab('BUS', 25, '97M', 'Göztepe Meydanı', 'Ayvansaray'), ab('BUS', 6, '93M', 'Ayvansaray', 'Sütlüce'));
+    assert.equal(esdegerAnahtari(a), esdegerAnahtari(b));
+    assert.notEqual(esdegerAnahtari(a), esdegerAnahtari(c));
+    const hatlar = bacakHatlari([b, a]).map((l) => l.map((r) => r.shortName));
+    assert.deepEqual(hatlar, [['141M', '97M'], ['41ST']]);
+  });
+
+  it('bölümler: trafiğe girmeyen (raylı, vapur, Metrobüs), minibüslü, genel', () => {
+    assert.equal(rotaBolumu(rota('1', 50, 10, 1, bacak('SUBWAY', 20, 'M7'), bacak('RAIL', 15, 'Marmaray'))), 'trafiksiz');
+    assert.equal(rotaBolumu(rota('2', 50, 10, 0, bacak('BUS', 30, '34'))), 'trafiksiz');
+    assert.equal(rotaBolumu(rota('3', 50, 10, 1, bacak('SUBWAY', 20, 'M7'), bacak('BUS', 15, '50M'))), 'genel');
+    assert.equal(rotaBolumu(rota('4', 50, 10, 1, ab('BUS', 10, 'X', 'a', 'b', 'Minibus'), bacak('BUS', 15, '46'))), 'minibus');
+  });
+
+  it('önerilen en üstte, gerisi bölüm bölüm ve her bölüm saat sırasıyla', () => {
+    const genel1 = rota(saat(10), 50, 10, 1, bacak('SUBWAY', 20, 'M7'), bacak('BUS', 15, '50M'));
+    const genel2 = rota(saat(2), 52, 10, 0, bacak('BUS', 40, '97M'));
+    const rayli = rota(saat(1), 60, 10, 1, bacak('SUBWAY', 20, 'M7'), bacak('RAIL', 15, 'Marmaray'));
+    const minibus = rota(saat(0), 55, 8, 1, ab('BUS', 10, 'X', 'a', 'b', 'Minibus'), bacak('BUS', 15, '46'));
+    const ekran = gosterimSirasi([genel1, minibus, rayli, genel2], 'dengeli');
+    assert.deepEqual(ekran, [genel1, genel2, rayli, minibus]);
   });
 });

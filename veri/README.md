@@ -464,27 +464,35 @@ dokunulmuyor: T3'ün iki ucu da Kadıköy iskelesinde, uçlardan ad üretmek
 
 Yenilenenler: M3, M4, M5, M6, M8, M9, M1B.
 
-## 7b. Otobüslerin ara durak saatleri — gerçek yol süreleriyle
+## 7b. Otobüslerin ara durak saatleri ve süreleri — gerçek yol süreleriyle
 
 ```powershell
 python iett-sure-uygula.py C:\otp\istanbul\istanbul-iett-gtfs.zip ..\kopru\kayit\segment-sureleri.json
 ```
 
 İETT tarifesinde bir seferin yalnız ilk ve son durağının saati var; OTP aradakileri
-mesafeye göre eşit dağıtıyordu (trafikli cadde ile boş sokak aynı hızda). Köprü her gün
-otobüslerin iki durak arası gerçek süresini ölçüyor (`kopru/segment.mjs`), saat dilimi
-ve hafta içi/sonu ayrı. Köprünün kendi ölçümünde bu süreler eşit dağıtımdan belirgin iyi:
-4 durak sonrası ortalama sapma 2,2 → 1,1 dk, 10 durakta 4,3 → 2,3 dk.
+mesafeye göre eşit dağıtıyordu (trafikli cadde ile boş sokak aynı hızda). Uç saatler de
+planlanmış süre: köprünün ölçümüne göre sabah yoğunluğunda 41ST, 50M, 97M tarifeden ~%30
+yavaş, Metrobüs ise hızlı. Moovit Göztepe → İstanbul Sağlık ve Teknoloji Üniversitesi için
+1 sa 9 dk derken bizde 45 dk çıkıyordu.
 
-Betik uç durakların saatine dokunmuyor (İETT'nin planı), aradaki süreyi öğrenilen
-sürelere göre bölüştürüyor. Durak çiftinin o dilimde ölçümü yoksa aynı gün türünün
-ortalaması, hiç yoksa seferin öğrenilen kısımlarındaki hızla mesafeden. İlk çalışmada
-saatli satırlar `timepoint=1` işaretleniyor; betik yeniden çalıştırılabilir (yeni
-ölçümlerle günceller). 4 Ekim 2026 verisiyle: 5,9 milyon ara durak saati; durak
-aralarının %79'unda öğrenilen süre; eşit dağıtıma göre ortalama fark 1,5 dk.
+Köprü her gün otobüslerin iki durak arası gerçek süresini ölçüyor (`kopru/segment.mjs`),
+saat dilimi ve hafta içi/sonu ayrı. Betik seferin kalkış saatini (ilk durak) koruyor; her
+durak arasına ölçüm varsa ölçülen süreyi, yoksa tarifenin o aradaki süresini seferin
+ölçülen kısımlarındaki "gerçek / tarife" oranıyla düzeltip koyuyor (az ölçümde oran 1'e
+çekiliyor, 0,7–1,8 aralığında). Son durak saati de buna göre değişiyor: sefer süresi
+yoğun saatte uzun, gece kısa.
 
-`yenile.ps1` bu adımı kendisi çalıştırıyor. Yalnız süreleri tazelemek için (köprü
-öğrendikçe haftada bir): `.\sureleri-guncelle.ps1` (betik ve grafik derleme, ~10 dk).
+Örnek (hafta içi sabah 07–09, ortalama sefer süresi, tarife → yeni): 41ST 50 → 67 dk,
+97M 55 → 72 dk, 50M 28 → 37 dk, 89C 121 → 164 dk, 34 (Metrobüs) 38 → 26 dk. Bütün
+seferlerde toplam süre tarifenin %110'u.
+
+Özgün tarife korunuyor: ilk çalışmada (zip İBB'den yeni gelmişken) `C:\otp\iett-gtfs-ozgun.zip`'e
+kopyalanıyor (OTP'nin okuduğu `istanbul` klasörünün dışına: orada ikinci besleme sayılırdı)
+ve betik her seferinde oradan başlıyor. Köprü yeni ölçüm topladıkça yeniden çalıştırılabilir.
+
+`yenile.ps1` bu adımı kendisi çalıştırıyor. Yalnız süreleri tazelemek için (haftada bir):
+`.\sureleri-guncelle.ps1` (betik ve grafik derleme, ~10 dk).
 
 ## 9. Ağ haritası verisi
 

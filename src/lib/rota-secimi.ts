@@ -17,6 +17,7 @@ export type SiralanacakRota = {
     duration?: number | null;
     route?: { gtfsId?: string | null; shortName?: string | null; agency?: { name?: string | null } | null } | null;
     from?: { stop?: { gtfsId?: string | null } | null; name?: string | null } | null;
+    to?: { stop?: { gtfsId?: string | null } | null; name?: string | null } | null;
   }[];
 };
 
@@ -371,17 +372,70 @@ function varisKiyas(a: SiralanacakRota, b: SiralanacakRota): number {
   return va - vb;
 }
 
+/** Önerilen listedeki bölüm: Moovit'teki gibi trafiğe girmeyenler ve minibüslüler ayrı. */
+export type RotaBolumu = 'genel' | 'trafiksiz' | 'minibus';
+
+export function rotaBolumu(g: SiralanacakRota): RotaBolumu {
+  const turler = g.legs.filter((b) => b.transitLeg).map((b) => bacakTuru(b));
+  if (turler.some((t) => t === 'minibus')) return 'minibus';
+  if (turler.length && turler.every((t) => t != null && TRAFIKSIZ_TURLER.includes(t))) return 'trafiksiz';
+  return 'genel';
+}
+
+const BOLUM_SIRASI: RotaBolumu[] = ['genel', 'trafiksiz', 'minibus'];
+
 /**
- * Ekrandaki sıra. Önerilende en iyi puanlı rota en üstte ("ÖNERİLEN"), geri kalanlar
- * yola çıkış saatine göre: puan sırası saatleri karıştırıyordu (20:47, 20:21, 20:37…),
- * yolcu hangisinin önce olduğunu okuyamıyordu. Öbür tercihler kendi ölçütüyle kalır.
+ * Ekrandaki sıra. Önerilende en iyi puanlı rota en üstte ("ÖNERİLEN"); geri kalanlar
+ * Moovit'teki gibi bölümlere ayrılıyor (genel, trafiğe girmeyen, minibüs ve dolmuş) ve her
+ * bölüm kendi içinde yola çıkış saatine göre. Puan sırası saatleri karıştırıyordu (20:47,
+ * 20:21, 20:37…). Öbür tercihler kendi ölçütüyle kalır.
  */
 export function gosterimSirasi<T extends SiralanacakRota>(sirali: T[], tercih: RotaTercihi): T[] {
-  if (tercih !== 'dengeli' || sirali.length < 3) return sirali;
+  if (tercih !== 'dengeli' || sirali.length < 2) return sirali;
   const [ilk, ...kalan] = sirali;
   const kalkis = (g: T) => {
     const an = kalkisAni(g);
     return Number.isNaN(an) ? Infinity : an;
   };
-  return [ilk, ...[...kalan].sort((a, b) => kalkis(a) - kalkis(b))];
+  const bolum = (g: T) => BOLUM_SIRASI.indexOf(rotaBolumu(g));
+  return [ilk, ...[...kalan].sort((a, b) => bolum(a) - bolum(b) || kalkis(a) - kalkis(b))];
+}
+
+// ---------------------------------------------------------------- eşdeğer hatlar
+//
+// Moovit "97M / 141M › 41ST" diye tek kart gösteriyor: Göztepe Meydanı'ndan Ayvansaray'a
+// iki hat da gidiyor, hangisi önce gelirse ona binilir. Bizde her hat ayrı kart oluyordu,
+// liste aynı yolculuğun kopyalarıyla doluyordu. Aynı duraktan binilip aynı durakta inilen
+// (aynı türdeki) bacaklar eşdeğer sayılıyor; kart en erken kalkanı gösteriyor, öbür hatlar
+// rozetin yanında, kalkışları "sonraki kalkışlar"da.
+
+const durakAdi = (y?: { stop?: { gtfsId?: string | null } | null; name?: string | null } | null) =>
+  (y?.name ?? y?.stop?.gtfsId ?? '').trim().toLocaleUpperCase('tr-TR');
+
+/** Biniş–iniş durakları ve araç türü; hat adı yok. Yalnız yürüyüşse kalkışa özgü. */
+export function esdegerAnahtari(g: SiralanacakRota): string {
+  const araclar = g.legs.filter((b) => b.transitLeg);
+  if (!araclar.length) return `yuru-${g.start ?? ''}`;
+  return araclar.map((b) => `${bacakTuru(b) ?? b.mode}:${durakAdi(b.from)}>${durakAdi(b.to)}`).join('|');
+}
+
+/**
+ * Eşdeğer rotalardaki her araç bacağının hatları, ilk görülen önde ve tekrarsız.
+ * Dönen dizinin k. elemanı k. araç bacağının hatları.
+ */
+export function bacakHatlari<R extends NonNullable<SiralanacakRota['legs'][number]['route']>>(
+  liste: { legs: { transitLeg?: boolean | null; route?: R | null }[] }[],
+): R[][] {
+  const sonuc: R[][] = [];
+  for (const g of liste) {
+    g.legs
+      .filter((b) => b.transitLeg)
+      .forEach((b, k) => {
+        if (!b.route) return;
+        const kume = (sonuc[k] ??= []);
+        const ad = b.route.shortName ?? b.route.gtfsId;
+        if (!kume.some((r) => (r.shortName ?? r.gtfsId) === ad)) kume.push(b.route);
+      });
+  }
+  return sonuc;
 }
