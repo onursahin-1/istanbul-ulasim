@@ -159,6 +159,19 @@ export function hatLogosu(kisaAd?: string | null): HatLogosu | null {
   return null;
 }
 
+/**
+ * Hat tabela rozetiyle mi gösteriliyor (otobüs, minibüs, dolmuş)? Tabelanın alt şeridi
+ * uygulamanın yeşili: rozet yeşil bir zemine konursa şerit kaybolur, rozet kesik görünür.
+ */
+export function tabelaRozetiMi(hat?: RozetHatti | string | null): boolean {
+  if (resmiRozet(hat)) return false;
+  const kisaAd = typeof hat === 'string' ? hat : hat?.shortName;
+  const tur = typeof hat === 'string' ? null : hat?.mode;
+  const isletmeci = typeof hat === 'string' ? null : hat?.agency?.name;
+  if (hatLogosu(kisaAd) ?? vapurLogosu(tur, isletmeci)) return false;
+  return !tur || ['BUS', 'TROLLEYBUS', 'COACH'].includes(tur.toUpperCase());
+}
+
 export function HatRozeti({
   hat,
   kucuk = false,

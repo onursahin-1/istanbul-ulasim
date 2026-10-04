@@ -21,7 +21,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AltYaprak } from '@/components/alt-yaprak';
 import { DurakIsareti, HareketliOtobus } from '@/components/harita-isaretleri';
-import { DuyuruKarti, HataKutusu, HatRozeti, Ikon, NabizNoktasi, useStiller, Yukleniyor } from '@/components/ulasim';
+import {
+  DuyuruKarti,
+  HataKutusu,
+  HatRozeti,
+  Ikon,
+  NabizNoktasi,
+  tabelaRozetiMi,
+  useStiller,
+  Yukleniyor,
+} from '@/components/ulasim';
 import { hattinDuyurulari, type Duyuru } from '@/lib/duyuru';
 import {
   araclariYerlestir,
@@ -248,7 +257,12 @@ export default function HatEkrani() {
   // hattın resmî rengini kullanır; geniş bir alanı açılmış tonla boyamak göz alıyor.
   const renkKodu = hat ? hatRengi(hat, tema) : tema.vurgu;
   const seritRengi = hat ? haritaRengi(hat, tema) : tema.vurgu;
-  const yaziKodu = yaziRengi(seritRengi);
+  // Otobüs ve minibüste başlık yeşil olmaz: tabela rozetinin yeşil alt şeridi zeminde
+  // kayboluyor, koyu temada da koyu rozet parlak yeşilin üstünde delik gibi duruyordu.
+  // Metro, tramvay, Metrobüs, vapur başlığı hattın rengini korur (rozetleri zeminden ayrışıyor).
+  const sadeTepe = !hat || tabelaRozetiMi(hat);
+  const tepeRengi = sadeTepe ? tema.yuzey : seritRengi;
+  const yaziKodu = sadeTepe ? tema.yazi : yaziRengi(seritRengi);
 
   const yonAdi = (d: (typeof desenler)[number] | undefined) => {
     if (!d) return '';
@@ -284,7 +298,7 @@ export default function HatEkrani() {
 
   return (
     <View style={s.kok}>
-      <View style={[s.tepe, { backgroundColor: seritRengi, paddingTop: kenar.top + 6 }]}>
+      <View style={[s.tepe, sadeTepe && s.tepeSade, { backgroundColor: tepeRengi, paddingTop: kenar.top + 6 }]}>
         <View style={s.tepeSatir}>
           <Pressable onPress={geriDon} accessibilityLabel="Geri" hitSlop={12}>
             <Ikon ad="chevron-back" boyut={24} renkKodu={yaziKodu} />
@@ -294,7 +308,7 @@ export default function HatEkrani() {
             <Text style={[s.tepeBaslik, { color: yaziKodu }]} numberOfLines={1}>
               {baslikYap(hat?.longName) || hat?.shortName || 'Hat'}
             </Text>
-            <Text style={[s.tepeAlt, { color: yaziKodu }]} numberOfLines={1}>
+            <Text style={[s.tepeAlt, { color: sadeTepe ? tema.soluk : yaziKodu }]} numberOfLines={1}>
               {[hat?.agency?.name, aracAdi(hat?.mode)].filter(Boolean).join(' · ')}
             </Text>
           </View>
@@ -574,6 +588,7 @@ const stiller = (t: Tema) =>
   StyleSheet.create({
     kok: { flex: 1, backgroundColor: t.yuzey },
     tepe: { paddingHorizontal: 14, paddingBottom: 12 },
+    tepeSade: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.cizgi },
     tepeSatir: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     tepeBaslik: { fontSize: 17, fontWeight: '800', letterSpacing: -0.2 },
     tepeAlt: { fontSize: 12, opacity: 0.85, marginTop: 1 },
