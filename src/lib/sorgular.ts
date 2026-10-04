@@ -277,10 +277,18 @@ export const EN_COK_YURUME_SN = 20 * 60;
  */
 export const EN_COK_YURUME_RAYLI_SN = 30 * 60;
 
-// OTP'nin varsayılanları: yürüme isteksizliği 2.0, aktarma bedeli 0.
+// OTP'nin varsayılanları: yürüme isteksizliği 2.0, aktarma bedeli 0, en çok 12 aktarma.
 // Aşağıdaki değerler bu varsayılanların üzerine biniyor.
 const YURUME_ISTEKSIZLIGI = 5.0;
-const AKTARMA_BEDELI = 900; // saniye cinsinden ceza: bir aktarma 15 dakikaya bedel sayılır
+/**
+ * Her aramada her aktarma 5 dakikaya bedel. OTP'nin varsayılanı 0: bir dakika erken
+ * varmak için iki otobüs daha bindiriyordu (aynı hattan inip aynı hatta yeniden binmek,
+ * bir durak sonra inse yürüyerek varacağı yere aktarmalı yol).
+ */
+const AKTARMA_TABAN_BEDELI = 300;
+const AKTARMA_BEDELI = 900; // "az aktarma" tercihinde: bir aktarma 15 dakikaya bedel
+/** Bir yolculukta en çok iki aktarma: en çok üç araç. Rota çıkmazsa sınırsız yeniden aranır (otp.ts). */
+export const EN_COK_AKTARMA = 2;
 
 /**
  * Otobüsün isteksizliği (1 = diğer araçlarla eşit). Tarife otobüsün trafiğe takıldığını
@@ -313,14 +321,18 @@ function otobusIsteksiz(isteksizlik: number, kapali: VasitaTuru[] = []): Record<
 export function tercihleriYap(
   secenekler: RotaSecenekleri,
   suzgec: TasimaSuzgeci[] | null = null,
+  aktarmaSinirli = true,
 ): Record<string, unknown> | null {
   const tercihler: Record<string, unknown> = {};
   if (secenekler.tercih === 'azYurume') {
     tercihler.street = { walk: { reluctance: YURUME_ISTEKSIZLIGI } };
   }
-  if (secenekler.tercih === 'azAktarma') {
-    tercihler.transit = { transfer: { cost: AKTARMA_BEDELI } };
-  }
+  tercihler.transit = {
+    transfer: {
+      cost: secenekler.tercih === 'azAktarma' ? AKTARMA_BEDELI : AKTARMA_TABAN_BEDELI,
+      ...(aktarmaSinirli ? { maximumTransfers: EN_COK_AKTARMA } : {}),
+    },
+  };
   if (suzgec?.length) {
     tercihler.transit = { ...((tercihler.transit as object) ?? {}), filters: suzgec };
   }
@@ -338,7 +350,12 @@ export type RotaAramasi = { tercihler: Record<string, unknown> | null; modlar: R
  * @property kapali     kapalı vasıta türlerini dışarıda bırakan (vasitaSuzgeci)
  * @property minibussuz minibüs ve dolmuşu dışarıda bırakan (minibussuzSuzgec)
  */
-export type AramaSuzgecleri = { kapali: TasimaSuzgeci[] | null; minibussuz: TasimaSuzgeci[] | null };
+export type AramaSuzgecleri = {
+  kapali: TasimaSuzgeci[] | null;
+  minibussuz: TasimaSuzgeci[] | null;
+  /** Yalnız raylı sistem, vapur ve Metrobüs (trafiksizSuzgec). */
+  trafiksiz?: TasimaSuzgeci[] | null;
+};
 
 /**
  * Bir tercih için yapılacak aramalar. Önerilen aramada üç arama birleşiyor: raylıyı
@@ -354,33 +371,42 @@ export type AramaSuzgecleri = { kapali: TasimaSuzgeci[] | null; minibussuz: Tasi
 export function aramalariYap(
   secenekler: RotaSecenekleri,
   suzgecler: AramaSuzgecleri = { kapali: null, minibussuz: null },
+  aktarmaSinirli = true,
 ): RotaAramasi[] {
   const kapali = secenekler.kapali ?? [];
   const minibusAcik = !kapali.includes('minibus');
   // Minibüssüz arama: kapalı türlerin süzgecine minibüs süzgeci eklenir.
   const birlesik = [...(suzgecler.kapali ?? []), ...(minibusAcik ? (suzgecler.minibussuz ?? []) : [])];
-  const tercihler = tercihleriYap(secenekler, suzgecler.kapali);
-  const minibussuzTercihler = tercihleriYap(secenekler, birlesik.length ? birlesik : null);
+  const tercihler = tercihleriYap(secenekler, suzgecler.kapali, aktarmaSinirli);
+  const minibussuzTercihler = tercihleriYap(secenekler, birlesik.length ? birlesik : null, aktarmaSinirli);
   // Kapalı tür yoksa kayırmasız arama sunucunun varsayılanıyla (modes gönderilmez).
   const notr = kapali.length ? otobusIsteksiz(1, kapali) : null;
+  // Her tercihte bir de yalnız trafiksiz türlerle (metro, Marmaray, tramvay, vapur,
+  // Metrobüs) arama: otobüs çeşitlemeleri ilk 12 sonucu doldurunca bunlar hiç gelmiyordu.
+  const trafiksiz: RotaAramasi[] = suzgecler.trafiksiz?.length
+    ? [{ tercihler: tercihleriYap(secenekler, suzgecler.trafiksiz, aktarmaSinirli), modlar: notr }]
+    : [];
   switch (secenekler.tercih) {
     case 'dengeli':
-      // Üçüncü arama raylıyı güçlü kayırıyor: en iyi raylı seçenek her zaman elde olsun
-      // (listede ilk üçe konuyor, bkz. rota-secimi.ts).
+      // Üçüncü arama raylıyı güçlü kayırıyor: otobüsle metroya, metrodan otobüsle
+      // gidilen rotalar da gelsin (listede ilk üçe konuyor, bkz. rota-secimi.ts).
       return [
         { tercihler: minibussuzTercihler, modlar: otobusIsteksiz(OTOBUS_HAFIF, kapali) },
         { tercihler, modlar: notr },
         { tercihler: minibussuzTercihler, modlar: otobusIsteksiz(OTOBUS_GUCLU, kapali) },
+        ...trafiksiz,
       ];
     case 'rayli':
       return [
         { tercihler: minibussuzTercihler, modlar: otobusIsteksiz(OTOBUS_GUCLU, kapali) },
         { tercihler, modlar: otobusIsteksiz(OTOBUS_HAFIF, kapali) },
+        ...trafiksiz,
       ];
     default:
       return [
         { tercihler, modlar: notr },
         ...(minibusAcik && suzgecler.minibussuz ? [{ tercihler: minibussuzTercihler, modlar: notr }] : []),
+        ...trafiksiz,
       ];
   }
 }

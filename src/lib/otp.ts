@@ -37,14 +37,14 @@ export { SORGULAR, VARSAYILAN_SECENEKLER, secenekleriDuzelt, tercihleriYap } fro
 export { bacakDuraklari } from './bacak';
 export type { RotaSecenekleri, RotaTercihi } from './sorgular';
 import { SORGULAR as S, VARSAYILAN_SECENEKLER, aramalariYap, type AramaSuzgecleri, type RotaSecenekleri } from './sorgular';
-import { rotalariBirlestir, yurumeSiniri } from './rota-secimi';
+import { aracSiniri, gereksizAktarmalariAyikla, rotalariBirlestir, yurumeSiniri } from './rota-secimi';
 import type { HamArac } from './arac-konum';
 import type { Duyuru } from './duyuru';
 import { isletmeciAdi } from './hat-adi';
 import { desenleriBirlestir, kardesKimlikleri } from './hat-tekil';
 import { aramayiIndir, ayniAdliSaatsizHatlar, saatsizHatlariKatla, yakinlariIndir, type Ebeveynli } from './istasyon';
 import { yonAdi } from './metin';
-import { kapaliTurleriAyikla, minibussuzSuzgec, vasitaSuzgeci, type VasitaTuru } from './vasita';
+import { kapaliTurleriAyikla, minibussuzSuzgec, trafiksizSuzgec, vasitaSuzgeci, type VasitaTuru } from './vasita';
 import { gunuKaydir } from './onbellek';
 import { onbellegeYaz, onbellektenOku } from './onbellek-depo';
 import { istanbulSimdi } from './zaman';
@@ -344,9 +344,13 @@ export type RotaSonucu = {
 async function aramaSuzgecleri(kapali: VasitaTuru[], sinyal?: AbortSignal): Promise<AramaSuzgecleri> {
   try {
     const hatlar = await hatlariGetir(sinyal);
-    return { kapali: vasitaSuzgeci(kapali, hatlar), minibussuz: minibussuzSuzgec(hatlar) };
+    return {
+      kapali: vasitaSuzgeci(kapali, hatlar),
+      minibussuz: minibussuzSuzgec(hatlar),
+      trafiksiz: trafiksizSuzgec(kapali, hatlar),
+    };
   } catch {
-    return { kapali: null, minibussuz: null };
+    return { kapali: null, minibussuz: null, trafiksiz: null };
   }
 }
 
@@ -388,14 +392,24 @@ export async function rotaPlanla(
     rotalariBirlestir(c.map((x) => (x.planConnection?.edges ?? []).flatMap((e) => (e ? [e.node] : []))));
   const cevaplar = await ara(aramalariYap(secenekler, suzgecler));
   // Süzgece ek güvence: kapalı türü kullanan rota listeye hiç girmez.
-  const hepsi = kapaliTurleriAyikla(rotalar(cevaplar), kapali);
+  let hepsi = aracSiniri(kapaliTurleriAyikla(rotalar(cevaplar), kapali));
+  // En çok üç araçla toplu taşımalı rota çıkmadıysa (uzak uç, gece) sınırsız aranır.
+  if (!hepsi.some((g) => g.legs.some((b) => b.transitLeg))) {
+    const sinirsiz = kapaliTurleriAyikla(rotalar(await ara(aramalariYap(secenekler, suzgecler, false))), kapali);
+    hepsi = rotalariBirlestir([hepsi, sinirsiz]);
+  }
   // Hiç rota yoksa: kapalı türler açık olsa çıkar mıydı? Çıkıyorsa sebep tercihler.
   let kapaliYuzunden = false;
   if (!hepsi.length && kapali.length) {
     const deneme = await ara(aramalariYap({ ...secenekler, kapali: [] }).slice(0, 1));
     kapaliYuzunden = rotalar(deneme).some((g) => g.legs.some((b) => b.transitLeg));
   }
-  const { rotalar: guzergahlar, asildi } = yurumeSiniri(hepsi);
+  // Önce yürüme sınırı, sonra gereksiz aktarma: bir rota ancak listede kalan (yürüme
+  // sınırını geçen) daha az aktarmalı bir rotaya yenilebilir. Tersi sırada metrolu bir
+  // rota, sonradan çok yürüdüğü için elenen bir başkası yüzünden kayboluyordu.
+  const sinirda = yurumeSiniri(hepsi);
+  const guzergahlar = gereksizAktarmalariAyikla(sinirda.rotalar);
+  const asildi = sinirda.asildi;
   // Varışa göre aramada OTP en geç çıkanı başa koyuyor; liste her zaman kalkışa göre okunsun.
   if (zaman.tur === 'varis') guzergahlar.sort((a, b) => (a.start ?? '').localeCompare(b.start ?? ''));
   const sonuc: RotaSonucu = {

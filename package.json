@@ -53,6 +53,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "sorgu": "node --experimental-strip-types --import ./scripts/ts-cozucu.mjs scripts/sorgu-dogrula.ts",
+    "rota-tani": "node --no-warnings --experimental-strip-types --import ./scripts/ts-cozucu.mjs scripts/rota-tani.ts",
     "test": "node --experimental-strip-types --no-warnings --import ./scripts/ts-cozucu.mjs --test \"src/lib/__testler__/*.test.ts\""
   },
   "license": "UNLICENSED",

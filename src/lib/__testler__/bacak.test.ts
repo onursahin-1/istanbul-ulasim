@@ -57,19 +57,21 @@ describe('bacakDuraklari', () => {
 });
 
 describe('tercihleriYap', () => {
-  it('dengeli tercihte sunucuya hiçbir şey göndermez', () => {
-    assert.equal(tercihleriYap({ tercih: 'dengeli', erisilebilir: false }), null);
+  it('her aramada aktarma bedeli ve en çok iki aktarma (üç araç)', () => {
+    const t = tercihleriYap({ tercih: 'dengeli', erisilebilir: false }) as Record<string, any>;
+    assert.deepEqual(t, { transit: { transfer: { cost: 300, maximumTransfers: 2 } } });
+    const sinirsiz = tercihleriYap({ tercih: 'dengeli', erisilebilir: false }, null, false) as Record<string, any>;
+    assert.equal('maximumTransfers' in sinirsiz.transit.transfer, false);
   });
 
   it('az yürüme tercihinde yürüme isteksizliğini yükseltir', () => {
     const t = tercihleriYap({ tercih: 'azYurume', erisilebilir: false }) as Record<string, any>;
     assert.ok(t.street.walk.reluctance > 2, 'OTP varsayılanı 2.0; bundan yüksek olmalı');
-    assert.equal('transit' in t, false);
   });
 
-  it('az aktarma tercihinde aktarma bedeli koyar', () => {
+  it('az aktarma tercihinde aktarma bedeli daha yüksek', () => {
     const t = tercihleriYap({ tercih: 'azAktarma', erisilebilir: false }) as Record<string, any>;
-    assert.ok(t.transit.transfer.cost > 0);
+    assert.ok(t.transit.transfer.cost > 300);
     assert.equal('street' in t, false);
   });
 

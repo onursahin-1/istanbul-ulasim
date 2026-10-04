@@ -23,7 +23,7 @@ import {
 } from '@/components/ulasim';
 import { bacakCanli } from '@/lib/canli';
 import { OtpHatasi, rotaPlanlaYedekli, type Guzergah, type Konum, type RotaTercihi } from '@/lib/otp';
-import { rayliMi, rotalariSirala } from '@/lib/rota-secimi';
+import { benzerleriAyikla, rayliMi, rotalariSirala } from '@/lib/rota-secimi';
 import { kapaliTurKullaniyor, VASITA_ADLARI, type VasitaTuru } from '@/lib/vasita';
 import { rotaSecenekleriKaydet, useKayitlar } from '@/lib/kayitlar';
 import { tazeKonum } from '@/lib/konum';
@@ -35,7 +35,6 @@ import { baslikYap, hatEtiketi, useTema, type Tema } from '@/lib/tema';
 import {
   gunEtiketi,
   gunTarihi,
-  isoDakikaSonra,
   istanbulSaat,
   istanbulSimdi,
   andanSecim,
@@ -256,10 +255,13 @@ export default function RotaEkrani() {
     const liste = gruplandir(guzergahlar);
     // Sıralama ayrı bir seçim değil: seçilen tercihin karşılığı. "Az yürüme" diyen biri
     // listenin de yürümeye göre sıralanmasını bekler (rota-secimi.ts).
-    const sirali = rotalariSirala(
-      liste.map((x) => x.ana.g),
-      rotaSecenekleri.tercih,
-      rotaSecenekleri.kapali,
+    // Aynı hatlarla birkaç dakika arayla kalkan neredeyse aynı seçeneklerden yalnız en iyisi.
+    const sirali = benzerleriAyikla(
+      rotalariSirala(
+        liste.map((x) => x.ana.g),
+        rotaSecenekleri.tercih,
+        rotaSecenekleri.kapali,
+      ),
     );
     return sirali.map((g) => liste.find((x) => x.ana.g === g)!);
   }, [guzergahlar, rotaSecenekleri.tercih, rotaSecenekleri.kapali]);
@@ -446,17 +448,20 @@ export default function RotaEkrani() {
                   <View style={s.hapiSatiri}>
                     {sonrakiler.map((x) => {
                       const saat = binisSaati(x.g);
-                      const dakika = isoDakikaSonra(saat);
+                      // Hapın altında bu kalkışla varış saati. Eskiden "şimdiden kaç dakika
+                      // sonra" yazıyordu; ileri bir saat için arandığında "6 sa 30 dk" gibi
+                      // anlamsız bir sayı çıkıyordu.
+                      const varis = x.g.end ? saatYaz(x.g.end) : null;
                       return (
                         <Pressable hitSlop={5}
                           key={x.sira}
                           style={s.hap}
                           onPress={() => detayaGit(x.sira)}
                           accessibilityRole="button"
-                          accessibilityLabel={`${saatYaz(saat)} kalkışının detayını aç`}
+                          accessibilityLabel={`${saatYaz(saat)} kalkışı${varis ? `, varış ${varis}` : ''}. Detayını aç`}
                         >
                           <Text style={s.hapSaat}>{saatYaz(saat)}</Text>
-                          {dakika != null && dakika > 0 && <Text style={s.hapDakika}>{sureYaz(dakika * 60)}</Text>}
+                          {varis && <Text style={s.hapDakika}>{`varış ${varis}`}</Text>}
                         </Pressable>
                       );
                     })}

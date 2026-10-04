@@ -7,6 +7,7 @@ import { rotalariSirala } from '../rota-secimi.ts';
 import { aramalariYap } from '../sorgular.ts';
 import {
   bacakTuru,
+  trafiksizSuzgec,
   kapaliTurleriAyikla,
   kapaliTurleriDuzelt,
   kapaliTurKullaniyor,
@@ -116,7 +117,7 @@ describe('rota motoru süzgeci', () => {
 
   it('aramalara işlenir; kapalı tür yoksa sunucunun varsayılanı kalır', () => {
     assert.deepEqual(aramalariYap({ tercih: 'hizli', erisilebilir: false, kapali: [] }), [
-      { tercihler: null, modlar: null },
+      { tercihler: { transit: { transfer: { cost: 300, maximumTransfers: 2 } } }, modlar: null },
     ]);
     const suzgecler = { kapali: vasitaSuzgeci(['minibus', 'vapur'], HATLAR), minibussuz: minibussuzSuzgec(HATLAR) };
     const aramalar = aramalariYap({ tercih: 'dengeli', erisilebilir: false, kapali: ['minibus', 'vapur'] }, suzgecler);
@@ -153,5 +154,22 @@ describe('liste', () => {
     assert.ok(oneriPuani(minibuslu) > oneriPuani(otobuslu), 'altı dakika kısa minibüs, otobüsün önüne geçmemeli');
     assert.ok(MINIBUS_BACAK_CEZASI >= 300);
     assert.deepEqual(rotalariSirala([minibuslu, otobuslu], 'dengeli').map((r) => r.start), ['otobus', 'minibus']);
+  });
+});
+
+describe('trafiksiz arama', () => {
+  it('yalnız metro, Marmaray, tramvay, vapur ve Metrobüs hatları; kapalı türler dışarıda', () => {
+    assert.deepEqual(trafiksizSuzgec([], HATLAR), [{ include: [{ routes: ['1:34', '2:M1'] }] }]);
+    assert.deepEqual(trafiksizSuzgec(['metrobus'], HATLAR), [{ include: [{ routes: ['2:M1'] }] }]);
+    assert.equal(trafiksizSuzgec(['metrobus', 'metro'], HATLAR), null);
+  });
+
+  it('her tercihte aramalara eklenir', () => {
+    const suzgecler = { kapali: null, minibussuz: null, trafiksiz: trafiksizSuzgec([], HATLAR) };
+    for (const tercih of ['dengeli', 'rayli', 'hizli', 'azYurume', 'azAktarma'] as const) {
+      const a = aramalariYap({ tercih, erisilebilir: false, kapali: [] }, suzgecler);
+      const son = a[a.length - 1].tercihler as any;
+      assert.deepEqual(son.transit.filters, [{ include: [{ routes: ['1:34', '2:M1'] }] }], tercih);
+    }
   });
 });

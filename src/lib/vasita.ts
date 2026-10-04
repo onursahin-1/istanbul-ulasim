@@ -200,6 +200,25 @@ export function minibussuzSuzgec(hatlar: SuzgecHatti[]): TasimaSuzgeci[] | null 
   return isletmeler.length ? [{ exclude: [{ agencies: isletmeler }] }] : null;
 }
 
+/** Trafiğe takılmayan türler: raylı sistem, vapur ve kendi yolu olan Metrobüs. */
+export const TRAFIKSIZ_TURLER: VasitaTuru[] = ['metro', 'marmaray', 'tramvay', 'funikuler', 'vapur', 'metrobus'];
+
+/**
+ * Yalnız trafiksiz türlerle (metro, Marmaray, tramvay, füniküler, teleferik, vapur,
+ * Metrobüs) arama süzgeci; kapalı türler dışarıda. Önerilen aramalarda otobüs her yerde
+ * sık geçtiği için OTP'nin döndürdüğü ilk 12 rota otobüs çeşitlemeleriyle doluyor, metrolu
+ * seçenek listeye hiç giremiyordu. Bu ayrı arama trafiksiz seçenekleri her zaman getiriyor.
+ */
+export function trafiksizSuzgec(kapali: VasitaTuru[], hatlar: SuzgecHatti[]): TasimaSuzgeci[] | null {
+  const izinli = hatlar
+    .filter((h) => {
+      const tur = hatTuru(h);
+      return !!h.gtfsId && tur != null && TRAFIKSIZ_TURLER.includes(tur) && !kapali.includes(tur);
+    })
+    .map((h) => h.gtfsId);
+  return izinli.length ? [{ include: [{ routes: izinli }] }] : null;
+}
+
 /** Kapalı türü kullanan rotaları listeden çıkarır (rota motoru süzgecine ek güvence). */
 export function kapaliTurleriAyikla<T extends { legs: Bacak[] }>(liste: T[], kapali: VasitaTuru[]): T[] {
   if (!kapali.length) return liste;
