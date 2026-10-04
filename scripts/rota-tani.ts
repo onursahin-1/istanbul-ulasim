@@ -17,12 +17,13 @@ import {
   otobusSuresi,
   rayliMi,
   benzerleriAyikla,
+  gosterimSirasi,
   rotalariBirlestir,
   rotalariSirala,
   yurumeSiniri,
   yuruyusleKiyasla,
 } from '../src/lib/rota-secimi.ts';
-import { aramalariYap, ROTA_TERCIHLERI, SORGULAR, type RotaTercihi } from '../src/lib/sorgular.ts';
+import { ARAMA_PENCERESI, aramalariYap, ROTA_TERCIHLERI, SORGULAR, type RotaTercihi } from '../src/lib/sorgular.ts';
 import { minibussuzSuzgec, trafiksizSuzgec, vasitaSuzgeci, bacakTuru } from '../src/lib/vasita.ts';
 
 const OTP = (process.env.OTP_URL ?? 'http://localhost:8080').replace(/\/+$/, '');
@@ -122,6 +123,7 @@ async function main() {
       nereye,
       zaman: { earliestDeparture: zaman },
       tercihler: arama.tercihler,
+      aralik: ARAMA_PENCERESI.kalkis,
       ...(arama.modlar ? { modlar: arama.modlar } : {}),
     });
     const liste = (cevap.planConnection?.edges ?? []).map((e) => e.node);
@@ -149,7 +151,7 @@ async function main() {
     console.log(`   elendi (${neden}): ${ozet(g)}`);
   }
 
-  const sirali = benzerleriAyikla(rotalariSirala(rotalar, tercih));
+  const sirali = gosterimSirasi(benzerleriAyikla(rotalariSirala(rotalar, tercih)), tercih);
   if (sirali.length < rotalar.length) console.log(`\nNeredeyse aynı ${rotalar.length - sirali.length} seçenek birleşti.`);
   const enErken = Math.min(...sirali.map((g) => Date.parse(g.start ?? '')).filter((x) => !Number.isNaN(x)));
   console.log(`\nSon sıralama (${tercih}):`);

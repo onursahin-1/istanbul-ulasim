@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  gosterimSirasi,
   yuruyusleKiyasla,
   benzerleriAyikla,
   otobusPayi,
@@ -285,5 +286,33 @@ describe('yuruyusleKiyasla', () => {
   it('yürüyüş seçeneği yoksa dokunmaz', () => {
     const liste = [rota('m', 31, 29, 0, bacak('SUBWAY', 2, 'M3'))];
     assert.equal(yuruyusleKiyasla(liste), liste);
+  });
+});
+
+describe('ekrandaki sıra', () => {
+  const saat = (dk: number) => new Date(Date.parse('2026-10-05T20:20:00+03:00') + dk * 60_000).toISOString();
+  const a = rota(saat(17), 67, 15, 1, bacak('SUBWAY', 30, 'M1B'), bacak('BUS', 15, '28T'));
+  const b = rota(saat(1), 63, 16, 2, bacak('BUS', 20, 'A'), bacak('BUS', 20, 'B'), bacak('BUS', 10, 'C'));
+  const c = rota(saat(27), 61, 16, 2, bacak('BUS', 20, 'D'), bacak('BUS', 20, 'E'), bacak('BUS', 10, 'F'));
+  const d = rota(saat(11), 70, 10, 1, bacak('BUS', 40, 'G'), bacak('BUS', 10, 'H'));
+
+  it('önerilende ilk kart en iyi puanlı, gerisi yola çıkış saatine göre', () => {
+    const sirali = rotalariSirala([a, b, c, d], 'dengeli');
+    const ekran = gosterimSirasi(sirali, 'dengeli');
+    assert.equal(ekran[0], sirali[0]);
+    const gerisi = ekran.slice(1).map((r) => Date.parse(r.start!));
+    assert.deepEqual(gerisi, [...gerisi].sort((x, y) => x - y));
+  });
+
+  it('en hızlı: en erken varan önde', () => {
+    // varışlar: a 21:44, b 21:24, c 21:48, d 21:41
+    assert.deepEqual(rotalariSirala([a, b, c, d], 'hizli'), [b, d, a, c]);
+  });
+
+  it('evde bekleme puana tam girer: 20 dk sonra kalkan rota 20 dk geç varmış sayılır', () => {
+    const simdi = rota(saat(0), 40, 8, 0, bacak('SUBWAY', 32, 'M2'));
+    const sonra = rota(saat(20), 40, 8, 0, bacak('SUBWAY', 32, 'M2'));
+    const ref = Date.parse(saat(0));
+    assert.equal(oneriPuani(sonra, ref) - oneriPuani(simdi, ref), 20 * 60);
   });
 });

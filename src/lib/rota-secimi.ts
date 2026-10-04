@@ -188,15 +188,18 @@ export function aktarmaBeklemesi(g: SiralanacakRota): number {
 /**
  * Önerilen sıralamanın puanı: "en rahat" rota. Saniye gibi okunur, küçük olan iyi.
  *
- *   süre                         kapıdan kapıya
- * + yürümenin yarısı             yürümek araçta oturmaktan yorucu
- * + aktarmada beklemenin yarısı  durakta ayakta beklemek
- * + evde beklemenin yarısı       daha geç kalkan rota: listedeki en erken kalkışa göre
- * + aktarma başına 5 dk          (+ aynı hatta yeniden binme, bir duraklık bacak: aktarmaCezasi)
- * + otobüste geçen sürenin %30'u trafik: tarife bunu bilmiyor, otobüs gecikir ve sarsar
- *                                (iş çıkışı ve sabah yoğunluğunda %60: tarifeli süre en çok
- *                                o saatlerde tutmuyor)
- * + Metrobüste geçen sürenin %10'u kendi yolu var ama kalabalık
+ * Yolcunun gözünde süreler eşit değil. Toplu taşıma araştırmalarında yürüme ve
+ * beklemenin araçta geçen süreden yaklaşık iki kat kötü algılandığı, bir aktarmanın
+ * 10–17 dakikalık yola bedel sayıldığı ölçülüyor (ör. Madrid aktarma çalışması: tek
+ * aktarma ~11 dk, iki aktarma ~17 dk). Puan bunu izliyor:
+ *
+ *   süre                         kapıdan kapıya (yürüme, bekleme, araç)
+ * + yürüme bir kez daha          yürümek iki kat yorucu
+ * + aktarmada bekleme bir daha   durakta ayakta beklemek iki kat
+ * + evde bekleme                 listedeki en erken kalkıştan sonra yola çıkılıyorsa: "şimdi"
+ *                                diyen için 20 dk sonra kalkan rota 20 dk geç varmaktır
+ * + aktarma başına 10 dk         (+ aynı hatta yeniden binme, bir duraklık bacak: aktarmaCezasi)
+ * + otobüste geçen sürenin %30'u trafik (hafta içi yoğun saatte %60), Metrobüste %10
  *   metro, Marmaray, tramvay, vapur: ek yok
  *
  * Minibüs ve dolmuş ayrıca cezalı: her bacak 10 dk, içinde geçen süre yarı yarıya fazla
@@ -211,10 +214,10 @@ export function oneriPuani(g: SiralanacakRota, enErkenKalkis?: number): number {
     enErkenKalkis != null && !Number.isNaN(kalkis) ? Math.max(0, (kalkis - enErkenKalkis) / 1000) : 0;
   return (
     (g.duration ?? Infinity) +
-    0.5 * (g.walkTime ?? 0) +
-    0.5 * aktarmaBeklemesi(g) +
-    0.5 * evdeBekleme +
-    300 * g.numberOfTransfers +
+    YURUME_EKI * (g.walkTime ?? 0) +
+    BEKLEME_EKI * aktarmaBeklemesi(g) +
+    evdeBekleme +
+    AKTARMA_PUANI * g.numberOfTransfers +
     aktarmaCezasi(g) +
     otobusPayi(g) * otobusSuresi(g) +
     METROBUS_PAYI * turSuresi(g, (t) => t === 'metrobus') +
@@ -222,6 +225,12 @@ export function oneriPuani(g: SiralanacakRota, enErkenKalkis?: number): number {
     MINIBUS_BACAK_CEZASI * minibus.bacak
   );
 }
+
+/** Puanda yürümenin ve aktarma beklemesinin ek ağırlığı (1 = iki kat sayılır). */
+export const YURUME_EKI = 1;
+export const BEKLEME_EKI = 1;
+/** Puanda aktarma başına eklenen (saniye). */
+export const AKTARMA_PUANI = 600;
 
 /** Rotanın kalkış anı (ms); başlangıç saatli bir ISO zamanı değilse NaN. */
 function kalkisAni(g: SiralanacakRota): number {
@@ -273,7 +282,8 @@ function tercihSirasi<T extends SiralanacakRota>(liste: T[], tercih: RotaTercihi
   const kopya = [...liste];
   switch (tercih) {
     case 'hizli':
-      return kopya.sort((a, b) => sure(a) - sure(b) || erken(a) - erken(b));
+      // En hızlı = en erken varan; varış bilinmiyorsa süre.
+      return kopya.sort((a, b) => varisKiyas(a, b) || sure(a) - sure(b) || erken(a) - erken(b));
     case 'azYurume':
       return kopya.sort((a, b) => (a.walkTime ?? 0) - (b.walkTime ?? 0) || sure(a) - sure(b));
     case 'azAktarma':
@@ -351,4 +361,27 @@ export function benzerleriAyikla<T extends SiralanacakRota>(sirali: T[]): T[] {
     if (azYurur && gecKalmaz) kalanlar[i] = g;
   }
   return kalanlar;
+}
+
+/** İki rotayı varış anına göre karşılaştırır; ikisinin de saati yoksa 0. */
+function varisKiyas(a: SiralanacakRota, b: SiralanacakRota): number {
+  const va = kalkisAni(a) + (a.duration ?? 0) * 1000;
+  const vb = kalkisAni(b) + (b.duration ?? 0) * 1000;
+  if (Number.isNaN(va) || Number.isNaN(vb)) return 0;
+  return va - vb;
+}
+
+/**
+ * Ekrandaki sıra. Önerilende en iyi puanlı rota en üstte ("ÖNERİLEN"), geri kalanlar
+ * yola çıkış saatine göre: puan sırası saatleri karıştırıyordu (20:47, 20:21, 20:37…),
+ * yolcu hangisinin önce olduğunu okuyamıyordu. Öbür tercihler kendi ölçütüyle kalır.
+ */
+export function gosterimSirasi<T extends SiralanacakRota>(sirali: T[], tercih: RotaTercihi): T[] {
+  if (tercih !== 'dengeli' || sirali.length < 3) return sirali;
+  const [ilk, ...kalan] = sirali;
+  const kalkis = (g: T) => {
+    const an = kalkisAni(g);
+    return Number.isNaN(an) ? Infinity : an;
+  };
+  return [ilk, ...[...kalan].sort((a, b) => kalkis(a) - kalkis(b))];
 }

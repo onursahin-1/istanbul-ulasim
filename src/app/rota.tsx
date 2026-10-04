@@ -22,8 +22,8 @@ import {
   type IkonAdi,
 } from '@/components/ulasim';
 import { bacakCanli } from '@/lib/canli';
-import { OtpHatasi, rotaPlanlaYedekli, type Guzergah, type Konum, type RotaTercihi } from '@/lib/otp';
-import { benzerleriAyikla, rayliMi, rotalariSirala } from '@/lib/rota-secimi';
+import { kopruyeIlgiBildir, OtpHatasi, rotaPlanlaYedekli, type Guzergah, type Konum, type RotaTercihi } from '@/lib/otp';
+import { benzerleriAyikla, gosterimSirasi, rayliMi, rotalariSirala } from '@/lib/rota-secimi';
 import { kapaliTurKullaniyor, VASITA_ADLARI, type VasitaTuru } from '@/lib/vasita';
 import { rotaSecenekleriKaydet, useKayitlar } from '@/lib/kayitlar';
 import { tazeKonum } from '@/lib/konum';
@@ -226,6 +226,13 @@ export default function RotaEkrani() {
         const sonuc = await rotaPlanlaYedekli(baslangic, nereye, aramaZamani, rotaSecenekleri, sinyal);
         if (eski()) return;
         setGuzergahlar(sonuc.guzergahlar);
+        // Listedeki otobüs hatlarını canlı veri köprüsüne bildir: otobüsleri birkaç dakika
+        // içinde tanınır, kartlar ve yolculuk ekranı tarife yerine canlı saati gösterir.
+        kopruyeIlgiBildir(
+          sonuc.guzergahlar.flatMap((g) =>
+            g.legs.filter((b) => b.transitLeg && (b.mode ?? '').toUpperCase() === 'BUS').map((b) => b.route?.shortName),
+          ),
+        );
         setCevrimdisi(sonuc.cevrimdisi);
         if (sonuc.guzergahlar.length === 0 && sonuc.kapaliYuzunden) {
           setKapaliUyarisi(true);
@@ -263,12 +270,15 @@ export default function RotaEkrani() {
     // Sıralama ayrı bir seçim değil: seçilen tercihin karşılığı. "Az yürüme" diyen biri
     // listenin de yürümeye göre sıralanmasını bekler (rota-secimi.ts).
     // Aynı hatlarla birkaç dakika arayla kalkan neredeyse aynı seçeneklerden yalnız en iyisi.
-    const sirali = benzerleriAyikla(
-      rotalariSirala(
-        liste.map((x) => x.ana.g),
-        rotaSecenekleri.tercih,
-        rotaSecenekleri.kapali,
+    const sirali = gosterimSirasi(
+      benzerleriAyikla(
+        rotalariSirala(
+          liste.map((x) => x.ana.g),
+          rotaSecenekleri.tercih,
+          rotaSecenekleri.kapali,
+        ),
       ),
+      rotaSecenekleri.tercih,
     );
     return sirali.map((g) => liste.find((x) => x.ana.g === g)!);
   }, [guzergahlar, rotaSecenekleri.tercih, rotaSecenekleri.kapali]);
@@ -428,7 +438,18 @@ export default function RotaEkrani() {
                   const canli = bacakCanli(ilkArac.start.scheduledTime, ilkArac.start.estimated?.time);
                   const saat = saatYaz(ilkArac.start.estimated?.time ?? ilkArac.start.scheduledTime);
                   const bas = `${hatYazisi(ilkArac)} · ${baslikYap(ilkArac.from.name)} durağından `;
-                  if (!canli) return <Text style={s.ilkArac}>{`${bas}${saat}`}</Text>;
+                  if (!canli) {
+                    // Otobüsün ara duraklardaki saati İETT tarifesinde yok, uç duraklardan
+                    // tahmin ediliyor: canlı veri gelmemişse saat yaklaşık olarak yazılır.
+                    const otobus = (ilkArac.mode ?? '').toUpperCase() === 'BUS';
+                    return (
+                      <Text style={s.ilkArac}>
+                        {bas}
+                        {otobus ? `~${saat}` : saat}
+                        {otobus && <Text style={s.tarifeNotu}> · tarifeye göre</Text>}
+                      </Text>
+                    );
+                  }
                   const renk = canliRenk(canli.sinif, tema);
                   // İlk bacak canlıyken sonraki araçların hangisinin tahmin olduğunu söyle.
                   const tarifeli = g.legs.filter((b) => b.transitLeg && b !== ilkArac && !b.start.estimated);

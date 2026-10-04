@@ -147,6 +147,7 @@ query RotaPlanla(
   $zaman: PlanDateTimeInput!
   $tercihler: PlanPreferencesInput
   $modlar: PlanModesInput
+  $aralik: Duration
 ) {
   planConnection(
     origin: $nereden
@@ -155,6 +156,8 @@ query RotaPlanla(
     dateTime: $zaman
     preferences: $tercihler
     modes: $modlar
+    # Kalkışların aranacağı süre: "şimdi" diyen yarım saat sonra yola çıkan rotayı beklemiyor.
+    searchWindow: $aralik
     first: 12
   ) {
     routingErrors { code description }
@@ -294,6 +297,14 @@ const YURUME_TABAN_ISTEKSIZLIGI = 3.0;
  */
 const AKTARMA_TABAN_BEDELI = 300;
 const AKTARMA_BEDELI = 900; // "az aktarma" tercihinde: bir aktarma 15 dakikaya bedel
+/**
+ * Kalkışların aranacağı süre (OTP searchWindow). Varsayılanı sunucunun kendi hesabı
+ * (40 dk – 2 saat): "şimdi" aramasında yarım saat sonra yola çıkan rotalar da geliyor,
+ * liste karışıyordu. Kalkışa göre aramada 30 dk; varışa göre aramada 45 dk (o saatte
+ * orada olmak için en geç ne zaman çıkılır). Bu pencerede rota yoksa geniş aranır.
+ */
+export const ARAMA_PENCERESI = { kalkis: 'PT30M', varis: 'PT45M', genis: 'PT2H' } as const;
+
 /** Bir yolculukta en çok iki aktarma: en çok üç araç. Rota çıkmazsa sınırsız yeniden aranır (otp.ts). */
 export const EN_COK_AKTARMA = 2;
 

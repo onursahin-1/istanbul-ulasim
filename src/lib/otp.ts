@@ -36,7 +36,7 @@ export { SORGULAR, VARSAYILAN_SECENEKLER, secenekleriDuzelt, tercihleriYap } fro
 // Bacak yardımcıları bağımlılıksız bir dosyada; çağrı yerleri değişmesin diye buradan da açılıyor.
 export { bacakDuraklari } from './bacak';
 export type { RotaSecenekleri, RotaTercihi } from './sorgular';
-import { SORGULAR as S, VARSAYILAN_SECENEKLER, aramalariYap, type AramaSuzgecleri, type RotaSecenekleri } from './sorgular';
+import { ARAMA_PENCERESI, SORGULAR as S, VARSAYILAN_SECENEKLER, aramalariYap, type AramaSuzgecleri, type RotaSecenekleri } from './sorgular';
 import { aracSiniri, gereksizAktarmalariAyikla, rotalariBirlestir, yurumeSiniri, yuruyusleKiyasla } from './rota-secimi';
 import type { HamArac } from './arac-konum';
 import type { Duyuru } from './duyuru';
@@ -379,7 +379,8 @@ export async function rotaPlanla(
   const kapali = secenekler.kapali ?? [];
   const suzgecler = await aramaSuzgecleri(kapali, sinyal);
   // Tercihe göre birkaç arama (bkz. aramalariYap); sonuçlar birleşiyor.
-  const ara = (aramalar: ReturnType<typeof aramalariYap>) =>
+  const pencere = zaman.tur === 'varis' ? ARAMA_PENCERESI.varis : ARAMA_PENCERESI.kalkis;
+  const ara = (aramalar: ReturnType<typeof aramalariYap>, aralik: string = pencere) =>
     Promise.all(
       aramalar.map((arama) =>
         sorgula<Cevap>(
@@ -389,6 +390,7 @@ export async function rotaPlanla(
             nereye: yer(nereye),
             zaman: zaman.tur === 'varis' ? { latestArrival: zaman.an } : { earliestDeparture: zaman.an },
             tercihler: arama.tercihler,
+            aralik,
             // OTP 2.10 `modes: null` gelince çöküyor ("modesArgs is null"); yoksa hiç gönderilmez.
             ...(arama.modlar ? { modlar: arama.modlar } : {}),
           },
@@ -401,9 +403,13 @@ export async function rotaPlanla(
   const cevaplar = await ara(aramalariYap(secenekler, suzgecler));
   // Süzgece ek güvence: kapalı türü kullanan rota listeye hiç girmez.
   let hepsi = aracSiniri(kapaliTurleriAyikla(rotalar(cevaplar), kapali));
-  // En çok üç araçla toplu taşımalı rota çıkmadıysa (uzak uç, gece) sınırsız aranır.
+  // Kısa pencerede ve en çok üç araçla toplu taşımalı rota çıkmadıysa (seyrek hat, gece,
+  // uzak uç) aktarma sınırsız ve geniş pencerede aranır.
   if (!hepsi.some((g) => g.legs.some((b) => b.transitLeg))) {
-    const sinirsiz = kapaliTurleriAyikla(rotalar(await ara(aramalariYap(secenekler, suzgecler, false))), kapali);
+    const sinirsiz = kapaliTurleriAyikla(
+      rotalar(await ara(aramalariYap(secenekler, suzgecler, false), ARAMA_PENCERESI.genis)),
+      kapali,
+    );
     hepsi = rotalariBirlestir([hepsi, sinirsiz]);
   }
   // Hiç rota yoksa: kapalı türler açık olsa çıkar mıydı? Çıkıyorsa sebep tercihler.
