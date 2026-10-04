@@ -26,6 +26,7 @@ import type { DonusTuru } from '@/lib/yuruyus';
 import { durakVarisMetni, kalkisGosterimi } from '@/lib/zaman';
 import type { Bacak, Hat } from '@/lib/otp';
 import type { VasitaTuru } from '@/lib/vasita';
+import { isletmeciAdi } from '@/lib/hat-adi';
 import { aracSimgesi, hatEtiketi, hatRengi, metrobusMu, resmiRozet, rozetRenkleri, useTema, type Tema } from '@/lib/tema';
 import { geriDon } from '@/lib/gezinti';
 
@@ -53,6 +54,12 @@ export function Ikon({ ad, boyut = 20, renkKodu }: { ad: IkonAdi; boyut?: number
  * yazıyı iter, üstüne binmez.
  */
 export const ROZET_SUTUNU = 90;
+
+/** Tabela rozetinin simgeleri: tek renkli, tintColor ile temanın yeşiline boyanıyor. */
+const SIMGELER = {
+  otobus: require('@/assets/images/simge/otobus.png'),
+  minibus: require('@/assets/images/simge/minibus.png'),
+};
 
 /**
  * Rozetin ihtiyacı olan en az bilgi. `Hat` bunu karşılıyor, ama ağ haritası gibi
@@ -209,7 +216,39 @@ export function HatRozeti({ hat, kucuk = false }: { hat?: RozetHatti | string | 
       </View>
     );
   }
-  const simge = tur && tur.toUpperCase() !== 'BUS' ? aracSimgesi(tur) : 'bus';
+  // Otobüs, minibüs, dolmuş: tabela rozeti. Beyaz (koyu temada koyu) gövde, altında yeşil
+  // şerit, solda otobüs ya da kapı çizgili minibüs simgesi, yanında hat kodu.
+  if (!tur || ['BUS', 'TROLLEYBUS', 'COACH'].includes(tur.toUpperCase())) {
+    const minibus = !!isletmeciAdi(isletmeci);
+    const simgeBoyu = kucuk ? 14 : 17;
+    return (
+      <View
+        style={[
+          stil.tabela,
+          {
+            height: boy,
+            borderRadius: kucuk ? 6 : 7,
+            backgroundColor: tema.koyu ? tema.cizgi : '#ffffff',
+            borderColor: tema.cizgi,
+            borderBottomColor: tema.vurgu,
+            borderBottomWidth: tema.koyu ? (kucuk ? 2.5 : 3) : kucuk ? 3 : 4,
+            paddingLeft: kucuk ? 5 : 6,
+          },
+        ]}
+        accessibilityLabel={rozet}
+      >
+        <Image
+          source={minibus ? SIMGELER.minibus : SIMGELER.otobus}
+          style={{ width: simgeBoyu, height: simgeBoyu, tintColor: tema.vurgu }}
+          accessibilityIgnoresInvertColors
+        />
+        <Text style={[stil.tabelaYazi, kucuk && stil.tabelaYaziKucuk, { color: tema.yazi }]} numberOfLines={1}>
+          {rozet}
+        </Text>
+      </View>
+    );
+  }
+  const simge = aracSimgesi(tur) ?? 'bus';
   return (
     <View style={[stil.rozet, { backgroundColor: renkler.zemin, height: boy, borderRadius: kucuk ? 7 : 8 }]}>
       <View style={[stil.rozetKutu, { backgroundColor: renkler.kutu, width: boy, height: boy }]}>
@@ -583,6 +622,16 @@ const stil = StyleSheet.create({
   daire: { alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start' },
   daireYazi: { fontWeight: '800', letterSpacing: -0.3, includeFontPadding: false },
   rozetYazi: { fontWeight: '700', fontSize: 12.5, paddingHorizontal: 8, maxWidth: 110 },
+  tabela: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+  },
+  tabelaYazi: { fontWeight: '800', fontSize: 13, paddingRight: 8, maxWidth: 110, fontVariant: ['tabular-nums'] },
+  tabelaYaziKucuk: { fontSize: 11.5, paddingRight: 6 },
   rozetYaziKucuk: { fontSize: 11.5, paddingHorizontal: 7 },
   zincir: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', rowGap: 6 },
   zincirParca: { flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: 4 },

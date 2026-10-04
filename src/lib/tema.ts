@@ -303,6 +303,9 @@ export function hatRengi(hat: HatBilgisi, tema: Tema): string {
   }
   const { isletmeci } = hatAyikla(hat);
   if ((mode ?? '').toUpperCase() === 'FERRY') return vapurRengi(isletmeci, tema);
+  // Otobüs, minibüs ve dolmuş: hepsi uygulamanın yeşili (rozet, şerit, harita çizgisi).
+  // Hat başına renk yerine tek renk: rozetin tabela biçimi ve simgesi zaten ayırt ediyor.
+  if (['BUS', 'TROLLEYBUS', 'COACH'].includes((mode ?? '').toUpperCase())) return tema.vurgu;
   const veriden = renkKoduDuzelt(color);
   if (veriden) return veriden;
   const modTablo = tema.koyu ? MOD_RENKLERI_KOYU : MOD_RENKLERI_ACIK;
