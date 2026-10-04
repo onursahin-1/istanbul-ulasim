@@ -64,11 +64,38 @@ export function yurumeSiniri<T extends SiralanacakRota>(
   sinirSn: number = EN_COK_YURUME_SN,
   rayliSinirSn: number = EN_COK_YURUME_RAYLI_SN,
 ): { rotalar: T[]; asildi: boolean } {
-  const uygun = liste.filter((g) => (g.walkTime ?? 0) <= (rayliMi(g) ? rayliSinirSn : sinirSn));
+  const uygun = liste.filter(
+    (g) =>
+      (g.walkTime ?? 0) <=
+      (sadeceYurumeMi(g) ? EN_COK_SADECE_YURUME_SN : rayliMi(g) ? rayliSinirSn : sinirSn),
+  );
   if (uygun.length || !liste.length) return { rotalar: uygun, asildi: false };
   const enAz = Math.min(...liste.map((g) => g.walkTime ?? 0));
   // En az yürüyenle arası 5 dakikadan az olanlar: yolcuya birkaç seçenek kalsın.
   return { rotalar: liste.filter((g) => (g.walkTime ?? 0) <= enAz + 5 * 60), asildi: true };
+}
+
+/** Yalnız yürüyüşten oluşan rota bu kadar sürüyorsa da listede kalır (araçlı sınır 20 dk). */
+export const EN_COK_SADECE_YURUME_SN = 30 * 60;
+
+/** Toplu taşımalı rota, yalnız yürümeye göre en az bu kadar az yürütmüyorsa anlamsız. */
+export const YURUMEYE_GORE_KAZANC_SN = 5 * 60;
+
+/** Rotada hiç araç yoksa: baştan sona yürüyüş. */
+export function sadeceYurumeMi(g: SiralanacakRota): boolean {
+  return !g.legs.some((b) => b.transitLeg);
+}
+
+/**
+ * Yürüyerek varılabilecek yerde, neredeyse o kadar yürüten araçlı rotaları atar:
+ * 18 dk yürüyüp metroya binip bir durak gittikten sonra 12 dk daha yürütmek, 25 dk
+ * yürümekten iyi değil. Araçlı rota yürüyüşe göre en az 5 dk az yürütmeli.
+ */
+export function yuruyusleKiyasla<T extends SiralanacakRota>(liste: T[]): T[] {
+  const yuruyus = liste.filter(sadeceYurumeMi);
+  if (!yuruyus.length) return liste;
+  const enKisa = Math.min(...yuruyus.map((g) => g.duration ?? Infinity));
+  return liste.filter((g) => sadeceYurumeMi(g) || (g.walkTime ?? 0) + YURUMEYE_GORE_KAZANC_SN <= enKisa);
 }
 
 /** Bir rotada en çok bu kadar araç (iki aktarma). */

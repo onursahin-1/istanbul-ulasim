@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  yuruyusleKiyasla,
   benzerleriAyikla,
   otobusPayi,
   aktarmaBeklemesi,
@@ -46,20 +47,27 @@ describe('rotalariBirlestir', () => {
 
 describe('yurumeSiniri', () => {
   it('20 dakikadan çok yürütenleri atar', () => {
-    const { rotalar, asildi } = yurumeSiniri([rota('a', 30, 10, 0), rota('b', 25, 21, 0), rota('c', 40, 20, 1)]);
+    const otobus = bacak('BUS', 15, 'A');
+    const { rotalar, asildi } = yurumeSiniri([rota('a', 30, 10, 0, otobus), rota('b', 25, 21, 0, otobus), rota('c', 40, 20, 1, otobus)]);
     assert.deepEqual(rotalar.map((r) => r.start), ['a', 'c']);
     assert.equal(asildi, false);
     assert.equal(EN_COK_YURUME_SN, 1200);
   });
 
   it('hepsi aşıyorsa en az yürüyenleri (5 dk içinde) işaretleyip bırakır', () => {
-    const { rotalar, asildi } = yurumeSiniri([rota('a', 30, 35, 0), rota('b', 25, 24, 0), rota('c', 40, 28, 1)]);
+    const otobus = bacak('BUS', 10, 'A');
+    const { rotalar, asildi } = yurumeSiniri([rota('a', 30, 35, 0, otobus), rota('b', 25, 24, 0, otobus), rota('c', 40, 28, 1, otobus)]);
     assert.deepEqual(rotalar.map((r) => r.start), ['b', 'c']);
     assert.equal(asildi, true);
   });
 
   it('boş liste boş kalır', () => {
     assert.deepEqual(yurumeSiniri([]), { rotalar: [], asildi: false });
+  });
+
+  it('yalnız yürüyüş 30 dakikaya kadar listede kalır', () => {
+    const { rotalar } = yurumeSiniri([rota('y', 25, 25, 0), rota('u', 35, 35, 0), rota('o', 30, 10, 0, bacak('BUS', 20, 'A'))]);
+    assert.deepEqual(rotalar.map((r) => r.start), ['y', 'o']);
   });
 });
 
@@ -100,7 +108,10 @@ describe('aramalariYap', () => {
 
   it('en hızlıda yalnız aktarma tercihleri; raylıda otobüs güçlü biçimde pahalı', () => {
     assert.deepEqual(aramalariYap({ tercih: 'hizli', erisilebilir: false }), [
-      { tercihler: { transit: { transfer: { cost: 300, maximumTransfers: 2 } } }, modlar: null },
+      {
+        tercihler: { street: { walk: { reluctance: 3 } }, transit: { transfer: { cost: 300, maximumTransfers: 2 } } },
+        modlar: null,
+      },
     ]);
     const r = aramalariYap({ tercih: 'rayli', erisilebilir: false });
     const bus = (r[0].modlar as any).transit.transit.find((k: any) => k.mode === 'BUS');
@@ -260,5 +271,19 @@ describe('benzerleriAyikla', () => {
     const azYuruten = rota(saat(35), 32, 6, 1, bacak('BUS', 22, '141M'), bacak('BUS', 6, '41ST'));
     const baska = rota(saat(40), 50, 20, 1, bacak('SUBWAY', 20, 'M7'), bacak('BUS', 10, '50N'));
     assert.deepEqual(benzerleriAyikla([cokYuruten, baska, azYuruten]), [azYuruten, baska]);
+  });
+});
+
+describe('yuruyusleKiyasla', () => {
+  it('yürüyerek 25 dk ise, 29 dk yürüten metrolu rota anlamsız; 15 dk yürüten kalır', () => {
+    const yuruyus = rota('y', 25, 25, 0);
+    const anlamsiz = rota('m', 31, 29, 0, bacak('SUBWAY', 2, 'M3'));
+    const iyi = rota('o', 25, 6, 0, bacak('BUS', 19, '97M'));
+    const sinirda = rota('s', 28, 20, 0, bacak('BUS', 8, '89C'));
+    assert.deepEqual(yuruyusleKiyasla([yuruyus, anlamsiz, iyi, sinirda]).map((r) => r.start), ['y', 'o', 's']);
+  });
+  it('yürüyüş seçeneği yoksa dokunmaz', () => {
+    const liste = [rota('m', 31, 29, 0, bacak('SUBWAY', 2, 'M3'))];
+    assert.equal(yuruyusleKiyasla(liste), liste);
   });
 });

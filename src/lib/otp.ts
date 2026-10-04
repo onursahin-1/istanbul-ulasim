@@ -37,7 +37,7 @@ export { SORGULAR, VARSAYILAN_SECENEKLER, secenekleriDuzelt, tercihleriYap } fro
 export { bacakDuraklari } from './bacak';
 export type { RotaSecenekleri, RotaTercihi } from './sorgular';
 import { SORGULAR as S, VARSAYILAN_SECENEKLER, aramalariYap, type AramaSuzgecleri, type RotaSecenekleri } from './sorgular';
-import { aracSiniri, gereksizAktarmalariAyikla, rotalariBirlestir, yurumeSiniri } from './rota-secimi';
+import { aracSiniri, gereksizAktarmalariAyikla, rotalariBirlestir, yurumeSiniri, yuruyusleKiyasla } from './rota-secimi';
 import type { HamArac } from './arac-konum';
 import type { Duyuru } from './duyuru';
 import { isletmeciAdi } from './hat-adi';
@@ -151,6 +151,8 @@ export type Durak = {
   desc: string | null;
   lat: number | null;
   lon: number | null;
+  /** Durağa uğrayan araç kipi (SUBWAY, TRAM, FERRY…); aramada istasyonları öne almak için. */
+  vehicleMode?: string | null;
 };
 
 export type YakinDurak = {
@@ -274,7 +276,13 @@ export async function durakDetayiGetir(id: string, sinyal?: AbortSignal): Promis
 export async function durakAra(ad: string, sinyal?: AbortSignal): Promise<Durak[]> {
   type Cevap = { stops: Ebeveynli<Durak>[] | null; istasyonlar: Durak[] | null };
   const veri = await sorgula<Cevap>(DURAK_ARA, { ad }, sinyal);
-  return aramayiIndir(veri.stops, veri.istasyonlar) as Durak[];
+  const sonuc = aramayiIndir(veri.stops, veri.istasyonlar) as Durak[];
+  // İstasyon (ebeveyn) kaydında kip boş gelebiliyor; peronlarınınkini taşı.
+  return sonuc.map((d) => {
+    if (d.vehicleMode) return d;
+    const peron = (veri.stops ?? []).find((x) => x.parentStation?.gtfsId === d.gtfsId && x.vehicleMode);
+    return peron ? { ...d, vehicleMode: peron.vehicleMode } : d;
+  });
 }
 
 /**
@@ -407,7 +415,7 @@ export async function rotaPlanla(
   // Önce yürüme sınırı, sonra gereksiz aktarma: bir rota ancak listede kalan (yürüme
   // sınırını geçen) daha az aktarmalı bir rotaya yenilebilir. Tersi sırada metrolu bir
   // rota, sonradan çok yürüdüğü için elenen bir başkası yüzünden kayboluyordu.
-  const sinirda = yurumeSiniri(hepsi);
+  const sinirda = yurumeSiniri(yuruyusleKiyasla(hepsi));
   const guzergahlar = gereksizAktarmalariAyikla(sinirda.rotalar);
   const asildi = sinirda.asildi;
   // Varışa göre aramada OTP en geç çıkanı başa koyuyor; liste her zaman kalkışa göre okunsun.

@@ -207,6 +207,15 @@ export default function AraEkrani() {
 
   const satirlar = useMemo<Satir[]>(() => {
     const liste: Satir[] = [];
+    // Metro, tramvay, Marmaray istasyonları ve iskeleler en üstte: "Kirazlı" yazan çoğu
+    // zaman istasyonu kastediyor, semtin haritadaki orta noktasını değil (o nokta iki
+    // istasyonun arasında kalıyor, rota da en yakın ama tuhaf olanına götürüyordu).
+    const istasyonlar = kategori ? [] : (duraklar ?? []).filter(istasyonMu);
+    const otobusDuraklari = (duraklar ?? []).filter((d) => !istasyonlar.includes(d));
+    if (istasyonlar.length) {
+      liste.push({ tip: 'baslik', anahtar: 'b-istasyon', yazi: 'İSTASYONLAR VE İSKELELER' });
+      for (const d of istasyonlar) liste.push({ tip: 'durak', anahtar: `d${d.gtfsId}`, veri: d });
+    }
     if (yerSonuclari?.length) {
       liste.push({
         tip: 'baslik',
@@ -215,9 +224,9 @@ export default function AraEkrani() {
       });
       for (const y of yerSonuclari) liste.push({ tip: 'yer', anahtar: `y${y.id}`, veri: y });
     }
-    if (duraklar?.length) {
+    if (otobusDuraklari.length) {
       liste.push({ tip: 'baslik', anahtar: 'b-durak', yazi: 'DURAKLAR' });
-      for (const d of duraklar) liste.push({ tip: 'durak', anahtar: `d${d.gtfsId}`, veri: d });
+      for (const d of otobusDuraklari) liste.push({ tip: 'durak', anahtar: `d${d.gtfsId}`, veri: d });
     }
     return liste;
   }, [yerSonuclari, duraklar, kategori]);
@@ -400,21 +409,22 @@ export default function AraEkrani() {
 
             const d = item.veri;
             const hedef: Konum = { ad: baslikYap(d.name), lat: d.lat!, lon: d.lon! };
+            const istasyon = istasyonMu(d) ? ISTASYON_TURLERI[(d.vehicleMode ?? '').toUpperCase()] : null;
             return (
               <Pressable
                 style={s.satir}
-                onPress={() => hedefSec(hedef, 'Durak')}
+                onPress={() => hedefSec(hedef, istasyon?.ad ?? 'Durak')}
                 onLongPress={() => kaydetSor(hedef)}
               >
                 <View style={[s.satirIkon, { backgroundColor: tema.vurguAcik }]}>
-                  <Ikon ad="bus-outline" boyut={18} renkKodu={tema.vurgu} />
+                  <Ikon ad={istasyon?.ikon ?? 'bus-outline'} boyut={18} renkKodu={tema.vurgu} />
                 </View>
                 <View style={s.satirMetin}>
                   <Text style={s.satirBaslik} numberOfLines={1}>
                     {hedef.ad}
                   </Text>
                   <Text style={s.satirAlt} numberOfLines={1}>
-                    {[mesafeYaz(d.mesafe), yonYaz(d.desc), d.code ? `Durak kodu ${d.code}` : '']
+                    {[istasyon?.ad, mesafeYaz(d.mesafe), istasyon ? '' : yonYaz(d.desc), d.code && !istasyon ? `Durak kodu ${d.code}` : '']
                       .filter(Boolean)
                       .join(' · ')}
                   </Text>
@@ -437,11 +447,29 @@ export default function AraEkrani() {
  * "MECİDİYEKÖY" durağı ile raylı beslemenin "Mecidiyeköy" istasyonu. Sıralama
  * eleme öncesinde yapılmalı ki en yakın olan kalsın.
  */
+/** Raylı sistem istasyonları ve iskeleler: aramada otobüs duraklarından ayrı, en üstte. */
+const ISTASYON_TURLERI: Record<string, { ad: string; ikon: IkonAdi }> = {
+  SUBWAY: { ad: 'Metro istasyonu', ikon: 'subway-outline' },
+  MONORAIL: { ad: 'Metro istasyonu', ikon: 'subway-outline' },
+  RAIL: { ad: 'Tren istasyonu', ikon: 'train-outline' },
+  TRAM: { ad: 'Tramvay durağı', ikon: 'train-outline' },
+  FUNICULAR: { ad: 'Füniküler istasyonu', ikon: 'train-outline' },
+  CABLE_CAR: { ad: 'Teleferik istasyonu', ikon: 'train-outline' },
+  GONDOLA: { ad: 'Teleferik istasyonu', ikon: 'train-outline' },
+  FERRY: { ad: 'İskele', ikon: 'boat-outline' },
+};
+
+function istasyonMu(d: Durak): boolean {
+  return !!ISTASYON_TURLERI[(d.vehicleMode ?? '').toUpperCase()];
+}
+
 function duraklariHazirla(liste: Durak[], merkez: { latitude: number; longitude: number }): DurakSonucu[] {
+  // İstasyonlar önce: aynı adlı otobüs durağı (Kirazlı Metro) istasyonun yerine geçmesin ve
+  // 15'lik sınıra takılmasın.
   const sirali = liste
     .filter((d) => d.lat != null && d.lon != null)
     .map((d) => ({ ...d, mesafe: mesafeMetre(merkez, { latitude: d.lat!, longitude: d.lon! }) }))
-    .sort((a, b) => a.mesafe - b.mesafe);
+    .sort((a, b) => Number(istasyonMu(b)) - Number(istasyonMu(a)) || a.mesafe - b.mesafe);
   return adTekrariniEle(sirali).slice(0, 15);
 }
 

@@ -20,6 +20,7 @@ import {
   rotalariBirlestir,
   rotalariSirala,
   yurumeSiniri,
+  yuruyusleKiyasla,
 } from '../src/lib/rota-secimi.ts';
 import { aramalariYap, ROTA_TERCIHLERI, SORGULAR, type RotaTercihi } from '../src/lib/sorgular.ts';
 import { minibussuzSuzgec, trafiksizSuzgec, vasitaSuzgeci, bacakTuru } from '../src/lib/vasita.ts';
@@ -82,7 +83,9 @@ function ozet(g: Rota): string {
     .filter((b) => b.transitLeg)
     .map((b) => {
       const tur = bacakTuru(b);
-      return `${b.route?.shortName ?? b.mode}(${tur ?? '?'},${dk(b.duration)}dk)`;
+      const bin = (b.from.name ?? '').slice(0, 18);
+      const in_ = (b.to.name ?? '').slice(0, 18);
+      return `${b.route?.shortName ?? b.mode}(${tur ?? '?'},${dk(b.duration)}dk ${bin}→${in_})`;
     })
     .join(' > ');
   return `${saat(g.start)}-${saat(g.end)} ${dk(g.duration)}dk · yürüme ${dk(g.walkTime)} · aktarma ${g.numberOfTransfers} · ${araclar || 'yalnız yürüyüş'}`;
@@ -131,11 +134,18 @@ async function main() {
 
   const hepsi = rotalariBirlestir(listeler);
   const sinirli = aracSiniri(hepsi);
-  const { rotalar: yurunebilir, asildi } = yurumeSiniri(sinirli);
+  const kiyasli = yuruyusleKiyasla(sinirli);
+  const { rotalar: yurunebilir, asildi } = yurumeSiniri(kiyasli);
   const rotalar = gereksizAktarmalariAyikla(yurunebilir);
   console.log(`\nBirleşik ${hepsi.length} → 3 araç sınırı ${sinirli.length} → yürüme sınırı ${yurunebilir.length}${asildi ? ' (sınır aşıldı)' : ''} → gereksiz aktarma ${rotalar.length}`);
   for (const g of hepsi.filter((x) => !rotalar.includes(x))) {
-    const neden = !sinirli.includes(g) ? '3 araçtan çok' : !yurunebilir.includes(g) ? 'yürüme sınırı' : 'gereksiz aktarma';
+    const neden = !sinirli.includes(g)
+      ? '3 araçtan çok'
+      : !kiyasli.includes(g)
+        ? 'yürümekten farksız'
+        : !yurunebilir.includes(g)
+          ? 'yürüme sınırı'
+          : 'gereksiz aktarma';
     console.log(`   elendi (${neden}): ${ozet(g)}`);
   }
 

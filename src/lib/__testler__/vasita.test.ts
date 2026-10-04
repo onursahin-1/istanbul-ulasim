@@ -117,7 +117,10 @@ describe('rota motoru süzgeci', () => {
 
   it('aramalara işlenir; kapalı tür yoksa sunucunun varsayılanı kalır', () => {
     assert.deepEqual(aramalariYap({ tercih: 'hizli', erisilebilir: false, kapali: [] }), [
-      { tercihler: { transit: { transfer: { cost: 300, maximumTransfers: 2 } } }, modlar: null },
+      {
+        tercihler: { street: { walk: { reluctance: 3 } }, transit: { transfer: { cost: 300, maximumTransfers: 2 } } },
+        modlar: null,
+      },
     ]);
     const suzgecler = { kapali: vasitaSuzgeci(['minibus', 'vapur'], HATLAR), minibussuz: minibussuzSuzgec(HATLAR) };
     const aramalar = aramalariYap({ tercih: 'dengeli', erisilebilir: false, kapali: ['minibus', 'vapur'] }, suzgecler);

@@ -134,10 +134,10 @@ query YakinAyniAd($lat: Float!, $lon: Float!, $yaricap: Int!) {
 const DURAK_ARA = `
 query DurakAra($ad: String!) {
   stops(name: $ad) {
-    gtfsId name code desc lat lon
+    gtfsId name code desc lat lon vehicleMode
     parentStation { gtfsId name code desc lat lon }
   }
-  istasyonlar: stations(name: $ad) { gtfsId name code desc lat lon }
+  istasyonlar: stations(name: $ad) { gtfsId name code desc lat lon vehicleMode }
 }`;
 
 const ROTA_PLANLA = `
@@ -281,6 +281,13 @@ export const EN_COK_YURUME_RAYLI_SN = 30 * 60;
 // Aşağıdaki değerler bu varsayılanların üzerine biniyor.
 const YURUME_ISTEKSIZLIGI = 5.0;
 /**
+ * Her aramada yürümenin isteksizliği (OTP varsayılanı 2,0). OTP bir dakika erken varmak
+ * için yolcuyu bir durak önce indirip yürütüyor, aynı otobüse ileriki duraktan bindirmek
+ * için yürütüyordu. 3,0'da bir dakika yürümek araçta üç dakikaya bedel: araç biraz daha
+ * gidiyorsa yolcu oturmaya devam ediyor.
+ */
+const YURUME_TABAN_ISTEKSIZLIGI = 3.0;
+/**
  * Her aramada her aktarma 5 dakikaya bedel. OTP'nin varsayılanı 0: bir dakika erken
  * varmak için iki otobüs daha bindiriyordu (aynı hattan inip aynı hatta yeniden binmek,
  * bir durak sonra inse yürüyerek varacağı yere aktarmalı yol).
@@ -324,9 +331,9 @@ export function tercihleriYap(
   aktarmaSinirli = true,
 ): Record<string, unknown> | null {
   const tercihler: Record<string, unknown> = {};
-  if (secenekler.tercih === 'azYurume') {
-    tercihler.street = { walk: { reluctance: YURUME_ISTEKSIZLIGI } };
-  }
+  tercihler.street = {
+    walk: { reluctance: secenekler.tercih === 'azYurume' ? YURUME_ISTEKSIZLIGI : YURUME_TABAN_ISTEKSIZLIGI },
+  };
   tercihler.transit = {
     transfer: {
       cost: secenekler.tercih === 'azAktarma' ? AKTARMA_BEDELI : AKTARMA_TABAN_BEDELI,

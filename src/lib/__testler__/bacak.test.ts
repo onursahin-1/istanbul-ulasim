@@ -59,7 +59,10 @@ describe('bacakDuraklari', () => {
 describe('tercihleriYap', () => {
   it('her aramada aktarma bedeli ve en çok iki aktarma (üç araç)', () => {
     const t = tercihleriYap({ tercih: 'dengeli', erisilebilir: false }) as Record<string, any>;
-    assert.deepEqual(t, { transit: { transfer: { cost: 300, maximumTransfers: 2 } } });
+    assert.deepEqual(t, {
+      street: { walk: { reluctance: 3 } },
+      transit: { transfer: { cost: 300, maximumTransfers: 2 } },
+    });
     const sinirsiz = tercihleriYap({ tercih: 'dengeli', erisilebilir: false }, null, false) as Record<string, any>;
     assert.equal('maximumTransfers' in sinirsiz.transit.transfer, false);
   });
@@ -72,7 +75,7 @@ describe('tercihleriYap', () => {
   it('az aktarma tercihinde aktarma bedeli daha yüksek', () => {
     const t = tercihleriYap({ tercih: 'azAktarma', erisilebilir: false }) as Record<string, any>;
     assert.ok(t.transit.transfer.cost > 300);
-    assert.equal('street' in t, false);
+    assert.equal(t.street.walk.reluctance, 3);
   });
 
   it('erişilebilirlik diğer tercihlerle birlikte gönderilebilir', () => {

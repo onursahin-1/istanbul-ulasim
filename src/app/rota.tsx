@@ -216,6 +216,13 @@ export default function RotaEkrani() {
           if (eski()) return;
           if (simdiki) baslangic = { ...nereden, lat: simdiki.latitude, lon: simdiki.longitude };
         }
+        if (__DEV__) {
+          // Geliştirirken: aynı aramayı bilgisayarda tanı aracıyla tekrarlamak için hazır komut.
+          const saat = aramaZamani.an.slice(11, 16);
+          console.log(
+            `[rota] npm run rota-tani -- ${baslangic.lat.toFixed(5)},${baslangic.lon.toFixed(5)} ${nereye.lat.toFixed(5)},${nereye.lon.toFixed(5)} ${rotaSecenekleri.tercih} ${saat}`,
+          );
+        }
         const sonuc = await rotaPlanlaYedekli(baslangic, nereye, aramaZamani, rotaSecenekleri, sinyal);
         if (eski()) return;
         setGuzergahlar(sonuc.guzergahlar);
