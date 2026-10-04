@@ -71,6 +71,8 @@ export type YolTarifiVerisi = {
   hedef?: string;
   /** Saat yazıları için; üst bileşen yarım dakikada bir tazeliyor. */
   simdi: number;
+  /** Bacak sırasına göre aynı duraklar arasında giden öbür hatlar ("141M"). */
+  esdegerHatlar?: Record<number, string[]>;
 };
 
 const iso = (b: Bacak, uc: 'start' | 'end') => b[uc].estimated?.time ?? b[uc].scheduledTime;
@@ -536,11 +538,16 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
     <>
       {etiketler}
       <View style={s.komutSatir}>
-        <HatRozeti hat={b.route} />
+        <HatRozeti hat={b.route} ekHatlar={v.esdegerHatlar?.[a.bacak]} />
         <Text style={[s.komut, { flex: 1 }]} numberOfLines={2}>
           {binmeIfadesi(b.route?.mode ?? b.mode, b.route?.agency?.name)}
         </Text>
       </View>
+      {!!v.esdegerHatlar?.[a.bacak] && (
+        <Text style={s.detay} numberOfLines={2}>
+          {`${v.esdegerHatlar[a.bacak].join(', ')} ile de gidebilirsin · hangisi önce gelirse ona bin`}
+        </Text>
+      )}
       {!!b.headsign && (
         <Text style={s.detay} numberOfLines={1}>
           {`${baslikYap(b.headsign)} yönü · ${Math.max(liste.length - 1, 1)} durak · ${sureYaz(b.duration)}`}
@@ -888,7 +895,7 @@ export function TumAdimlar({
                 <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                   {a.tur === 'arac' ? (
                     <View style={s.komutSatir}>
-                      <HatRozeti hat={b.route} kucuk />
+                      <HatRozeti hat={b.route} kucuk ekHatlar={v.esdegerHatlar?.[a.bacak]} />
                       <Text style={s.satirBaslik} numberOfLines={1}>
                         {`${baslikYap(b.to.name)} ${bitisSozcugu(v.bacaklar, a.bacak).e}`}
                       </Text>

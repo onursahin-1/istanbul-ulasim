@@ -92,7 +92,7 @@ export default function RotaDetayEkrani() {
   const tema = useTema();
   const s = useStiller(stiller);
   const { height } = useWindowDimensions();
-  const { sira, hedef } = useLocalSearchParams<{ sira: string; hedef?: string }>();
+  const { sira, hedef, esdeger } = useLocalSearchParams<{ sira: string; hedef?: string; esdeger?: string }>();
   // Güzergâh durumda tutuluyor: yolculukta yürüme bacağı bulunulan yerden yeniden çizilebiliyor.
   const [guzergah, setGuzergah] = useState(() => guzergahGetir(Number(sira)));
   const harita = useRef<MapView>(null);
@@ -126,6 +126,18 @@ export default function RotaDetayEkrani() {
   const bacaklar = useMemo(() => guzergah?.legs ?? [], [guzergah]);
   const cizgiler = useMemo(() => bacaklar.map(bacakNoktalari), [bacaklar]);
   const duraklar = useMemo(() => bacaklar.map((b) => (b.transitLeg ? bacakDuraklari(b) : [])), [bacaklar]);
+  // Rota listesinden gelen eşdeğer hatlar ("141M" aynı duraklar arasında gidiyor), bacak sırasıyla.
+  const esdegerHatlar = useMemo(() => {
+    const parcalar = (esdeger ?? '').split('|');
+    const tablo: Record<number, string[]> = {};
+    let arac = 0;
+    bacaklar.forEach((b, i) => {
+      if (!b.transitLeg) return;
+      const liste = (parcalar[arac++] ?? '').split(',').filter(Boolean);
+      if (liste.length) tablo[i] = liste;
+    });
+    return tablo;
+  }, [esdeger, bacaklar]);
 
   // Adım adım görünüm için: hangi bacak hangi adım, konumla ilerlemek için bacakların özeti.
   const ozetler = useMemo<BacakOzeti[]>(
@@ -548,6 +560,7 @@ export default function RotaDetayEkrani() {
         uyariDegistir,
         hedef,
         simdi,
+        esdegerHatlar,
       }
     : null;
 
@@ -700,7 +713,7 @@ export default function RotaDetayEkrani() {
                             accessibilityLabel={`${b.route?.shortName ?? ''} hattı, ${durakSayisi} durak. ${acik ? 'Durakları gizle' : 'Durakları göster'}`}
                             style={[s.bacakDugme, acik && { borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottomWidth: 0 }]}
                           >
-                            <HatRozeti hat={b.route} kucuk />
+                            <HatRozeti hat={b.route} kucuk ekHatlar={esdegerHatlar[i]} />
                             <Text style={s.adimAlt} numberOfLines={1}>
                               {[
                                 b.headsign ? `${baslikYap(b.headsign)} yönü` : aracAdi(b.route?.mode ?? b.mode),
@@ -712,6 +725,15 @@ export default function RotaDetayEkrani() {
                             </Text>
                             <Ikon ad={acik ? 'chevron-up' : 'chevron-down'} boyut={15} renkKodu={acik ? renkKodu : tema.soluk} />
                           </Pressable>
+
+                          {!!esdegerHatlar[i] && (
+                            <View style={s.esdegerNot}>
+                              <Ikon ad="swap-horizontal" boyut={14} renkKodu={tema.vurgu} />
+                              <Text style={s.esdegerYazi}>
+                                {`Bu duraklar arasında ${esdegerHatlar[i].join(', ')} ile de gidebilirsin. Hangisi önce gelirse ona bin.`}
+                              </Text>
+                            </View>
+                          )}
 
                           {binisOtobusleri[i] && (
                             <OtobusKutusu
@@ -1108,6 +1130,8 @@ const stiller = (t: Tema) =>
   adimIcerik: { flex: 1, paddingBottom: 14, gap: 4 },
   adimBaslik: { fontSize: 14, fontWeight: '700', color: t.yazi },
   adimAlt: { fontSize: 12.5, color: t.soluk, flexShrink: 1, flexGrow: 1 },
+  esdegerNot: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 6 },
+  esdegerYazi: { flex: 1, fontSize: 12.5, lineHeight: 17, color: t.yazi },
   adimCanli: { fontSize: 12.5, fontWeight: '700', color: t.vurgu },
   otobusKutu: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 6, paddingLeft: 2 },
   otobusSimge: { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },

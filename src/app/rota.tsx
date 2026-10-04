@@ -20,6 +20,7 @@ import {
   useStiller,
   Yukleniyor,
   type IkonAdi,
+  esdegerKodlari,
 } from '@/components/ulasim';
 import { bacakCanli } from '@/lib/canli';
 import { kopruyeIlgiBildir, OtpHatasi, rotaPlanlaYedekli, type Guzergah, type Konum, type RotaTercihi } from '@/lib/otp';
@@ -62,6 +63,8 @@ type Grup = {
   sonrakiler: Sirali[];
   /** Her araç bacağında ananınki dışındaki eşdeğer hatlar ("97M / 141M"). */
   alternatifler: Guzergah['legs'][number]['route'][][];
+  /** Her araç bacağında gruptaki bütün hatlar: detay ekranı "141M de olur" desin. */
+  hatlar: Guzergah['legs'][number]['route'][][];
 };
 
 const SONRAKI_SAYISI = 3;
@@ -140,7 +143,7 @@ function gruplandir(guzergahlar: Guzergah[]): Grup[] {
     const hatlar = bacakHatlari(siralanmis.map((x) => x.g));
     const anaHatlari = ana.g.legs.filter((b) => b.transitLeg).map((b) => b.route?.shortName);
     const alternatifler = hatlar.map((liste, k) => liste.filter((r) => r?.shortName !== anaHatlari[k]));
-    return { ana, sonrakiler: siralanmis.slice(1, 1 + SONRAKI_SAYISI), alternatifler };
+    return { ana, sonrakiler: siralanmis.slice(1, 1 + SONRAKI_SAYISI), alternatifler, hatlar };
   });
 }
 
@@ -332,10 +335,18 @@ export default function RotaEkrani() {
     return tablo;
   }, [gruplar, ucretTuru]);
 
-  const detayaGit = (sira: number) => {
+  const detayaGit = (sira: number, hatlar: Grup['hatlar']) => {
     if (!guzergahlar) return;
     guzergahlariSakla(guzergahlar);
-    ekranAc({ pathname: '/rota-detay', params: { sira: String(sira), hedef: nereye.ad } });
+    // Seçilen kalkışın kendi hattı dışındaki eşdeğer hatlar, bacak bacak: "141M|41Ş,41E".
+    const kendi = guzergahlar[sira]?.legs.filter((b) => b.transitLeg).map((b) => b.route?.shortName) ?? [];
+    const esdeger = hatlar
+      .map((liste, k) => esdegerKodlari(liste.filter((r) => r?.shortName !== kendi[k]), 99).join(','))
+      .join('|');
+    ekranAc({
+      pathname: '/rota-detay',
+      params: { sira: String(sira), hedef: nereye.ad, ...(esdeger.replace(/\|/g, '') ? { esdeger } : {}) },
+    });
   };
 
   return (
@@ -428,7 +439,7 @@ export default function RotaEkrani() {
             <Text style={s.ozelGunYazi}>{ozelGunNotu(ozelGun)}</Text>
           </View>
         )}
-        {gruplar.map(({ ana: { g, sira }, sonrakiler, alternatifler }, i) => {
+        {gruplar.map(({ ana: { g, sira }, sonrakiler, alternatifler, hatlar }, i) => {
           const cokHatli = alternatifler.some((a) => a.length > 0);
           const ilkArac = g.legs.find((b) => b.transitLeg);
           const dengeli = rotaSecenekleri.tercih === 'dengeli';
@@ -442,7 +453,7 @@ export default function RotaEkrani() {
           return (
             <View key={sira}>
             {baslik && <Text style={s.bolumBaslik}>{baslik}</Text>}
-            <Pressable style={[s.kart, oneri && s.kartOneri]} onPress={() => detayaGit(sira)}>
+            <Pressable style={[s.kart, oneri && s.kartOneri]} onPress={() => detayaGit(sira, hatlar)}>
               <View style={s.kartUst}>
                 <Text style={s.sure}>{sureYaz(g.duration)}</Text>
                 {etiket ? <Text style={s.etiket}>{etiket}</Text> : <Text style={s.saat}>{`${saatYaz(g.start)}–${saatYaz(g.end)}`}</Text>}
@@ -459,7 +470,14 @@ export default function RotaEkrani() {
                 (() => {
                   const canli = bacakCanli(ilkArac.start.scheduledTime, ilkArac.start.estimated?.time);
                   const saat = saatYaz(ilkArac.start.estimated?.time ?? ilkArac.start.scheduledTime);
-                  const bas = `${hatYazisi(ilkArac)} · ${baslikYap(ilkArac.from.name)} durağından `;
+                  // Aynı yolu giden başka hatlar da varsa hepsi yazılır ve "ilk gelene bin" denir:
+                  // rozetteki "97M / 141M" ikisinden birinin seçileceğini söylüyor.
+                  const ilkEk = esdegerKodlari(alternatifler[0], 99);
+                  const hatlarYazisi = ilkEk.length
+                    ? [hatEtiketi(ilkArac.route?.shortName, ilkArac.route?.mode ?? ilkArac.mode, ilkArac.route?.agency?.name).rozet, ...ilkEk].join(' ya da ')
+                    : hatYazisi(ilkArac);
+                  const bas = `${hatlarYazisi} · ${baslikYap(ilkArac.from.name)} durağından `;
+                  const ilkGelen = ilkEk.length ? ' · hangisi önce gelirse' : '';
                   if (!canli) {
                     // Otobüsün ara duraklardaki saati İETT tarifesinde yok, uç duraklardan
                     // tahmin ediliyor: canlı veri gelmemişse saat yaklaşık olarak yazılır.
@@ -468,6 +486,7 @@ export default function RotaEkrani() {
                       <Text style={s.ilkArac}>
                         {bas}
                         {otobus ? `~${saat}` : saat}
+                        {ilkGelen}
                         {otobus && <Text style={s.tarifeNotu}> · tarifeye göre</Text>}
                       </Text>
                     );
@@ -482,6 +501,7 @@ export default function RotaEkrani() {
                         <Text style={[s.ilkArac, s.esnek]} numberOfLines={2}>
                           {bas}
                           <Text style={{ color: renk, fontWeight: '700' }}>{`${saat} · ${canli.metin}`}</Text>
+                          {ilkGelen}
                         </Text>
                       </View>
                       {tarifeli.length > 0 && (
@@ -508,7 +528,7 @@ export default function RotaEkrani() {
                         <Pressable hitSlop={5}
                           key={x.sira}
                           style={s.hap}
-                          onPress={() => detayaGit(x.sira)}
+                          onPress={() => detayaGit(x.sira, hatlar)}
                           accessibilityRole="button"
                           accessibilityLabel={`${hat ? `${hat}, ` : ''}${saatYaz(saat)} kalkışı${varis ? `, varış ${varis}` : ''}. Detayını aç`}
                         >

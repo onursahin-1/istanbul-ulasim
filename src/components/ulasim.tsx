@@ -159,7 +159,16 @@ export function hatLogosu(kisaAd?: string | null): HatLogosu | null {
   return null;
 }
 
-export function HatRozeti({ hat, kucuk = false }: { hat?: RozetHatti | string | null; kucuk?: boolean }) {
+export function HatRozeti({
+  hat,
+  kucuk = false,
+  ekHatlar,
+}: {
+  hat?: RozetHatti | string | null;
+  kucuk?: boolean;
+  /** Aynı yolu giden öbür hatların kodları: tabela rozetinde tek kutuda "97M / 141M". */
+  ekHatlar?: string[];
+}) {
   const tema = useTema();
   // Metro, tramvay, füniküler, teleferik: resmî rozet gibi hat renginde daire, içinde kod.
   const resmi = resmiRozet(hat);
@@ -235,15 +244,18 @@ export function HatRozeti({ hat, kucuk = false }: { hat?: RozetHatti | string | 
             paddingLeft: kucuk ? 5 : 6,
           },
         ]}
-        accessibilityLabel={rozet}
+        accessibilityLabel={[rozet, ...(ekHatlar ?? [])].join(' ya da ')}
       >
         <Image
           source={minibus ? SIMGELER.minibus : SIMGELER.otobus}
           style={{ width: simgeBoyu, height: simgeBoyu, tintColor: tema.vurgu }}
           accessibilityIgnoresInvertColors
         />
-        <Text style={[stil.tabelaYazi, kucuk && stil.tabelaYaziKucuk, { color: tema.yazi }]} numberOfLines={1}>
-          {rozet}
+        <Text
+          style={[stil.tabelaYazi, kucuk && stil.tabelaYaziKucuk, ekHatlar?.length ? stil.tabelaYaziGenis : null, { color: tema.yazi }]}
+          numberOfLines={1}
+        >
+          {[rozet, ...(ekHatlar ?? [])].join(' / ')}
         </Text>
       </View>
     );
@@ -270,7 +282,7 @@ export function BacakZinciri({
   alternatifler,
 }: {
   bacaklar: Bacak[];
-  /** Her araç bacağında aynı yolu giden öbür hatlar (sırayla); rozetin yanında "/" ile. */
+  /** Her araç bacağında aynı yolu giden öbür hatlar (sırayla); ana rozetle tek kutuda. */
   alternatifler?: (RozetHatti | null | undefined)[][];
 }) {
   const tema = useTema();
@@ -280,24 +292,12 @@ export function BacakZinciri({
     <View style={stil.zincir}>
       {gorunen.map((b, i) => {
         if (b.transitLeg) arac += 1;
-        const ek = b.transitLeg ? (alternatifler?.[arac] ?? []).filter((r): r is RozetHatti => !!r) : [];
-        // Yer dar: en çok bir ek rozet, gerisi "+2" gibi.
-        const gosterilen = ek.slice(0, 1);
-        const kalan = ek.length - gosterilen.length;
+        const ek = b.transitLeg ? esdegerKodlari(alternatifler?.[arac]) : [];
         return (
           <View key={i} style={stil.zincirParca}>
             {i > 0 && <Ikon ad="chevron-forward" boyut={12} renkKodu={tema.yurume} />}
             {b.transitLeg ? (
-              <View style={stil.esdeger} accessibilityLabel={[b.route?.shortName, ...ek.map((r) => r.shortName)].filter(Boolean).join(' ya da ')}>
-                <HatRozeti hat={b.route} />
-                {gosterilen.map((r, k) => (
-                  <View key={k} style={stil.esdeger}>
-                    <Text style={[stil.esdegerAyrac, { color: tema.soluk }]}>/</Text>
-                    <HatRozeti hat={r} />
-                  </View>
-                ))}
-                {kalan > 0 && <Text style={[stil.esdegerAyrac, { color: tema.soluk }]}>{`+${kalan}`}</Text>}
-              </View>
+              <HatRozeti hat={b.route} ekHatlar={ek} />
             ) : (
               <View style={stil.yuru}>
                 <Ikon ad="walk" boyut={15} renkKodu={tema.soluk} />
@@ -309,6 +309,22 @@ export function BacakZinciri({
       })}
     </View>
   );
+}
+
+/**
+ * Eşdeğer hatların rozette görünecek kodları. Yer dar: en çok üç hat, gerisi "+2".
+ * Aynı kod (ör. aynı hattın iki güzergâhı) bir kez.
+ */
+export function esdegerKodlari(hatlar?: (RozetHatti | null | undefined)[], enCok = 3): string[] {
+  const kodlar = [
+    ...new Set(
+      (hatlar ?? [])
+        .filter((r): r is RozetHatti => !!r)
+        .map((r) => hatEtiketi(r.shortName, r.mode, r.agency?.name).rozet),
+    ),
+  ];
+  if (kodlar.length <= enCok) return kodlar;
+  return [...kodlar.slice(0, enCok - 1), `+${kodlar.length - enCok + 1}`];
 }
 
 /** Güzergâhın ne kadarının hangi araçta geçtiğini gösteren oransal şerit. */
@@ -656,11 +672,10 @@ const stil = StyleSheet.create({
   },
   tabelaYazi: { fontWeight: '800', fontSize: 13, paddingRight: 8, maxWidth: 110, fontVariant: ['tabular-nums'] },
   tabelaYaziKucuk: { fontSize: 11.5, paddingRight: 6 },
+  tabelaYaziGenis: { maxWidth: 230 },
   rozetYaziKucuk: { fontSize: 11.5, paddingHorizontal: 7 },
   zincir: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', rowGap: 6 },
   zincirParca: { flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: 4 },
-  esdeger: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  esdegerAyrac: { fontSize: 13, fontWeight: '700' },
   yuru: { flexDirection: 'row', alignItems: 'center' },
   yuruYazi: { fontSize: 12, fontWeight: '600' },
   serit: { flexDirection: 'row', height: 6, borderRadius: 3, overflow: 'hidden', gap: 2 },
