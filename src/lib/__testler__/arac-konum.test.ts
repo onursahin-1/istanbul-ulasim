@@ -12,6 +12,9 @@ import {
   seferGecikmesi,
   yasSinifi,
   yasYaz,
+  cizgideNokta,
+  tahminiKonum,
+  EN_COK_TAHMIN_SN,
 } from '../arac-konum';
 
 // Kuzeye giden düz bir hat: duraklar arası ~222 m (0.002° enlem).
@@ -178,5 +181,40 @@ describe('yaklasanOtobus', () => {
   it('yazımı', () => {
     assert.equal(kalanYaz(0), 'durakta');
     assert.equal(kalanYaz(2), '2 durak uzakta');
+  });
+});
+
+describe('tahminiKonum', () => {
+  // Kuzeye 666 m'lik düz güzergâh.
+  const cizgi = [0, 1, 2, 3].map((i) => ({ latitude: 41 + i * 0.002, longitude: 29 }));
+  const arac = { lat: 41.001, lon: 29, an: SIMDI - 20_000, durum: 'yaklasiyor' as const, heading: null };
+
+  it('son konumdan bu yana ortalama hızla güzergâh üstünde ilerler, yönü kuzey', () => {
+    const t = tahminiKonum(arac, cizgi, 5, SIMDI);
+    // 20 sn × 5 m/sn = 100 m ≈ 0.0009°
+    assert.ok(Math.abs(t.latitude - (41.001 + 100 / 111_195)) < 0.00005, `${t.latitude}`);
+    assert.equal(t.longitude, 29);
+    assert.ok(t.yon != null && (t.yon < 1 || t.yon > 359));
+    assert.equal(t.tahmini, true);
+  });
+
+  it('en çok 150 sn ileri, hattın sonunu geçmez', () => {
+    const cokEski = { ...arac, an: SIMDI - 1_000_000 };
+    const t = tahminiKonum(cokEski, cizgi, 5, SIMDI);
+    assert.ok(t.latitude <= 41.001 + (EN_COK_TAHMIN_SN * 5) / 111_195 + 0.00005);
+    const sonda = tahminiKonum({ ...arac, lat: 41.0058 }, cizgi, 20, SIMDI + 600_000);
+    assert.ok(Math.abs(sonda.latitude - 41.006) < 0.00001);
+  });
+
+  it('durakta görülen otobüs önce bekler; güzergâhtan uzaksa son konumda kalır', () => {
+    const durakta = tahminiKonum({ ...arac, durum: 'durakta', an: SIMDI - 15_000 }, cizgi, 5, SIMDI);
+    assert.ok(Math.abs(durakta.latitude - 41.001) < 0.00001);
+    const uzak = tahminiKonum({ ...arac, lon: 29.01 }, cizgi, 5, SIMDI);
+    assert.deepEqual([uzak.latitude, uzak.longitude, uzak.tahmini], [41.001, 29.01, false]);
+  });
+
+  it('cizgideNokta baştan verilen metredeki noktayı verir', () => {
+    const n = cizgideNokta(cizgi, 222.39);
+    assert.ok(Math.abs(n.nokta.latitude - 41.002) < 0.00001);
   });
 });

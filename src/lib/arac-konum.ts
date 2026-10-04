@@ -11,7 +11,7 @@
 //
 // Bağımlılıksız: React Native'e dokunmuyor, testlerden çağrılabiliyor.
 
-import { mesafeMetre } from './cografya';
+import { cizgiUzerindeYer, mesafeMetre, type Nokta } from './cografya';
 
 /** Bu yaştan eski konum soluk gösterilir ("civarı", "önce görüldü"). */
 export const ESKI_SN = 5 * 60;
@@ -76,6 +76,8 @@ export type YerlesikArac = {
   lat: number;
   lon: number;
   heading: number | null;
+  /** Konumun alındığı an (ms). */
+  an: number;
 };
 
 const nokta = (lat: number, lon: number) => ({ latitude: lat, longitude: lon });
@@ -169,6 +171,7 @@ export function araclariYerlestir(
       lat: a.lat,
       lon: a.lon,
       heading: a.heading ?? null,
+      an,
     });
   }
   return sonuc.sort((x, y) => x.konum - y.konum);
@@ -204,4 +207,76 @@ export function yaklasanOtobus(
 /** "durakta", "1 durak uzakta", "3 durak uzakta". */
 export function kalanYaz(kalan: number): string {
   return kalan <= 0 ? 'durakta' : `${kalan} durak uzakta`;
+}
+
+// ---------------------------------------------------------------- iki konum arası tahmin
+//
+// Köprü otobüs konumunu 75 saniyede bir alabiliyor (İBB'nin kotası saatte 100 istek).
+// Haritada otobüs bu arada donup sonra sıçramasın diye, son konumdan bu yana geçen
+// sürede güzergâh üstünde ortalama hızla ne kadar ilerlediği tahmin ediliyor. Tahmin
+// kısa tutuluyor: en çok 150 sn ileriye ve hattın dışına hiç çıkmadan.
+
+/** İstanbul'da şehir içi otobüsün ortalama hızı (durak beklemeleri dahil), m/sn ≈ 16 km/sa. */
+export const OTOBUS_HIZI_MS = 4.5;
+/** Metrobüs kendi yolunda: ≈ 30 km/sa. */
+export const METROBUS_HIZI_MS = 8.5;
+/** Son konumdan en çok bu kadar saniye ileriye tahmin edilir. */
+export const EN_COK_TAHMIN_SN = 150;
+/** Durakta görülen otobüsün kalkmadan önce beklediği varsayılan süre. */
+export const DURAK_BEKLEMESI_SN = 20;
+/** Güzergâh çizgisine bundan uzak konum tahmin edilmez (garaj, sapma). */
+const CIZGIDEN_UZAK_M = 80;
+
+export type TahminiKonum = { latitude: number; longitude: number; yon: number | null; tahmini: boolean };
+
+function yonBul(a: Nokta, b: Nokta): number {
+  const y = Math.sin(((b.longitude - a.longitude) * Math.PI) / 180) * Math.cos((b.latitude * Math.PI) / 180);
+  const x =
+    Math.cos((a.latitude * Math.PI) / 180) * Math.sin((b.latitude * Math.PI) / 180) -
+    Math.sin((a.latitude * Math.PI) / 180) * Math.cos((b.latitude * Math.PI) / 180) * Math.cos(((b.longitude - a.longitude) * Math.PI) / 180);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+/** Çizgi üzerinde baştan `metre` uzaklıktaki nokta ve o parçanın yönü. */
+export function cizgideNokta(cizgi: Nokta[], metre: number): { nokta: Nokta; yon: number | null } {
+  if (cizgi.length === 0) return { nokta: { latitude: 0, longitude: 0 }, yon: null };
+  let kalan = Math.max(0, metre);
+  for (let i = 1; i < cizgi.length; i++) {
+    const a = cizgi[i - 1];
+    const b = cizgi[i];
+    const boy = mesafeMetre(a, b);
+    if (kalan <= boy || i === cizgi.length - 1) {
+      const t = boy > 0 ? Math.min(1, kalan / boy) : 0;
+      return {
+        nokta: { latitude: a.latitude + (b.latitude - a.latitude) * t, longitude: a.longitude + (b.longitude - a.longitude) * t },
+        yon: boy > 0 ? yonBul(a, b) : null,
+      };
+    }
+    kalan -= boy;
+  }
+  return { nokta: cizgi[cizgi.length - 1], yon: null };
+}
+
+/**
+ * Otobüsün şu anki tahmini yeri: son konum güzergâha izdüşürülüp, o andan bu yana geçen
+ * sürede ortalama hızla ilerletiliyor. Güzergâhtan uzaksa ya da çizgi yoksa son konum.
+ */
+export function tahminiKonum(
+  arac: Pick<YerlesikArac, 'lat' | 'lon' | 'an' | 'durum' | 'heading'>,
+  cizgi: Nokta[],
+  hizMs: number,
+  simdiMs: number,
+): TahminiKonum {
+  const son: TahminiKonum = { latitude: arac.lat, longitude: arac.lon, yon: arac.heading, tahmini: false };
+  if (cizgi.length < 2 || !Number.isFinite(arac.an)) return son;
+  const yer = cizgiUzerindeYer({ latitude: arac.lat, longitude: arac.lon }, cizgi);
+  if (yer.uzaklik > CIZGIDEN_UZAK_M) return son;
+  let gecen = Math.min(Math.max(0, (simdiMs - arac.an) / 1000), EN_COK_TAHMIN_SN);
+  if (arac.durum === 'durakta') gecen = Math.max(0, gecen - DURAK_BEKLEMESI_SN);
+  // İzdüşüm kendi düzlem ölçeğiyle ölçüyor; çizgi boyunu cizgideNokta'nın ölçeğine çevir.
+  let boy = 0;
+  for (let i = 1; i < cizgi.length; i++) boy += mesafeMetre(cizgi[i - 1], cizgi[i]);
+  const bas = yer.toplam > 0 ? (yer.boyunca / yer.toplam) * boy : 0;
+  const { nokta, yon } = cizgideNokta(cizgi, Math.min(bas + hizMs * gecen, boy));
+  return { ...nokta, yon: yon ?? arac.heading, tahmini: gecen > 0 };
 }

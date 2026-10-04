@@ -21,14 +21,22 @@ import {
   useSesliTarif,
   type YolTarifiVerisi,
 } from '@/components/canli-yol-tarifi';
-import { OtobusIsareti } from '@/components/harita-isaretleri';
+import { HareketliOtobus } from '@/components/harita-isaretleri';
 import { HatirlatmaSayfasi, type InisBilgisi } from '@/components/hatirlatma';
 import { canliRenk, DONUS_SIMGELERI, GeriCubugu, HatRozeti, Ikon, useStiller } from '@/components/ulasim';
 import { bacakCanli } from '@/lib/canli';
 import { hemenBildir, izinIste, useHatirlaticilar } from '@/lib/bildirim';
 import { sesliTarifKaydet, useKayitlar } from '@/lib/kayitlar';
 import { polylineCoz, type Nokta } from '@/lib/cografya';
-import { araclariYerlestir, kalanYaz, yaklasanOtobus, yasYaz, type YerlesikArac } from '@/lib/arac-konum';
+import {
+  araclariYerlestir,
+  kalanYaz,
+  METROBUS_HIZI_MS,
+  OTOBUS_HIZI_MS,
+  yaklasanOtobus,
+  yasYaz,
+  type YerlesikArac,
+} from '@/lib/arac-konum';
 import {
   bacakDuraklari,
   hatKalkislariGetir,
@@ -55,6 +63,7 @@ import {
 import { adimlariYaz } from '@/lib/yuruyus';
 import { isodanSaniye, mesafeYaz, saatYaz, saniyedenSaat, sureYaz } from '@/lib/zaman';
 import { geriDon } from '@/lib/gezinti';
+import { metrobusMu } from '@/lib/metin';
 
 type Takip = { bacak: number; kalanDurak: number } | null;
 
@@ -588,22 +597,24 @@ export default function RotaDetayEkrani() {
             />
           ))}
         <Marker coordinate={{ latitude: bacaklar[0].from.lat, longitude: bacaklar[0].from.lon }} title="Başlangıç" pinColor={tema.vurgu} />
-        {Object.entries(binisOtobusleri).map(([i, { otobus, kalan }]) => (
-          <Marker
-            key={`otobus-${i}`}
-            coordinate={{ latitude: otobus.lat, longitude: otobus.lon }}
-            anchor={{ x: 0.5, y: 0.5 }}
-            title={`${bacaklar[Number(i)]?.route?.shortName ?? 'Otobüs'} · ${kalanYaz(kalan)}`}
-            description={`Konum ${yasYaz(otobus.yasSn)}`}
-            zIndex={10}
-          >
-            <OtobusIsareti
-              renk={haritaRengi(bacaklar[Number(i)]?.route, tema)}
-              yon={otobus.heading}
-              soluk={otobus.sinif === 'eski'}
+        {Object.entries(binisOtobusleri).map(([i, { otobus, kalan }]) => {
+          const b = bacaklar[Number(i)];
+          // Bineceğin otobüs biniş durağına doğru geliyor: seferin durakları güzergâh yerine.
+          const cizgi = (b?.trip?.pattern?.stops ?? [])
+            .filter((d) => d.lat != null && d.lon != null)
+            .map((d) => ({ latitude: d.lat!, longitude: d.lon! }));
+          return (
+            <HareketliOtobus
+              key={`otobus-${i}`}
+              otobus={otobus}
+              cizgi={cizgi}
+              hiz={metrobusMu(b?.route?.shortName) ? METROBUS_HIZI_MS : OTOBUS_HIZI_MS}
+              renk={haritaRengi(b?.route, tema)}
+              baslik={`${b?.route?.shortName ?? 'Otobüs'} · ${kalanYaz(kalan)}`}
+              aciklama={`Konum ${yasYaz(otobus.yasSn)}`}
             />
-          </Marker>
-        ))}
+          );
+        })}
         <Marker
           coordinate={{ latitude: bacaklar[bacaklar.length - 1].to.lat, longitude: bacaklar[bacaklar.length - 1].to.lon }}
           title={hedef ? baslikYap(hedef) : 'Varış'}

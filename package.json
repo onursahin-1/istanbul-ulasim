@@ -47,6 +47,7 @@
   },
   "scripts": {
     "start": "expo start",
+    "baslat": "powershell -ExecutionPolicy Bypass -File scripts/baslat.ps1",
     "uzaktan": "powershell -ExecutionPolicy Bypass -File scripts/uzaktan-baslat.ps1",
     "android": "expo start --android",
     "ios": "expo start --ios",

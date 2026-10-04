@@ -14,7 +14,7 @@
 //   GTFS_ZIP     İETT GTFS zip yolu (C:\otp\istanbul\istanbul-iett-gtfs.zip)
 //   PORT         dinlenecek kapı (8082)
 //   BUTCE        İBB'ye saatte en fazla istek (80; İBB'nin sınırı 100)
-//   NABIZ        filo konumu tazeleme aralığı, saniye (120)
+//   NABIZ        filo konumu tazeleme aralığı, saniye (75)
 //   OGRENILEN    öğrenilenlerin dosyası (kopru\ogrenilen.json)
 //   TAHMIN       varış tahmini: ogrenilen | sabit (boş: ölçüme göre kendiliğinden; /durum'da `tahmin`)
 //
@@ -49,7 +49,11 @@ const ZIP = process.env.GTFS_ZIP ?? 'C:\\otp\\istanbul\\istanbul-iett-gtfs.zip';
 // 8080 OTP, 8081 Expo Metro. Köprü 8082'de duruyor.
 const PORT = Number(process.env.PORT ?? 8082);
 const BUTCE = Number(process.env.BUTCE ?? 80);
-const NABIZ = Number(process.env.NABIZ ?? 120) * 1000;
+// 75 sn: konum en fazla ~1,5 dk geride. Saatte 48 nabız, kalan ~26 istek hat taramasına
+// (hangi araç hangi hatta). Araç–hat eşleşmesi bir hafta tutulduğu ve filonun çoğu birkaç
+// günde öğrenildiği için tarama payı azalınca kapsama düşmüyor; konum tazeliği artıyor.
+// Eski değer 120 sn idi (saatte 30 nabız + 44 tarama).
+const NABIZ = Number(process.env.NABIZ ?? 75) * 1000;
 const OGRENILEN = process.env.OGRENILEN ?? join(KLASOR, 'ogrenilen.json');
 /** Son başarılı nabız bundan eskiyse boş akış yayımlanır: bayat gecikme, hiç gecikme göstermemekten kötü. */
 const BAYAT_MS = 5 * 60_000;

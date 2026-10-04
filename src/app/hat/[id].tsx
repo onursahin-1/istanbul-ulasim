@@ -20,11 +20,13 @@ import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AltYaprak } from '@/components/alt-yaprak';
-import { DurakIsareti, OtobusIsareti } from '@/components/harita-isaretleri';
+import { DurakIsareti, HareketliOtobus } from '@/components/harita-isaretleri';
 import { DuyuruKarti, HataKutusu, HatRozeti, Ikon, NabizNoktasi, useStiller, Yukleniyor } from '@/components/ulasim';
 import { hattinDuyurulari, type Duyuru } from '@/lib/duyuru';
 import {
   araclariYerlestir,
+  METROBUS_HIZI_MS,
+  OTOBUS_HIZI_MS,
   kalanYaz,
   yaklasanOtobus,
   yasYaz,
@@ -32,7 +34,7 @@ import {
   type YerlesikArac,
 } from '@/lib/arac-konum';
 import { polylineCoz, type Nokta } from '@/lib/cografya';
-import { trKucuk } from '@/lib/metin';
+import { metrobusMu, trKucuk } from '@/lib/metin';
 import { duyurulariGetir, hatAraclariGetir, hatDetayiKardesleriyle, OtpHatasi, saatsizHatMi, type HatDetayi } from '@/lib/otp';
 import { aracAdi, baslikYap, haritaRengi, hatRengi, useTema, yaziRengi, type Tema } from '@/lib/tema';
 import { secimTiki, vurus } from '@/lib/dokunsal';
@@ -334,16 +336,15 @@ export default function HatEkrani() {
               ) : null,
             )}
             {otobusler.map((o) => (
-              <Marker
+              <HareketliOtobus
                 key={o.kimlik}
-                coordinate={{ latitude: o.lat, longitude: o.lon }}
-                anchor={{ x: 0.5, y: 0.5 }}
-                title={`Otobüs ${o.etiket}`}
-                description={otobusAciklamasi(o, baslikYap(duraklar[o.durak]?.name))}
-                zIndex={10}
-              >
-                <OtobusIsareti renk={seritRengi} yon={o.heading} soluk={o.sinif === 'eski'} />
-              </Marker>
+                otobus={o}
+                cizgi={cizgi}
+                hiz={metrobusMu(hat?.shortName) ? METROBUS_HIZI_MS : OTOBUS_HIZI_MS}
+                renk={seritRengi}
+                baslik={`Otobüs ${o.etiket}`}
+                aciklama={otobusAciklamasi(o, baslikYap(duraklar[o.durak]?.name))}
+              />
             ))}
           </MapView>
 
@@ -667,3 +668,4 @@ const stiller = (t: Tema) =>
     },
     tamamiYazi: { fontSize: 13, fontWeight: '600', color: t.vurgu },
   });
+

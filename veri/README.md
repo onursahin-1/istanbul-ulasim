@@ -464,6 +464,28 @@ dokunulmuyor: T3'ün iki ucu da Kadıköy iskelesinde, uçlardan ad üretmek
 
 Yenilenenler: M3, M4, M5, M6, M8, M9, M1B.
 
+## 7b. Otobüslerin ara durak saatleri — gerçek yol süreleriyle
+
+```powershell
+python iett-sure-uygula.py C:\otp\istanbul\istanbul-iett-gtfs.zip ..\kopru\kayit\segment-sureleri.json
+```
+
+İETT tarifesinde bir seferin yalnız ilk ve son durağının saati var; OTP aradakileri
+mesafeye göre eşit dağıtıyordu (trafikli cadde ile boş sokak aynı hızda). Köprü her gün
+otobüslerin iki durak arası gerçek süresini ölçüyor (`kopru/segment.mjs`), saat dilimi
+ve hafta içi/sonu ayrı. Köprünün kendi ölçümünde bu süreler eşit dağıtımdan belirgin iyi:
+4 durak sonrası ortalama sapma 2,2 → 1,1 dk, 10 durakta 4,3 → 2,3 dk.
+
+Betik uç durakların saatine dokunmuyor (İETT'nin planı), aradaki süreyi öğrenilen
+sürelere göre bölüştürüyor. Durak çiftinin o dilimde ölçümü yoksa aynı gün türünün
+ortalaması, hiç yoksa seferin öğrenilen kısımlarındaki hızla mesafeden. İlk çalışmada
+saatli satırlar `timepoint=1` işaretleniyor; betik yeniden çalıştırılabilir (yeni
+ölçümlerle günceller). 4 Ekim 2026 verisiyle: 5,9 milyon ara durak saati; durak
+aralarının %79'unda öğrenilen süre; eşit dağıtıma göre ortalama fark 1,5 dk.
+
+`yenile.ps1` bu adımı kendisi çalıştırıyor. Yalnız süreleri tazelemek için (köprü
+öğrendikçe haftada bir): `.\sureleri-guncelle.ps1` (betik ve grafik derleme, ~10 dk).
+
 ## 9. Ağ haritası verisi
 
 ```powershell

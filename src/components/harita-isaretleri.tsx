@@ -3,9 +3,14 @@
 // İşaretler gerçek görünüm olarak çiziliyor; iOS'ta Marker'ın içindeki görünüm
 // harita üstünde yaşıyor, resme çevrilmiyor.
 
+import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { Marker } from 'react-native-maps';
 
 import { Ikon } from '@/components/ulasim';
+import { tahminiKonum, type YerlesikArac } from '@/lib/arac-konum';
+import { useCanliAralik } from '@/lib/canli-aralik';
+import type { Nokta } from '@/lib/cografya';
 import { useTema } from '@/lib/tema';
 
 /**
@@ -36,6 +41,48 @@ export function DurakIsareti({ renk, isaretli = false }: { renk: string; isaretl
     <View style={[stil.durakBuyuk, { backgroundColor: renk, borderColor: tema.yuzey }]} />
   ) : (
     <View style={[stil.durak, { borderColor: renk, backgroundColor: tema.yuzey }]} />
+  );
+}
+
+/**
+ * Haritadaki canlı otobüs: köprü konumu 75 sn'de bir verebiliyor (İBB kotası); arada
+ * otobüs donup sonra sıçramasın diye saniyede bir, son konumdan bu yana güzergâh üstünde
+ * ortalama hızla ilerletiliyor (arac-konum.ts, tahminiKonum). Yalnız bu işaret yenileniyor,
+ * ekranın geri kalanı değil. Eski (5 dk'dan eski) konum ilerletilmez, soluk durur.
+ */
+export function HareketliOtobus({
+  otobus,
+  cizgi,
+  hiz,
+  renk,
+  baslik,
+  aciklama,
+}: {
+  otobus: Pick<YerlesikArac, 'lat' | 'lon' | 'an' | 'durum' | 'heading' | 'sinif'>;
+  /** Otobüsün gittiği güzergâh (en azından durakları sırayla). */
+  cizgi: Nokta[];
+  /** Ortalama hız, m/sn (OTOBUS_HIZI_MS, METROBUS_HIZI_MS). */
+  hiz: number;
+  renk: string;
+  baslik: string;
+  aciklama: string;
+}) {
+  const [simdi, setSimdi] = useState(() => Date.now());
+  const canli = otobus.sinif !== 'eski';
+  useCanliAralik(() => setSimdi(Date.now()), 1_000, canli);
+  const yer = canli
+    ? tahminiKonum(otobus, cizgi, hiz, simdi)
+    : { latitude: otobus.lat, longitude: otobus.lon, yon: otobus.heading, tahmini: false };
+  return (
+    <Marker
+      coordinate={{ latitude: yer.latitude, longitude: yer.longitude }}
+      anchor={{ x: 0.5, y: 0.5 }}
+      title={baslik}
+      description={yer.tahmini ? `${aciklama} · tahmini yer` : aciklama}
+      zIndex={10}
+    >
+      <OtobusIsareti renk={renk} yon={yer.yon} soluk={!canli} />
+    </Marker>
   );
 }
 

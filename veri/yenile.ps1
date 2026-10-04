@@ -124,6 +124,14 @@ Adim "Vapur çizgileri (denizden)" { PythonCalistir vapur-cizgi.py ekle $kiyi $r
 Adim "Hat adları" { PythonCalistir hat-adi-duzelt.py $ray }
 Adim "İstasyonlar birleştiriliyor (raylı ve vapur)" { PythonCalistir durak-birlestir.py $ray }
 Adim "İstasyonlar birleştiriliyor (İETT)" { PythonCalistir durak-birlestir.py $iett }
+# Otobüslerin ara durak saatleri: İETT yalnız uç durakların saatini veriyor. Köprü en az bir
+# gün çalıştıysa öğrendiği gerçek yol süreleriyle doldurulur; yoksa OTP eşit dağıtır.
+$sureler = Join-Path $PSScriptRoot '..\kopru\kayit\segment-sureleri.json'
+if (Test-Path $sureler) {
+  Adim "Otobüs ara durak saatleri (köprünün öğrendiği yol süreleriyle)" { PythonCalistir iett-sure-uygula.py $iett $sureler }
+} else {
+  Write-Host "Köprünün öğrendiği yol süreleri yok ($sureler); ara durak saatleri eşit dağıtılacak." -ForegroundColor Yellow
+}
 Adim "Sağlama" { PythonCalistir dogrula.py $ist }
 Adim "Uygulamanın ağ haritası" { PythonCalistir ag-cikar.py $ray ..\assets\veri\ag.json }
 Adim "Uygulamanın sıklık verisi" { PythonCalistir siklik-cikar.py $ray ..\assets\veri\siklik.json }

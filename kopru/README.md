@@ -21,7 +21,7 @@ Sunucu `http://localhost:8082` adresinde üç uç nokta açar:
 
 Ortam değişkenleri: `GTFS_ZIP` (varsayılan `C:\otp\istanbul\istanbul-iett-gtfs.zip`),
 `PORT` (8082 — 8080 OTP'nin, 8081 Expo'nun), `BUTCE` (saatte 80 istek; İBB'nin sınırı
-100, 95'in üstü reddediliyor), `NABIZ` (120 saniye), `OGRENILEN` (öğrenilenlerin
+100, 95'in üstü reddediliyor), `NABIZ` (75 saniye), `OGRENILEN` (öğrenilenlerin
 dosyası, varsayılan `kopru\ogrenilen.json`).
 
 Kapının açık olup olmadığına **tek istekle** bakmak için (köprü kapalıyken):
@@ -101,9 +101,9 @@ uzatır.
 
 Bütçe ikiye bölünüyor:
 
-- **Nabız** (2 dakikada bir, **tek istek**, saatte 30): `GetFiloAracKonum_json` bütün
+- **Nabız** (75 saniyede bir, **tek istek**, saatte 48; eskiden 2 dakikada bir): `GetFiloAracKonum_json` bütün
   filonun taze konumunu veriyor. Hat bilgisi içermiyor.
-- **Tarama** (kalan bütçe, ~75 saniyede bir hat, saatte ~48): `GetHatOtoKonum_json`
+- **Tarama** (kalan bütçe, ~2,3 dakikada bir hat, saatte ~26): `GetHatOtoKonum_json`
   hat hat sorularak hangi aracın hangi hatta olduğu öğreniliyor. En yoğun hatlar önce;
   hiç sorulmamış hatların yoğunluğu tarifedeki sefer sayısından tahmin ediliyor.
   Gece 01:00–05:00 tarama duruyor: o saatte sorulan hat "0 araç" diye kaydedilip
@@ -240,4 +240,5 @@ canlı akışa, sonra da rota motorunun tarifesine geçecek.
 - **Kapsama zamanla büyüyor.** İlk gün yoğun hatlar birkaç saatte, filonun çoğu bir iki
   günde öğreniliyor. Hattı hiç taranmamış bir araç akışta görünmez. İBB'den daha yüksek
   kota alınırsa `BUTCE` ile tarama hızlandırılabilir (ama 100'ün üstüne çıkmaz).
-- Nabız 2 dakikada bir: canlı konum en fazla ~3 dakika geride.
+- Nabız 75 saniyede bir: canlı konum en fazla ~1,5 dakika geride. Uygulama iki nabız
+  arasında otobüsü güzergâh üstünde tahmini hızla ilerletiyor (hat ve rota haritası).
