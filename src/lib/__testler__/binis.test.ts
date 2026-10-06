@@ -348,3 +348,28 @@ describe('otobüs durağında bekleme (tabela verideki noktadan ötede)', () => 
     assert.equal(hattaBekliyor(bekleyen(tabela), { ...BACAKLAR[1], rayli: true }), false);
   });
 });
+
+describe('yolculuk iniş durağında bitiyor (aranan yer istasyonun kendisi)', () => {
+  const ikiBacak: BacakOzeti[] = [BACAKLAR[0], { ...BACAKLAR[1], rayli: true }];
+  const adimlar = adimlariKur(ikiBacak);
+  const inisteyiz: YolculukDurumu = { adim: 1, faz: 'icinde', kalanDurak: 0, durakta: true, ilerleme: 4 };
+
+  it('durakta ve konum istasyonun dibindeyse vardın', () => {
+    const yakin = n(0.012 + 20 * M);
+    assert.equal(durumuIlerlet(inisteyiz, yakin, adimlar, ikiBacak, { dogruluk: 15 }).faz, 'vardi');
+  });
+
+  it('istasyona gelirken (henüz durakta değil) konum son durağa varınca da biter', () => {
+    const geliyor: YolculukDurumu = { adim: 1, faz: 'icinde', kalanDurak: 1, durakta: false, ilerleme: 3 };
+    assert.equal(durumuIlerlet(geliyor, n(0.012), adimlar, ikiBacak, { dogruluk: 15 }).faz, 'vardi');
+  });
+
+  it('sonra yürüyüş varsa durakta durmak bitirmez (inip yürümeye başlayınca biter)', () => {
+    const d = durumuIlerlet(inisteyiz, n(0.012 + 20 * M), ADIMLAR, BACAKLAR, { dogruluk: 15 });
+    assert.equal(d.faz, 'icinde');
+  });
+
+  it('tünelde binilen istasyonda kalmış eski konum bitirmez', () => {
+    assert.equal(durumuIlerlet(inisteyiz, n(0), adimlar, ikiBacak, { dogruluk: 176 }).faz, 'icinde');
+  });
+});

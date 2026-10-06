@@ -549,11 +549,21 @@ export function durumuIlerlet(
   if (d.faz === 'icinde') {
     const son = bacak.duraklar.length - 1;
     const inis = bacak.duraklar[son];
+    // Yolculuk iniş durağında bitiyorsa (aranan yer istasyonun ya da durağın kendisi, sonra
+    // yürüyüş yok) oraya varmak varmaktır: durakta olup konum durağın dibindeyse bitti.
+    // Eskiden burada da durak 60 m uzaklaşmak bekleniyordu; istasyonda duran yolcu için
+    // yolculuk hiç bitmiyordu.
+    const sonAdim = d.adim === adimlar.length - 1;
+    const varisDuragindayiz = (x: YolculukDurumu) =>
+      sonAdim && x.durakta && !!inis && mesafeMetre(konum, inis) <= Math.max(DURAK_M, pay);
+    if (varisDuragindayiz(d)) return sonrakiAdim(d, adimlar);
     // İniş yalnız iyi konumla: kaba konum araçta giderken de 60 m "uzak" görünebilir.
     if (iyi && d.durakta && inis && mesafeMetre(konum, inis) > AYRILMA_M) return sonrakiAdim(d, adimlar);
     // İlerleme ve kalan durak yalnız artar/azalır: halka hatlarda ya da GPS kayınca geri gitmesin.
     const yeni = konumlaIlerleme(bacak.duraklar, konum, pay, tolerans, bacak.cizgi);
-    return yeni == null ? d : ilerlemeyiYaz(d, yeni, son);
+    if (yeni == null) return d;
+    const sonra = ilerlemeyiYaz(d, yeni, son);
+    return varisDuragindayiz(sonra) ? sonrakiAdim(sonra, adimlar) : sonra;
   }
 
   return d;
