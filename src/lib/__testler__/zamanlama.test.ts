@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { Bacak, Guzergah } from '../otp';
-import { istanbulIso, yenidenZamanla, zamanlamayiUygula, type ZamanlanacakBacak } from '../zamanlama';
+import { gecikmeyiYansit, istanbulIso, yenidenZamanla, zamanlamayiUygula, type ZamanlanacakBacak } from '../zamanlama';
 
 const dk = 60_000;
 const sn = 1_000;
@@ -64,6 +64,22 @@ describe('yenidenZamanla', () => {
     const yeni = yenidenZamanla(PLAN, 0, T, KALKISLAR);
     assert.deepEqual([yeni[0].baslangic, yeni[0].bitis], [T, T + 14 * dk]);
     assert.equal(yeni[1].baslangic, T + 24 * dk, '07:44 varış + 1 dk → 07:54');
+  });
+});
+
+describe('gecikmeyiYansit', () => {
+  it('otobüs geç inecekse aktarma yürüyüşü ve sonraki metro ondan kurulur', () => {
+    // 07:44'te bindi, plan 08:04 iniş; trafikte, tahmini iniş 08:12.
+    const yeni = yenidenZamanla(PLAN, 1, T + 14 * dk, KALKISLAR, { kesin: true });
+    const sonra = gecikmeyiYansit(yeni, PLAN, 1, T + 42 * dk, KALKISLAR);
+    assert.deepEqual([sonra[1].baslangic, sonra[1].bitis], [yeni[1].baslangic, yeni[1].bitis], 'bindiği bacak aynen');
+    assert.deepEqual([sonra[2].baslangic, sonra[2].bitis], [T + 42 * dk, T + 45 * dk]);
+    assert.equal(sonra[3].baslangic, T + 50 * dk, '08:15 + 1 dk pay → 08:20 metrosu');
+  });
+
+  it('gecikme yarım dakikadan azsa aynen', () => {
+    const yeni = yenidenZamanla(PLAN, 1, T + 14 * dk, KALKISLAR, { kesin: true });
+    assert.equal(gecikmeyiYansit(yeni, PLAN, 1, yeni[1].bitis + 20_000, KALKISLAR), yeni);
   });
 });
 

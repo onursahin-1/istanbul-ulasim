@@ -39,6 +39,8 @@ export type ZamanlamaSecenegi = {
   kesin?: boolean;
   /** `bas` bir yürüyüş bacağı ve yürüyüş sürüyor: bitmesine bu kadar var (ms). */
   kalanYuruyusMs?: number;
+  /** `an` bir önceki araçtan iniş anı: `bas` araçsa ona aktarmayla yetişilecek (yetişme payı). */
+  aktarma?: boolean;
 };
 
 /**
@@ -73,7 +75,7 @@ export function yenidenZamanla(
     } else {
       // Duraktaysak (yeniden zamanlama bu bacaktan başlıyor) tarife payı kadar geçmişteki
       // sefer de olur; yürüyüp ya da aktarıp varacaksak yetişme payı gerekir.
-      const enErken = i === bas ? t - (b.durakPayiMs ?? DURAKTA_PAY_MS) : t + YETISME_PAYI_MS;
+      const enErken = i === bas && !secenek.aktarma ? t - (b.durakPayiMs ?? DURAKTA_PAY_MS) : t + YETISME_PAYI_MS;
       const uygun = kalkislar[i]?.find((k) => k.an >= enErken);
       if (uygun) {
         baslangic = uygun.an;
@@ -86,6 +88,24 @@ export function yenidenZamanla(
     t = baslangic + sure;
   }
   return sonuc;
+}
+
+/**
+ * Araçtayken gecikme: aracın tahmini iniş anı (yolda geride kalındıysa) plandakinden
+ * geçse, sonraki bacaklar o andan yeniden kurulur: aktarma yürüyüşü geç başlar, sonraki
+ * araç ona yetişilecek ilk sefer olur. Gecikme yoksa (ya da yarım dakikadan azsa) aynen.
+ */
+export function gecikmeyiYansit(
+  yeni: YeniZaman[],
+  bacaklar: ZamanlanacakBacak[],
+  bas: number,
+  tahminiInis: number,
+  kalkislar: Record<number, SecilenKalkis[] | undefined>,
+): YeniZaman[] {
+  if (bas + 1 >= yeni.length || tahminiInis <= yeni[bas].bitis + 30_000) return yeni;
+  const zaman = yeni.map((z, i) => ({ ...bacaklar[i], baslangic: z.baslangic, bitis: z.bitis }));
+  const sonra = yenidenZamanla(zaman, bas + 1, tahminiInis, kalkislar, { aktarma: true });
+  return sonra.map((z, i) => (i <= bas ? yeni[i] : z));
 }
 
 /** Türkiye saatiyle ISO zaman (OTP'nin verdiği biçim): 2026-10-06T07:48:00+03:00. */

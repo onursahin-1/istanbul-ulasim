@@ -52,6 +52,7 @@ import { guzergahGetir } from '@/lib/secim';
 import {
   ayniYoldanMi,
   beklemeSecenekleri,
+  durakSaatleri,
   binilenHatTahmini,
   durakOranlari,
   paylasimMetni,
@@ -76,7 +77,7 @@ import {
   type YolculukDurumu,
 } from '@/lib/yolculuk';
 import { kayitBaslat, kayitBitir, kayitEkle } from '@/lib/yolculuk-kaydi';
-import { bacakZamanlari, yenidenZamanla, zamanlamayiUygula, type SecilenKalkis } from '@/lib/zamanlama';
+import { bacakZamanlari, gecikmeyiYansit, yenidenZamanla, zamanlamayiUygula, type SecilenKalkis } from '@/lib/zamanlama';
 import { adimlariYaz } from '@/lib/yuruyus';
 import { isodanSaniye, mesafeYaz, saatYaz, saniyedenSaat, sureYaz } from '@/lib/zaman';
 import { geriDon } from '@/lib/gezinti';
@@ -252,6 +253,7 @@ export default function RotaDetayEkrani() {
   }, [durakKalkislari, bacaklar, esdegerHatlar, simdi]);
 
   // Durakların biniş ile iniş arasındaki oranı: seferin tarifesinden, yoksa mesafeden.
+  const oranlarRef = useRef<Record<number, number[]>>({});
   const oranlar = useMemo(() => {
     const tablo: Record<number, number[]> = {};
     duraklar.forEach((liste, i) => {
@@ -261,6 +263,7 @@ export default function RotaDetayEkrani() {
         seferSaatleri[i],
       );
     });
+    oranlarRef.current = tablo;
     return tablo;
   }, [duraklar, bacaklar, seferSaatleri]);
 
@@ -586,13 +589,15 @@ export default function RotaDetayEkrani() {
       for (const [anahtar, l] of Object.entries(durakKalkislariRef.current)) {
         kalkislar[Number(anahtar)] = anaHatKalkislari(g.legs[Number(anahtar)], l).map((k) => ({ an: k.an, seferId: k.seferId }));
       }
-      const yeni = yenidenZamanla(
-        zaman.map((z, i) => ({ ...z, durakPayiMs: rayliMi(g.legs[i]) ? 30_000 : 120_000 })),
-        bas,
-        an,
-        kalkislar,
-        secenek,
-      );
+      const bacakZamani = zaman.map((z, i) => ({ ...z, durakPayiMs: rayliMi(g.legs[i]) ? 30_000 : 120_000 }));
+      let yeni = yenidenZamanla(bacakZamani, bas, an, kalkislar, secenek);
+      // Araçtayken geride kalındıysa (trafik) tahmini iniş plandakinden sonra: aktarma ve
+      // sonraki araç o andan kurulur. Tahmin kartın durak saatleriyle aynı hesap.
+      const oran = oranlarRef.current[bas];
+      if (d.faz === 'icinde' && oran?.length) {
+        const saatler = durakSaatleri(oran, yeni[bas].baslangic, yeni[bas].bitis, d.ilerleme ?? 0, simdi);
+        yeni = gecikmeyiYansit(yeni, bacakZamani, bas, saatler[saatler.length - 1], kalkislar);
+      }
       const sonuc = zamanlamayiUygula(g, yeni);
       if (sonuc !== g) {
         kayitEkle('zamanlama', {
@@ -891,7 +896,8 @@ export default function RotaDetayEkrani() {
   useEffect(() => {
     if (!takipAcik) return;
     if (ekranAcik) activateKeepAwakeAsync('yolculuk').catch(() => {});
-    const saat = setInterval(() => setSimdi(Date.now()), 30_000);
+    // On saniyede bir: araçtayken durak saatleri ve iniş, geride kalınca hemen kaysın.
+    const saat = setInterval(() => setSimdi(Date.now()), 10_000);
     return () => {
       clearInterval(saat);
       deactivateKeepAwake('yolculuk').catch(() => {});
