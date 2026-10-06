@@ -13,6 +13,7 @@ import {
   durumuZamanla,
   elleBin,
   elleVar,
+  AYNI_DURAK_AKTARMA_MS,
   hattaBekliyor,
   ISTASYONDA_KABA_MS,
   konumlaIlerleme,
@@ -215,7 +216,7 @@ describe('araçta saatle ilerleme', () => {
     assert.ok(durumuZamanla(icinde, 305_000, ADIMLAR, zamanli, null).ilerleme! > 1.5, 'konum yoksa saatle');
   });
 
-  it('metroda tünelde gelen kaba (eski) konum saati durdurmaz; beklerken durdurur', () => {
+  it('metroda tünelde ve peronda gelen kaba (eski) konum saati durdurmaz; otobüste durdurur', () => {
     const metro = BACAKLAR.map((b, i) => (i === 1 ? { ...b, rayli: true, binisMs: 0, inisMs: 600_000 } : b));
     const icinde: YolculukDurumu = { adim: 1, faz: 'icinde', kalanDurak: 4, durakta: false, ilerleme: 0 };
     // Binilen istasyonda kalmış eski konum, ±176 m.
@@ -224,9 +225,16 @@ describe('araçta saatle ilerleme', () => {
     // İyi konum gelirse yine konum karar verir.
     const iyi = { ...eski, dogruluk: 12 };
     assert.equal(durumuZamanla(icinde, 305_000, ADIMLAR, metro, iyi), icinde);
-    // Peronda beklerken kaba konum varken kalkış saati geçti diye binilmiş sayılmaz.
+    // Peronda: yeraltında iPhone eski konumu kaba olarak yineliyor; istasyonun çevresindeyse
+    // kalkış saati geçince binilmiş sayılır (eskiden hiç sayılmıyordu).
     const bekle: YolculukDurumu = { adim: 1, faz: 'bekle', kalanDurak: null, durakta: false };
-    assert.equal(durumuZamanla(bekle, 60_000, ADIMLAR, metro, { ...eski, an: 55_000 }), bekle);
+    assert.equal(durumuZamanla(bekle, 60_000, ADIMLAR, metro, { ...eski, an: 55_000 }).faz, 'icinde');
+    // Kaba konum istasyondan uzaksa (evde) sayılmaz.
+    const evde = { an: 55_000, dogruluk: 90, konum: n(-0.01) };
+    assert.equal(durumuZamanla(bekle, 60_000, ADIMLAR, metro, evde), bekle);
+    // Otobüste kaba konum durdurmaya devam eder.
+    const otobus = BACAKLAR.map((b, i) => (i === 1 ? { ...b, binisMs: 0, inisMs: 600_000 } : b));
+    assert.equal(durumuZamanla(bekle, 60_000, ADIMLAR, otobus, { ...eski, an: 55_000 }), bekle);
   });
 });
 
@@ -385,5 +393,88 @@ describe('yolculuk iniş durağında bitiyor (aranan yer istasyonun kendisi)', (
 
   it('tünelde binilen istasyonda kalmış eski konum bitirmez', () => {
     assert.equal(durumuIlerlet(inisteyiz, n(0), adimlar, ikiBacak, { dogruluk: 176 }).faz, 'icinde');
+  });
+});
+
+describe('aktarmalar ve araçtan erken inme', () => {
+  // Yürü → otobüs A (5 durak, kuzeye) → aynı durakta otobüs B (doğuya) → yürü
+  const B_DURAKLAR = [n(0.012), n(0.012, 29.004), n(0.012, 29.008)];
+  const B_CIZGI = Array.from({ length: 33 }, (_, i) => n(0.012, 29 + i * 0.00025));
+  const aynıDurak: BacakOzeti[] = [
+    BACAKLAR[0],
+    { ...BACAKLAR[1], binisMs: 0, inisMs: 600_000 },
+    { arac: true, mesafe: 700, bitis: n(0.012, 29.008), duraklar: B_DURAKLAR, cizgi: B_CIZGI, binisMs: 700_000, inisMs: 900_000 },
+    { arac: false, mesafe: 100, bitis: n(0.0125, 29.008), duraklar: [] },
+  ];
+  const adimlar = adimlariKur(aynıDurak);
+
+  it('aynı durakta aktarma: inişte 45 sn durunca sonraki otobüs beklenir', () => {
+    const inis: YolculukDurumu = { adim: 1, faz: 'icinde', kalanDurak: 0, durakta: true, ilerleme: 4 };
+    const gps = (an: number) => ({ an, dogruluk: 10, konum: n(0.012 + 15 * M) });
+    const d1 = durumuZamanla(inis, 610_000, adimlar, aynıDurak, gps(609_000));
+    assert.equal(d1.duraktaAn, 610_000);
+    assert.equal(durumuZamanla(d1, 630_000, adimlar, aynıDurak, gps(629_000)).faz, 'icinde', '20 sn: henüz');
+    const d2 = durumuZamanla(d1, 610_000 + AYNI_DURAK_AKTARMA_MS, adimlar, aynıDurak, gps(650_000));
+    assert.equal(d2.adim, 2);
+    assert.equal(d2.faz, 'bekle');
+  });
+
+  it('aynı durakta aktarma: konum duraktan uzaksa (araç daha gelmedi) beklemeye geçilmez', () => {
+    const inis: YolculukDurumu = { adim: 1, faz: 'icinde', kalanDurak: 0, durakta: true, ilerleme: 4, duraktaAn: 600_000 };
+    const uzak = { an: 700_000, dogruluk: 10, konum: n(0.009) };
+    assert.equal(durumuZamanla(inis, 700_000, adimlar, aynıDurak, uzak).faz, 'icinde');
+  });
+
+  it('araçtan erken inip hattan uzaklaşınca araç adımı biter', () => {
+    const icinde: YolculukDurumu = { adim: 1, faz: 'icinde', kalanDurak: 3, durakta: false, ilerleme: 1, binisAn: 1_000 };
+    const z: KonumOrnegi[] = [
+      { an: 10_000, konum: n(0.003), dogruluk: 8 },
+      { an: 60_000, konum: n(0.003, 29.003), dogruluk: 8 },
+      { an: 90_000, konum: n(0.003, 29.0035), dogruluk: 8 },
+    ];
+    const d = durumuIlerlet(icinde, z[2].konum, ADIMLAR, BACAKLAR, { dogruluk: 8, iz: z });
+    assert.equal(d.adim, 2, 'sonraki yürüyüş');
+  });
+
+  it('"Bindim" evde basıldıysa (hiç hatta görülmedi) evden uzaklaşmak inmek sayılmaz', () => {
+    const icinde: YolculukDurumu = { adim: 1, faz: 'icinde', kalanDurak: 4, durakta: false, ilerleme: 0, binisAn: 1_000 };
+    const z: KonumOrnegi[] = [
+      { an: 10_000, konum: n(0.003, 29.004), dogruluk: 8 },
+      { an: 60_000, konum: n(0.003, 29.005), dogruluk: 8 },
+      { an: 90_000, konum: n(0.003, 29.006), dogruluk: 8 },
+    ];
+    assert.equal(durumuIlerlet(icinde, z[2].konum, ADIMLAR, BACAKLAR, { dogruluk: 8, iz: z }), icinde);
+  });
+});
+
+describe('yeraltında metrodan metroya aktarma', () => {
+  // Yürü → M1 (raylı) → 200 m aktarma yürüyüşü (yeraltı) → M2 (raylı) → yürü
+  const M2_DURAKLAR = [n(0.012, 29.002), n(0.012, 29.02)];
+  const bacaklar: BacakOzeti[] = [
+    BACAKLAR[0],
+    { ...BACAKLAR[1], rayli: true, binisMs: 0, inisMs: 600_000 },
+    { arac: false, mesafe: 200, bitis: n(0.012, 29.002), duraklar: [], binisMs: 600_000, inisMs: 780_000 },
+    { arac: true, mesafe: 1500, bitis: n(0.012, 29.02), duraklar: M2_DURAKLAR, rayli: true, binisMs: 840_000, inisMs: 1_200_000 },
+    { arac: false, mesafe: 100, bitis: n(0.0125, 29.02), duraklar: [] },
+  ];
+  const adimlar = adimlariKur(bacaklar);
+  // Son iyi konum M1'e binmeden önce, durağın yanında; sonra konum yok.
+  const sonGps = { an: -30_000, dogruluk: 8, konum: n(0) };
+
+  it('konum gelmezken aktarma yürüyüşü planlanan sürede biter, sonraki metroya saatle binilir', () => {
+    const yuru: YolculukDurumu = { adim: 2, faz: 'yuru', kalanDurak: null, durakta: false };
+    assert.equal(durumuZamanla(yuru, 700_000, adimlar, bacaklar, sonGps), yuru, 'yürüyüş sürüyor');
+    const bekle = durumuZamanla(yuru, 790_000, adimlar, bacaklar, sonGps);
+    assert.equal(bekle.faz, 'bekle');
+    assert.equal(bekle.adim, 3);
+    // M1'e binmeden önceki konum (2 km geride) M2'ye binişi engellemez.
+    const icinde = durumuZamanla(bekle, 840_000 + 50_000, adimlar, bacaklar, sonGps);
+    assert.equal(icinde.faz, 'icinde');
+  });
+
+  it('iyi konum gelirken yürüyüşü konum belirler', () => {
+    const yuru: YolculukDurumu = { adim: 2, faz: 'yuru', kalanDurak: null, durakta: false };
+    const iyi = { an: 789_000, dogruluk: 8, konum: n(0.012, 29.0005) };
+    assert.equal(durumuZamanla(yuru, 790_000, adimlar, bacaklar, iyi).faz, 'yuru');
   });
 });

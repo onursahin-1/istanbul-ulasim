@@ -79,6 +79,7 @@ import {
   durumuZamanla,
   elleBin,
   elleVar,
+  KALKIS_PAYI_MS,
   IYI_DOGRULUK_M,
   KABA_DOGRULUK_M,
   KISA_YURUME_M,
@@ -641,7 +642,14 @@ export default function RotaDetayEkrani() {
           canli: k.canli,
         }));
       }
-      const bacakZamani = zaman.map((z, i) => ({ ...z, durakPayiMs: rayliMi(g.legs[i]) ? 30_000 : 120_000 }));
+      // Durakta beklerken kalkışı geçmiş sefer bu kadar süre seçili kalır. Saatle biniş
+      // (konum yokken kalkıştan KALKIS_PAYI_MS sonra, yolculuk.ts) bundan kısa olmalı: eskiden
+      // raylıda 30 sn'ydi, sefer 45 sn dolmadan sonrakine kayıyor ve metroya biniş saatle hiç
+      // anlaşılmıyordu.
+      const bacakZamani = zaman.map((z, i) => ({
+        ...z,
+        durakPayiMs: rayliMi(g.legs[i]) ? KALKIS_PAYI_MS + 15_000 : 120_000,
+      }));
       let yeni = yenidenZamanla(bacakZamani, bas, an, kalkislar, secenek);
       // Araçtayken geride kalındıysa (trafik) tahmini iniş plandakinden sonra: aktarma ve
       // sonraki araç o andan kurulur. Tahmin kartın durak saatleriyle aynı hesap.
