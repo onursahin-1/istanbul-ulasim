@@ -21,8 +21,10 @@ import {
   ROZET_SUTUNU,
   TarifeEtiketi,
   useStiller,
-  Yukleniyor,
 } from '@/components/ulasim';
+import { DonenSimge, FavoriSimgesi, PingHalkasi } from '@/components/hareketli-simgeler';
+import { IskeletSatirlari } from '@/components/iskelet';
+import Animated, { Easing, FadeIn, FadeInDown } from 'react-native-reanimated';
 import { adresYaz, SECILEN_NOKTA, type Adres } from '@/lib/adres';
 import { kalkisCanli } from '@/lib/canli';
 import { mesafeMetre } from '@/lib/cografya';
@@ -72,6 +74,13 @@ export default function AnaEkran() {
   const harita = useRef<MapView>(null);
 
   const [duraklar, setDuraklar] = useState<YakinDurak[] | null>(null);
+  // Yakındaki durakların ilk gelişi sırayla; bundan sonra (tazelemede) yalnız belirir.
+  const [duraklarAcildi, setDuraklarAcildi] = useState(false);
+  useEffect(() => {
+    if (!duraklar || duraklarAcildi) return;
+    const t = setTimeout(() => setDuraklarAcildi(true), 1200);
+    return () => clearTimeout(t);
+  }, [duraklar, duraklarAcildi]);
   const [hata, setHata] = useState<string | null>(null);
   // Alt yaprağın ölçüleri: ekranın boyu ve arama kutusunun bittiği yer.
   const [ekranBoyu, setEkranBoyu] = useState(0);
@@ -111,10 +120,20 @@ export default function AnaEkran() {
   // yakınlaştırmayı da ayarlar; izlerken yakınlık korunur, yalnız merkez kayar.
   const haritaTakip = useRef(true);
   const ilkOrtalama = useRef(true);
+  // "Konumuma git": simge bir tur döner, harita kayar, varınca mavi noktada bir halka yayılır.
+  const [konumTetik, setKonumTetik] = useState(0);
+  const [ping, setPing] = useState<{ n: number; latitude: number; longitude: number } | null>(null);
   const konumaOrtala = useCallback(() => {
     haritaTakip.current = true;
     harita.current?.animateToRegion({ latitude, longitude, latitudeDelta: 0.012, longitudeDelta: 0.012 }, 400);
+    setKonumTetik((n) => n + 1);
+    setTimeout(() => setPing((p) => ({ n: (p?.n ?? 0) + 1, latitude, longitude })), 420);
   }, [latitude, longitude]);
+  useEffect(() => {
+    if (!ping) return;
+    const t = setTimeout(() => setPing(null), 1000);
+    return () => clearTimeout(t);
+  }, [ping]);
   useEffect(() => {
     if (!hazir || !haritaTakip.current) return;
     if (ilkOrtalama.current) {
@@ -193,6 +212,17 @@ export default function AnaEkran() {
       >
         {konum.tur === 'varsayilan' && <Marker coordinate={konum.nokta} title="Örnek konum" pinColor={tema.konum} />}
         {secim && <Marker coordinate={{ latitude: secim.lat, longitude: secim.lon }} pinColor={tema.hata} />}
+        {ping && (
+          <Marker
+            key={`ping-${ping.n}`}
+            coordinate={{ latitude: ping.latitude, longitude: ping.longitude }}
+            anchor={{ x: 0.5, y: 0.5 }}
+            tappable={false}
+            zIndex={0}
+          >
+            <PingHalkasi renk={tema.konum} />
+          </Marker>
+        )}
         {duraklar?.map(({ durak }) =>
           durak.lat != null && durak.lon != null ? (
             <Marker
@@ -227,7 +257,9 @@ export default function AnaEkran() {
             accessibilityLabel="Konumumu yenile"
             style={s.konumDugme}
           >
-            <Ikon ad="locate" renkKodu={tema.vurguYazi} boyut={18} />
+            <DonenSimge tetik={konumTetik}>
+              <Ikon ad="locate" renkKodu={tema.vurguYazi} boyut={18} />
+            </DonenSimge>
           </Pressable>
         </Pressable>
         <View style={s.kisayollar}>
@@ -272,11 +304,25 @@ export default function AnaEkran() {
             </View>
           )}
           {hata && <HataKutusu mesaj={hata} tekrarDene={duraklariYukle} />}
-          {!hata && !duraklar && <Yukleniyor metin="Yakındaki duraklar aranıyor…" />}
+          {!hata && !duraklar && (
+            <View accessible accessibilityLabel="Yakındaki duraklar aranıyor">
+              <IskeletSatirlari sayi={4} />
+            </View>
+          )}
           {duraklar?.length === 0 && <Text style={s.bos}>1 km içinde durak bulunamadı.</Text>}
-          {duraklar?.map(({ durak, mesafe }) => (
-            <Pressable
+          {duraklar?.map(({ durak, mesafe }, i) => (
+            <Animated.View
               key={durak.gtfsId}
+              // İlk yüklemede duraklar sırayla gelir; tazelemede yeni gelen durak yalnız belirir.
+              entering={
+                duraklarAcildi
+                  ? FadeIn.duration(300)
+                  : FadeInDown.delay(40 + Math.min(i, 8) * 55)
+                      .duration(360)
+                      .easing(Easing.out(Easing.cubic))
+              }
+            >
+            <Pressable
               style={s.durakBlok}
               onPress={() => ekranAc({ pathname: '/durak/[id]', params: { id: durak.gtfsId } })}
             >
@@ -351,6 +397,7 @@ export default function AnaEkran() {
                 </View>
               ))}
             </Pressable>
+            </Animated.View>
           ))}
         </AltYaprak>
       )}
@@ -368,6 +415,7 @@ export default function AnaEkran() {
           <SecimSatiri ikon="navigate-outline" yazi="Buradan yol tarifi" onPress={() => secimdenRota('buradan')} />
           <SecimSatiri
             ikon={secimFavori ? 'star' : 'star-outline'}
+            simge={<FavoriSimgesi dolu={secimFavori} tur="star" boyut={18} renk={tema.vurgu} />}
             yazi={secimFavori ? 'Favorilerden çıkar' : 'Favorilere ekle'}
             onPress={() => {
               if (!secim) return;
@@ -389,14 +437,23 @@ export default function AnaEkran() {
   );
 }
 
-function SecimSatiri({ ikon, yazi, onPress }: { ikon: IkonAdi; yazi: string; onPress: () => void }) {
+function SecimSatiri({
+  ikon,
+  simge,
+  yazi,
+  onPress,
+}: {
+  ikon: IkonAdi;
+  /** Simgenin yerine (ör. favoriye eklenince zıplayan yıldız). */
+  simge?: React.ReactNode;
+  yazi: string;
+  onPress: () => void;
+}) {
   const tema = useTema();
   const s = useStiller(stiller);
   return (
     <Pressable style={s.secimSatir} onPress={onPress} accessibilityRole="button">
-      <View style={s.secimIkon}>
-        <Ikon ad={ikon} boyut={18} renkKodu={tema.vurgu} />
-      </View>
+      <View style={s.secimIkon}>{simge ?? <Ikon ad={ikon} boyut={18} renkKodu={tema.vurgu} />}</View>
       <Text style={s.secimYazi}>{yazi}</Text>
     </Pressable>
   );

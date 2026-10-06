@@ -22,6 +22,7 @@ import {
   useStiller,
   YaklasmaSeridi,
 } from '@/components/ulasim';
+import { FavoriSimgesi } from '@/components/hareketli-simgeler';
 import { IskeletSatirlari } from '@/components/iskelet';
 import { KayanMetin } from '@/components/kayan-metin';
 import { aracVarisindanOtobus, araclariYerlestir, kalanYaz, yaklasanOtobus, yasYaz } from '@/lib/arac-konum';
@@ -316,7 +317,7 @@ export default function DurakEkrani() {
           />
         }
       >
-        {cevrimdisi != null && <CevrimdisiSerit zaman={cevrimdisi} tekrarDene={yukle} />}
+        <CevrimdisiSerit zaman={cevrimdisi} tekrarDene={yukle} />
         {hata && <HataKutusu mesaj={hata} tekrarDene={yukle} />}
         {!durak && !hata && (
           <View style={{ gap: 6 }} accessible accessibilityLabel="Durak bilgisi yükleniyor">
@@ -342,7 +343,7 @@ export default function DurakEkrani() {
                 }}
                 accessibilityState={{ selected: favoriMi }}
               >
-                <Ikon ad={favoriMi ? 'heart' : 'heart-outline'} boyut={16} renkKodu={tema.vurgu} />
+                <FavoriSimgesi dolu={favoriMi} tur="heart" boyut={16} renk={tema.vurgu} />
                 <Text style={s.eylemYazi}>{favoriMi ? 'Favorilerde' : 'Favorilere ekle'}</Text>
               </Pressable>
               <Pressable style={[s.eylem, s.eylemDolu]} onPress={yolTarifi}>

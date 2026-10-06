@@ -1,10 +1,10 @@
 // Alt sekme çubuğu. Arama, rota ve durak ekranları bu çubuğun üstünde tam ekran açılır.
-// iPhone'daki gibi seçili sekmenin simgesi dolu, öbürleri çizgi.
+// iPhone'daki gibi seçili sekmenin simgesi dolu, öbürleri çizgi; seçilen simge yaylı zıplar.
 
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { Tabs } from 'expo-router';
 import { StyleSheet } from 'react-native';
 
+import { SekmeSimgesi } from '@/components/hareketli-simgeler';
 import { useTema } from '@/lib/tema';
 
 export default function SekmeDuzeni() {
@@ -28,7 +28,7 @@ export default function SekmeDuzeni() {
         options={{
           title: 'Keşfet',
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'compass' : 'compass-outline'} size={size} color={color} />
+            <SekmeSimgesi ad="compass-outline" doluAd="compass" secili={focused} renk={color} boyut={size} />
           ),
         }}
       />
@@ -37,7 +37,7 @@ export default function SekmeDuzeni() {
         options={{
           title: 'Hatlar',
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'git-branch' : 'git-branch-outline'} size={size} color={color} />
+            <SekmeSimgesi ad="git-branch-outline" doluAd="git-branch" secili={focused} renk={color} boyut={size} />
           ),
         }}
       />
@@ -46,7 +46,7 @@ export default function SekmeDuzeni() {
         options={{
           title: 'Kayıtlı',
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'bookmark' : 'bookmark-outline'} size={size} color={color} />
+            <SekmeSimgesi ad="bookmark-outline" doluAd="bookmark" secili={focused} renk={color} boyut={size} />
           ),
         }}
       />
@@ -55,7 +55,7 @@ export default function SekmeDuzeni() {
         options={{
           title: 'Ayarlar',
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'settings' : 'settings-outline'} size={size} color={color} />
+            <SekmeSimgesi ad="settings-outline" doluAd="settings" secili={focused} renk={color} boyut={size} />
           ),
         }}
       />

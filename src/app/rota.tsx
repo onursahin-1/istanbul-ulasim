@@ -9,14 +9,18 @@ import Animated, {
   FadeIn,
   FadeInDown,
   FadeInRight,
+  FadeInUp,
   FadeOut,
+  FadeOutDown,
   FadeOutLeft,
+  FadeOutUp,
   LayoutAnimationConfig,
   LinearTransition,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
   withSequence,
+  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import { Pressable } from '@/components/dokun';
@@ -252,7 +256,8 @@ export default function RotaEkrani() {
         setHata(null);
         setBilgi(null);
         setKapaliUyarisi(false);
-        setCevrimdisi(null);
+        // Çevrimdışı şeridi sonuç gelene kadar kalır: arada silinirse "bağlantı geri geldi"
+        // diye yanlış bir an gösterirdi.
       }
       setAramaSaati(istanbulSaat());
       try {
@@ -364,6 +369,9 @@ export default function RotaEkrani() {
       },
     });
 
+  // Değiştir düğmesi her basışta yarım tur döner.
+  const degistirAci = useSharedValue(0);
+  const degistirStili = useAnimatedStyle(() => ({ transform: [{ rotate: `${degistirAci.value}deg` }] }));
   const yerDegistir = () =>
     router.setParams({ kLat: p.vLat, kLon: p.vLon, kAd: p.vAd, vLat: p.kLat, vLon: p.kLon, vAd: p.kAd });
 
@@ -403,19 +411,43 @@ export default function RotaEkrani() {
             <View style={s.bitisNokta} />
           </View>
           <View style={{ flex: 1, gap: 6 }}>
-            <Pressable onPress={() => yerSec('baslangic')} accessibilityRole="button" accessibilityLabel="Başlangıcı değiştir">
-              <Text style={s.alan} numberOfLines={1}>
+            {/* Değiştirince adresler birbirinin üstünden kayarak yer değiştirir: üstteki yeni
+                ad aşağıdan, alttaki yukarıdan gelir. */}
+            <Pressable style={s.alanKutu} onPress={() => yerSec('baslangic')} accessibilityRole="button" accessibilityLabel="Başlangıcı değiştir">
+              <Animated.Text
+                key={`k-${nereden.ad}`}
+                entering={FadeInDown.duration(300)}
+                exiting={FadeOutDown.duration(220)}
+                style={s.alan}
+                numberOfLines={1}
+              >
                 {baslikYap(nereden.ad)}
-              </Text>
+              </Animated.Text>
             </Pressable>
-            <Pressable onPress={() => yerSec('varis')} accessibilityRole="button" accessibilityLabel="Varışı değiştir">
-              <Text style={s.alan} numberOfLines={1}>
+            <Pressable style={s.alanKutu} onPress={() => yerSec('varis')} accessibilityRole="button" accessibilityLabel="Varışı değiştir">
+              <Animated.Text
+                key={`v-${nereye.ad}`}
+                entering={FadeInUp.duration(300)}
+                exiting={FadeOutUp.duration(220)}
+                style={s.alan}
+                numberOfLines={1}
+              >
                 {baslikYap(nereye.ad)}
-              </Text>
+              </Animated.Text>
             </Pressable>
           </View>
-          <Pressable hitSlop={4} style={s.degistir} onPress={yerDegistir} accessibilityLabel="Başlangıç ve varışı değiştir">
-            <Ikon ad="swap-vertical" boyut={18} renkKodu={tema.soluk} />
+          <Pressable
+            hitSlop={4}
+            style={s.degistir}
+            onPress={() => {
+              degistirAci.value = withSpring(degistirAci.value + 180, { damping: 14, stiffness: 180 });
+              yerDegistir();
+            }}
+            accessibilityLabel="Başlangıç ve varışı değiştir"
+          >
+            <Animated.View style={degistirStili}>
+              <Ikon ad="swap-vertical" boyut={18} renkKodu={tema.soluk} />
+            </Animated.View>
           </Pressable>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filtreler}>
@@ -456,7 +488,7 @@ export default function RotaEkrani() {
         contentContainerStyle={[s.sonuclar, { paddingBottom: kenar.bottom + 20 }]}
         refreshControl={<RefreshControl refreshing={false} onRefresh={() => ara(undefined, true)} tintColor={tema.vurgu} />}
       >
-        {cevrimdisi != null && <CevrimdisiSerit zaman={cevrimdisi} tekrarDene={() => ara()} />}
+        <CevrimdisiSerit zaman={cevrimdisi} tekrarDene={() => ara()} />
         {hata && <HataKutusu mesaj={hata} tekrarDene={() => ara()} />}
         {!hata && !guzergahlar && <IskeletListesi />}
         {bilgi && <Text style={s.bilgi}>{bilgi}</Text>}
@@ -924,7 +956,8 @@ const stiller = (t: Tema) =>
   baslangicNokta: { width: 11, height: 11, borderRadius: 6, borderWidth: 3, borderColor: t.vurgu },
   kesik: { width: 2, height: 18, backgroundColor: t.cizgi },
   bitisNokta: { width: 10, height: 10, borderRadius: 3, backgroundColor: t.yazi },
-  alan: { backgroundColor: t.zemin, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontWeight: '600', fontSize: 14, color: t.yazi },
+  alanKutu: { backgroundColor: t.zemin, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, overflow: 'hidden' },
+  alan: { fontWeight: '600', fontSize: 14, color: t.yazi },
   degistir: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, borderColor: t.cizgi, alignItems: 'center', justifyContent: 'center' },
   tercihListesi: { gap: 7 },
   tercihSatiri: {

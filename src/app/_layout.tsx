@@ -29,7 +29,11 @@ export default function KokDuzen() {
             // kenardan kaydırınca parmakla birlikte geri gelir); Android'de sağdan kayma.
             animation: Platform.OS === 'ios' ? 'default' : 'slide_from_right',
           }}
-        />
+        >
+          {/* Arama ekranı yerinde açılır (soluklaşarak): kutu ana sayfadaki yerinden kendi
+              yerine kayar, göz onu kaybetmez. */}
+          <Stack.Screen name="ara" options={{ animation: 'fade', animationDuration: 220 }} />
+        </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

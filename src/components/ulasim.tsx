@@ -19,6 +19,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 
+import Reanimated, { FadeIn, FadeInUp, FadeOut, FadeOutUp } from 'react-native-reanimated';
 import { Pressable } from '@/components/dokun';
 import { KayanMetin } from '@/components/kayan-metin';
 import type { CanliBilgi, CanliSinif } from '@/lib/canli';
@@ -461,25 +462,57 @@ export function HataKutusu({ mesaj, tekrarDene }: { mesaj: string; tekrarDene?: 
  * Sessizce eski veri göstermek en kötüsü: yolcu kaçırdığı seferi uygulamaya yazar.
  * Şerit hem kaynağı hem de kaydın yaşını açıkça söylüyor.
  */
-export function CevrimdisiSerit({ zaman, tekrarDene }: { zaman: number; tekrarDene?: () => void }) {
+export function CevrimdisiSerit({ zaman, tekrarDene }: { zaman: number | null; tekrarDene?: () => void }) {
   const tema = useTema();
   const [simdi, setSimdi] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setSimdi(Date.now()), 30000);
     return () => clearInterval(t);
   }, []);
+  // Bağlantı geri gelince şerit bir an yeşil "Bağlantı geri geldi" olur, sonra çekilir.
+  const [onceki, setOnceki] = useState(zaman);
+  const [geldi, setGeldi] = useState(false);
+  if (onceki !== zaman) {
+    if (onceki != null && zaman == null) setGeldi(true);
+    if (zaman != null) setGeldi(false);
+    setOnceki(zaman);
+  }
+  useEffect(() => {
+    if (!geldi) return;
+    const t = setTimeout(() => setGeldi(false), 1400);
+    return () => clearTimeout(t);
+  }, [geldi]);
+  if (zaman == null && !geldi) return null;
+  if (geldi)
+    return (
+      <Reanimated.View
+        key="geldi"
+        entering={FadeIn.duration(200)}
+        exiting={FadeOutUp.duration(260)}
+        style={[stil.cevrimdisi, { backgroundColor: tema.vurguAcik }]}
+        accessibilityLiveRegion="polite"
+      >
+        <Ikon ad="cloud-done-outline" boyut={16} renkKodu={tema.vurgu} />
+        <Text style={[stil.cevrimdisiYazi, { color: tema.vurgu, fontWeight: '700' }]}>Bağlantı geri geldi</Text>
+      </Reanimated.View>
+    );
   return (
-    <View style={[stil.cevrimdisi, { backgroundColor: tema.uyariAcik }]}>
+    <Reanimated.View
+      key="kopuk"
+      entering={FadeInUp.duration(320)}
+      exiting={FadeOut.duration(150)}
+      style={[stil.cevrimdisi, { backgroundColor: tema.uyariAcik }]}
+    >
       <Ikon ad="cloud-offline-outline" boyut={16} renkKodu={tema.soluk} />
       <Text style={[stil.cevrimdisiYazi, { color: tema.yazi }]} numberOfLines={2}>
-        Sunucuya ulaşılamıyor — {tazelikYaz({ zaman }, simdi)} bilgi gösteriliyor.
+        Sunucuya ulaşılamıyor — {tazelikYaz({ zaman: zaman ?? Date.now() }, simdi)} bilgi gösteriliyor.
       </Text>
       {tekrarDene && (
         <Pressable onPress={tekrarDene} accessibilityRole="button" hitSlop={8}>
           <Text style={[stil.cevrimdisiDene, { color: tema.vurgu }]}>Yenile</Text>
         </Pressable>
       )}
-    </View>
+    </Reanimated.View>
   );
 }
 

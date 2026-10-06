@@ -6,7 +6,17 @@
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, StyleSheet, Text, TextInput, View } from 'react-native';
+import Animated, {
+  Easing,
+  FadeIn,
+  FadeInDown,
+  FadeOut,
+  Keyframe,
+  LinearTransition,
+  ZoomIn,
+  ZoomOut,
+} from 'react-native-reanimated';
 import { Pressable } from '@/components/dokun';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -235,7 +245,7 @@ export default function AraEkrani() {
     <View style={[s.kok, { paddingTop: kenar.top + 4 }]}>
       <View style={s.ust}>
         <GeriCubugu baslik={baslik} />
-        <View style={s.girdi}>
+        <Animated.View style={s.girdi} entering={GIRDI_GIRISI}>
           <Ikon ad="search" renkKodu={tema.soluk} />
           <TextInput
             id="hedef-arama"
@@ -247,13 +257,23 @@ export default function AraEkrani() {
             autoFocus
             autoCorrect={false}
             returnKeyType="search"
-            clearButtonMode="while-editing"
           />
-        </View>
+          {metin.length > 0 && (
+            <Animated.View entering={ZoomIn.springify().damping(12)} exiting={ZoomOut.duration(150)}>
+              <Pressable hitSlop={10} onPress={() => setMetin('')} accessibilityRole="button" accessibilityLabel="Aramayı temizle">
+                <Ikon ad="close-circle" boyut={18} renkKodu={tema.soluk} />
+              </Pressable>
+            </Animated.View>
+          )}
+        </Animated.View>
       </View>
 
       {kisa && (
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: kenar.bottom + 20 }}>
+        <Animated.ScrollView
+          entering={FadeInDown.delay(120).duration(320).easing(Easing.out(Easing.cubic))}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ paddingBottom: kenar.bottom + 20 }}
+        >
           {p.alan === 'baslangic' && (
             <Pressable style={s.satir} onPress={konumaDon} accessibilityRole="button">
               <View style={s.satirIkon}>
@@ -365,7 +385,7 @@ export default function AraEkrani() {
               basılı tutarsan Ev ya da İş olarak kaydedilir.
             </Text>
           </View>
-        </ScrollView>
+        </Animated.ScrollView>
       )}
 
       {hata && <HataKutusu mesaj={hata} />}
@@ -373,69 +393,98 @@ export default function AraEkrani() {
       {bosSonuc && <Text style={s.bos}>“{metin.trim()}” için sonuç bulunamadı.</Text>}
 
       {!kisa && (
-        <FlatList
+        <Animated.FlatList
           data={satirlar}
+          // Yazdıkça kalan sonuçlar yerinde kalır ya da kayar, yeniler belirir, düşenler solar.
+          itemLayoutAnimation={LinearTransition.duration(220)}
           keyExtractor={(x) => x.anahtar}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           contentContainerStyle={{ paddingBottom: kenar.bottom + 20 }}
-          renderItem={({ item }) => {
-            if (item.tip === 'baslik') return <Text style={s.bolumBaslik}>{item.yazi}</Text>;
-
-            if (item.tip === 'yer') {
-              const y = item.veri;
-              const hedef: Konum = { ad: y.ad, lat: y.lat, lon: y.lon };
-              return (
-                <Pressable
-                  style={s.satir}
-                  onPress={() => hedefSec(hedef, [y.turAdi, y.semt].filter(Boolean).join(' · '))}
-                  onLongPress={() => kaydetSor(hedef)}
-                >
-                  <View style={s.satirIkon}>
-                    <Ikon ad={poiSimgesi(y.tur) as IkonAdi} boyut={18} renkKodu={tema.vurgu} />
-                  </View>
-                  <View style={s.satirMetin}>
-                    <Text style={s.satirBaslik} numberOfLines={1}>
-                      {y.ad}
-                    </Text>
-                    <Text style={s.satirAlt} numberOfLines={1}>
-                      {[y.turAdi, y.semt, mesafeYaz(y.mesafe)].filter(Boolean).join(' · ')}
-                    </Text>
-                  </View>
-                  <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.yurume} />
-                </Pressable>
-              );
-            }
-
-            const d = item.veri;
-            const hedef: Konum = { ad: baslikYap(d.name), lat: d.lat!, lon: d.lon! };
-            const istasyon = istasyonMu(d) ? ISTASYON_TURLERI[(d.vehicleMode ?? '').toUpperCase()] : null;
-            return (
-              <Pressable
-                style={s.satir}
-                onPress={() => hedefSec(hedef, istasyon?.ad ?? 'Durak')}
-                onLongPress={() => kaydetSor(hedef)}
-              >
-                <View style={[s.satirIkon, { backgroundColor: tema.vurguAcik }]}>
-                  <Ikon ad={istasyon?.ikon ?? 'bus-outline'} boyut={18} renkKodu={tema.vurgu} />
-                </View>
-                <View style={s.satirMetin}>
-                  <Text style={s.satirBaslik} numberOfLines={1}>
-                    {hedef.ad}
-                  </Text>
-                  <Text style={s.satirAlt} numberOfLines={1}>
-                    {[istasyon?.ad, mesafeYaz(d.mesafe), istasyon ? '' : yonYaz(d.desc), d.code && !istasyon ? `Durak kodu ${d.code}` : '']
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </Text>
-                </View>
-                <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.yurume} />
-              </Pressable>
-            );
-          }}
+          renderItem={({ item }) => (
+            <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)}>
+              {satirCiz(item)}
+            </Animated.View>
+          )}
         />
       )}
     </View>
+  );
+
+  function satirCiz(item: (typeof satirlar)[number]) {
+    if (item.tip === 'baslik') return <Text style={s.bolumBaslik}>{item.yazi}</Text>;
+
+    if (item.tip === 'yer') {
+      const y = item.veri;
+      const hedef: Konum = { ad: y.ad, lat: y.lat, lon: y.lon };
+      return (
+        <Pressable
+          style={s.satir}
+          onPress={() => hedefSec(hedef, [y.turAdi, y.semt].filter(Boolean).join(' · '))}
+          onLongPress={() => kaydetSor(hedef)}
+        >
+          <View style={s.satirIkon}>
+            <Ikon ad={poiSimgesi(y.tur) as IkonAdi} boyut={18} renkKodu={tema.vurgu} />
+          </View>
+          <View style={s.satirMetin}>
+            <Vurgulu metin={y.ad} aranan={metin} style={s.satirBaslik} renk={tema.vurgu} />
+            <Text style={s.satirAlt} numberOfLines={1}>
+              {[y.turAdi, y.semt, mesafeYaz(y.mesafe)].filter(Boolean).join(' · ')}
+            </Text>
+          </View>
+          <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.yurume} />
+        </Pressable>
+      );
+    }
+
+    const d = item.veri;
+    const hedef: Konum = { ad: baslikYap(d.name), lat: d.lat!, lon: d.lon! };
+    const istasyon = istasyonMu(d) ? ISTASYON_TURLERI[(d.vehicleMode ?? '').toUpperCase()] : null;
+    return (
+      <Pressable
+        style={s.satir}
+        onPress={() => hedefSec(hedef, istasyon?.ad ?? 'Durak')}
+        onLongPress={() => kaydetSor(hedef)}
+      >
+        <View style={[s.satirIkon, { backgroundColor: tema.vurguAcik }]}>
+          <Ikon ad={istasyon?.ikon ?? 'bus-outline'} boyut={18} renkKodu={tema.vurgu} />
+        </View>
+        <View style={s.satirMetin}>
+          <Vurgulu metin={hedef.ad} aranan={metin} style={s.satirBaslik} renk={tema.vurgu} />
+          <Text style={s.satirAlt} numberOfLines={1}>
+            {[istasyon?.ad, mesafeYaz(d.mesafe), istasyon ? '' : yonYaz(d.desc), d.code && !istasyon ? `Durak kodu ${d.code}` : '']
+              .filter(Boolean)
+              .join(' · ')}
+          </Text>
+        </View>
+        <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.yurume} />
+      </Pressable>
+    );
+  }
+}
+
+/** Arama kutusu ana sayfadaki yerinden (biraz yukarıdan) kendi yerine kayar. */
+const GIRDI_GIRISI = new Keyframe({
+  0: { transform: [{ translateY: -40 }] },
+  100: { transform: [{ translateY: 0 }], easing: Easing.out(Easing.cubic) },
+}).duration(320);
+
+/** Sonuç adında aranan harfler vurgulu ("Kadı" → **Kadı**köy). */
+function Vurgulu({ metin, aranan, style, renk }: { metin: string; aranan: string; style: object; renk: string }) {
+  const q = aranan.trim().toLocaleLowerCase('tr-TR');
+  const i = q ? metin.toLocaleLowerCase('tr-TR').indexOf(q) : -1;
+  if (i < 0)
+    return (
+      <Text style={style} numberOfLines={1}>
+        {metin}
+      </Text>
+    );
+  return (
+    <Text style={style} numberOfLines={1}>
+      {metin.slice(0, i)}
+      <Text style={{ color: renk, fontWeight: '800' }}>{metin.slice(i, i + q.length)}</Text>
+      {metin.slice(i + q.length)}
+    </Text>
   );
 }
 
