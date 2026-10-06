@@ -176,7 +176,14 @@ export function durakSirasi(ilerleme: number, son: number): number {
  * `pay` metre kadar geride sayılır: kaba konumda (doğruluk 65 m) ileri kaçmasın, çünkü
  * ilerleme geri gitmiyor.
  */
-export function konumlaIlerleme(duraklar: Nokta[], konum: Nokta, pay = 0, tolerans = DURAK_M): number | null {
+export function konumlaIlerleme(
+  duraklar: Nokta[],
+  konum: Nokta,
+  pay = 0,
+  tolerans = DURAK_M,
+  cizgi?: Nokta[],
+): number | null {
+  if (cizgi && cizgi.length > 1 && duraklar.length > 1) return cizgiyleIlerleme(duraklar, cizgi, konum, pay, tolerans);
   let enIyi: { sira: number; oran: number; uzaklik: number } | null = null;
   for (let k = 0; k + 1 < duraklar.length; k++) {
     const yer = cizgiUzerindeYer(konum, [duraklar[k], duraklar[k + 1]]);
@@ -193,6 +200,65 @@ export function konumlaIlerleme(duraklar: Nokta[], konum: Nokta, pay = 0, tolera
     metre -= boylar[k];
   }
   return boylar.length;
+}
+
+/**
+ * Durakların aracın gerçek yolu (bacağın çizgisi) üstündeki yeri, metre. Her durak bir
+ * öncekinden sonra aranıyor: yol kendine yaklaşsa da sıra bozulmasın.
+ */
+function duraklarinYeri(duraklar: Nokta[], cizgi: Nokta[]): number[] {
+  const yerler: number[] = [];
+  let parca = 0;
+  for (const d of duraklar) {
+    const kx = 111320 * Math.cos((d.latitude * Math.PI) / 180);
+    const ky = 110540;
+    let biriken = 0;
+    let enIyi = { boyunca: yerler[yerler.length - 1] ?? 0, uzaklik: Infinity, parca };
+    for (let i = 1; i < cizgi.length; i++) {
+      const ax = (cizgi[i - 1].longitude - d.longitude) * kx;
+      const ay = (cizgi[i - 1].latitude - d.latitude) * ky;
+      const dx = (cizgi[i].longitude - d.longitude) * kx - ax;
+      const dy = (cizgi[i].latitude - d.latitude) * ky - ay;
+      const boy = Math.hypot(dx, dy);
+      if (i - 1 >= parca) {
+        const t = boy ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / (boy * boy))) : 0;
+        const u = Math.hypot(ax + t * dx, ay + t * dy);
+        if (u < enIyi.uzaklik) enIyi = { boyunca: biriken + t * boy, uzaklik: u, parca: i - 1 };
+      }
+      biriken += boy;
+    }
+    parca = enIyi.parca;
+    yerler.push(Math.max(enIyi.boyunca, yerler[yerler.length - 1] ?? 0));
+  }
+  return yerler;
+}
+
+const yerOnbellegi = new WeakMap<Nokta[], { cizgi: Nokta[]; yerler: number[] }>();
+
+/**
+ * konumlaIlerleme'nin aracın gerçek yoluyla hâli: konum bacağın çizgisine izdüşürülür,
+ * çizgi boyunca kaç metrede olduğu durakların çizgideki yerleriyle kesirli sıraya çevrilir.
+ * Duraklar arası düz çizgi kıvrılan yolda (otoyol bağlantısı, uzak duraklar) 120 m'den
+ * fazla açılabiliyor; o zaman nokta durağa yaklaşana kadar ilerlemiyordu.
+ */
+function cizgiyleIlerleme(duraklar: Nokta[], cizgi: Nokta[], konum: Nokta, pay: number, tolerans: number): number | null {
+  let kayit = yerOnbellegi.get(duraklar);
+  if (!kayit || kayit.cizgi !== cizgi) {
+    kayit = { cizgi, yerler: duraklarinYeri(duraklar, cizgi) };
+    yerOnbellegi.set(duraklar, kayit);
+  }
+  const { yerler } = kayit;
+  const yer = cizgiUzerindeYer(konum, cizgi);
+  if (yer.uzaklik > tolerans) return null;
+  const metre = yer.boyunca - pay;
+  if (metre <= yerler[0]) return 0;
+  for (let k = 0; k + 1 < yerler.length; k++) {
+    if (metre <= yerler[k + 1]) {
+      const ara = yerler[k + 1] - yerler[k];
+      return k + (ara > 0 ? (metre - yerler[k]) / ara : 1);
+    }
+  }
+  return yerler.length - 1;
 }
 
 /** Kaba konum doğruluğu kadar geride sayılır; iyisi olduğu yerde. */
@@ -355,13 +421,13 @@ export function durumuIlerlet(
     // bakılmıyor: sıradaki durağa yürüyen de oraya varıyor, araç olduğunu hız söylüyor.
     const y = enYakinDurak(konum, liste);
     if (!ek.iz && iyi && y.sira >= 1 && y.metre <= DURAK_M) {
-      return ilerlemeyiYaz(icineGir(bakilacak, binisAniTahmini(ek.iz, b?.cizgi)), konumlaIlerleme(liste, konum) ?? y.sira, son);
+      return ilerlemeyiYaz(icineGir(bakilacak, binisAniTahmini(ek.iz, b?.cizgi)), konumlaIlerleme(liste, konum, 0, DURAK_M, b?.cizgi) ?? y.sira, son);
     }
     // Konum izi hat boyunca araç hızıyla ilerliyor (sıradaki durağa varmayı beklemeden).
     if (ek.iz && b?.cizgi) {
       const binisAn = binisiAlgila(ek.iz, b.cizgi);
       if (binisAn != null) {
-        return ilerlemeyiYaz(icineGir(bakilacak, binisAn), konumlaIlerleme(liste, konum, pay, tolerans) ?? 0, son);
+        return ilerlemeyiYaz(icineGir(bakilacak, binisAn), konumlaIlerleme(liste, konum, pay, tolerans, b.cizgi) ?? 0, son);
       }
     }
   }
@@ -381,7 +447,7 @@ export function durumuIlerlet(
     // İniş yalnız iyi konumla: kaba konum araçta giderken de 60 m "uzak" görünebilir.
     if (iyi && d.durakta && inis && mesafeMetre(konum, inis) > AYRILMA_M) return sonrakiAdim(d, adimlar);
     // İlerleme ve kalan durak yalnız artar/azalır: halka hatlarda ya da GPS kayınca geri gitmesin.
-    const yeni = konumlaIlerleme(bacak.duraklar, konum, pay, tolerans);
+    const yeni = konumlaIlerleme(bacak.duraklar, konum, pay, tolerans, bacak.cizgi);
     return yeni == null ? d : ilerlemeyiYaz(d, yeni, son);
   }
 

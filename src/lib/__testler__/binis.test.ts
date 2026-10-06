@@ -137,6 +137,16 @@ describe('kaba konumla ilerleme', () => {
     assert.ok(temkinli < 1.5 && temkinli > 1.1, `~1,2 (oldu ${temkinli})`);
   });
 
+  it('kıvrılan yolda aracın gerçek çizgisine göre ilerler (duraklar arası düz çizgiden uzakta da)', () => {
+    // İki durak 666 m arayla kuzeyde; otobüs 400 m doğuya kıvrılan bir yoldan gidiyor.
+    const duraklar = [n(0), n(0.006)];
+    const yol = [n(0), n(0, 29.0048), n(0.006, 29.0048), n(0.006)];
+    const ortada = n(0.003, 29.0048);
+    assert.equal(konumlaIlerleme(duraklar, ortada), null, 'düz çizgiye 400 m: eskiden ilerlemiyordu');
+    const ilerleme = konumlaIlerleme(duraklar, ortada, 0, 120, yol)!;
+    assert.ok(Math.abs(ilerleme - 0.5) < 0.02, `yolun yarısı (oldu ${ilerleme})`);
+  });
+
   it('araçtayken kaba konum ilerletir ama inişe karar vermez', () => {
     const icinde: YolculukDurumu = { adim: 1, faz: 'icinde', kalanDurak: 4, durakta: false, ilerleme: 0 };
     const ilerledi = durumuIlerlet(icinde, n(0.006), ADIMLAR, BACAKLAR, { dogruluk: 65 });
