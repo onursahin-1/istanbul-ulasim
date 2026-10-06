@@ -1076,6 +1076,7 @@ export function TumAdimlar({
   const tema = useTema();
   const s = useStiller(stiller);
   const kenar = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
   const son = v.bacaklar[v.bacaklar.length - 1];
   const varisDk = son ? Math.max(0, Math.round((an(son, 'end') - v.simdi) / 60_000)) : 0;
   const aktarma = v.adimlar.filter((a) => a.tur === 'arac').length - 1;
@@ -1085,14 +1086,15 @@ export function TumAdimlar({
   };
   return (
     <ModalSayfa acik={acik} kapat={kapat}>
-      <View style={[s.sayfa, { paddingBottom: kenar.bottom + 12 }]}>
+      <View style={[s.sayfa, { paddingBottom: kenar.bottom + 12, maxHeight: Math.round(height * 0.85) }]}>
         <View style={s.tutamac} />
         <Text style={s.sayfaBaslik}>{v.hedef ? `${baslikYap(v.hedef)} yolculuğu` : 'Yolculuk'}</Text>
         <Text style={s.detay}>
           {`Varış ${saatYaz(son ? iso(son, 'end') : null)} · ${varisDk} dk kaldı`}
           {aktarma > 0 ? ` · ${aktarma} aktarma` : ''}
         </Text>
-        <ScrollView style={{ marginTop: 8 }}>
+        {/* Liste sayfaya sığmazsa kendi içinde kayar (flexShrink); sığıyorsa sayfa içerik kadar. */}
+        <ScrollView style={s.adimListesi} contentContainerStyle={{ paddingBottom: 4 }}>
           {v.adimlar.map((a, i) => {
             const b = v.bacaklar[a.bacak];
             const bitti = i < v.durum.adim || (v.durum.faz === 'vardi' && i === v.durum.adim);
@@ -1316,8 +1318,9 @@ const stiller = (t: Tema) =>
       borderTopRightRadius: 22,
       paddingHorizontal: 16,
       paddingTop: 8,
-      maxHeight: '80%',
+      flexShrink: 1,
     },
+    adimListesi: { marginTop: 8, flexGrow: 0, flexShrink: 1 },
     tutamac: { width: 38, height: 5, borderRadius: 3, backgroundColor: t.cizgi, alignSelf: 'center', marginBottom: 8 },
     sayfaBaslik: { fontSize: 18, fontWeight: '800', color: t.yazi },
     satir: {
@@ -1325,10 +1328,14 @@ const stiller = (t: Tema) =>
       alignItems: 'center',
       gap: 10,
       paddingVertical: 10,
+      paddingLeft: 8,
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: t.cizgi,
+      // Şimdiki adımın vurgu çizgisi için her satırda aynı boşluk: saatler hizalı dursun.
+      borderLeftWidth: 3,
+      borderLeftColor: 'transparent',
     },
-    satirSimdi: { borderLeftWidth: 3, borderLeftColor: t.vurgu, paddingLeft: 8 },
+    satirSimdi: { borderLeftColor: t.vurgu },
     satirSaat: { width: 42, fontSize: 12.5, fontWeight: '700', color: t.yazi, fontVariant: ['tabular-nums'] },
     satirBaslik: { flexShrink: 1, fontSize: 13.5, fontWeight: '700', color: t.yazi },
     satirAlt: { fontSize: 12, color: t.soluk },

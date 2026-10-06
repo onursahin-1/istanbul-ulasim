@@ -11,9 +11,10 @@
 // kendi kaydırmasını korur.
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Modal, Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import { Modal, Pressable, StyleSheet, useWindowDimensions, View, type LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 
 const YAY = { damping: 26, stiffness: 260, mass: 0.9 };
@@ -30,6 +31,11 @@ export function ModalSayfa({ acik, kapat, children }: { acik: boolean; kapat: ()
   const y = useSharedValue(2000);
   const perde = useSharedValue(0);
   const girdi = useRef(false);
+  // Sayfa en çok ekranın üst kenarına kadar uzar; içindeki liste (flexShrink) kalanında kayar.
+  // Yüzdeyle verilen en büyük yükseklik burada işlemiyordu: üst öğenin boyu içeriğe göre.
+  const { height } = useWindowDimensions();
+  const kenar = useSafeAreaInsets();
+  const enBuyuk = height - kenar.top - 16;
 
   // Açılış onLayout'ta (sayfanın boyu belli olunca); kapanış burada: önce iner, sonra Modal kalkar.
   useEffect(() => {
@@ -80,7 +86,7 @@ export function ModalSayfa({ acik, kapat, children }: { acik: boolean; kapat: ()
         <Animated.View style={[StyleSheet.absoluteFill, stil.perde, perdeStili]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={kapat} accessibilityLabel="Kapat" />
         </Animated.View>
-        <Animated.View style={[stil.sayfa, sayfaStili]} onLayout={olcul}>
+        <Animated.View style={[stil.sayfa, { maxHeight: enBuyuk }, sayfaStili]} onLayout={olcul}>
           {children}
           <GestureDetector gesture={surukle}>
             <View style={stil.tutamac} accessibilityElementsHidden importantForAccessibility="no" />
