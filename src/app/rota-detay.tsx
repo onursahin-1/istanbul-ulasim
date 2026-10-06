@@ -56,6 +56,7 @@ import {
   binilenHatTahmini,
   durakOranlari,
   paylasimMetni,
+  tekillestir,
   type BeklemeSecenegi,
 } from '@/lib/bekleme';
 import { seferBilgisi, sikliktanYazi, type SeferBilgisi } from '@/lib/sefer';
@@ -587,7 +588,10 @@ export default function RotaDetayEkrani() {
       if (!zaman) return g;
       const kalkislar: Record<number, SecilenKalkis[]> = {};
       for (const [anahtar, l] of Object.entries(durakKalkislariRef.current)) {
-        kalkislar[Number(anahtar)] = anaHatKalkislari(g.legs[Number(anahtar)], l).map((k) => ({ an: k.an, seferId: k.seferId }));
+        kalkislar[Number(anahtar)] = tekillestir(anaHatKalkislari(g.legs[Number(anahtar)], l)).map((k) => ({
+          an: k.an,
+          seferId: k.seferId,
+        }));
       }
       const bacakZamani = zaman.map((z, i) => ({ ...z, durakPayiMs: rayliMi(g.legs[i]) ? 30_000 : 120_000 }));
       let yeni = yenidenZamanla(bacakZamani, bas, an, kalkislar, secenek);

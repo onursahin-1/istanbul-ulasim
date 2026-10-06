@@ -24,7 +24,7 @@ const KALKISLAR = { 1: OTOBUS, 3: METRO };
 
 describe('yenidenZamanla', () => {
   it('hızlı yürürken kalan yürüyüşe göre daha önceki otobüs seçilir', () => {
-    // 07:33, durağa 2 dk kaldı: 07:35 varış + 1 dk yetişme payı → 07:44 (plan 07:54).
+    // 07:33, durağa 2 dk kaldı: 07:35 varış; 07:34 gitmiş → 07:44 (plan 07:54).
     const yeni = yenidenZamanla(PLAN, 0, T + 3 * dk, KALKISLAR, { kalanYuruyusMs: 2 * dk });
     assert.equal(yeni[0].bitis, T + 5 * dk);
     assert.equal(yeni[0].baslangic, T + 3 * dk, 'plan 07:40 diyordu, 07:33\'te yürüyordu');
@@ -46,7 +46,7 @@ describe('yenidenZamanla', () => {
   it('kalanı zincirle kurar: aktarma yürüyüşü inişte başlar, metro ondan sonraki ilk sefer', () => {
     const yeni = yenidenZamanla(PLAN, 1, T + 14 * dk, KALKISLAR);
     assert.deepEqual([yeni[2].baslangic, yeni[2].bitis], [T + 34 * dk, T + 37 * dk]);
-    assert.equal(yeni[3].baslangic, T + 40 * dk, '07:37 + 1 dk pay → 07:40 metrosu');
+    assert.equal(yeni[3].baslangic, T + 40 * dk, '07:37 varış → 07:40 metrosu');
   });
 
   it('binince: biniş gerçek an, iniş bacağın süresi kadar sonra', () => {
@@ -63,7 +63,16 @@ describe('yenidenZamanla', () => {
   it('yürüyüş baştan (kalanı bilinmiyor): şimdi başlar, planlanan süre kadar', () => {
     const yeni = yenidenZamanla(PLAN, 0, T, KALKISLAR);
     assert.deepEqual([yeni[0].baslangic, yeni[0].bitis], [T, T + 14 * dk]);
-    assert.equal(yeni[1].baslangic, T + 24 * dk, '07:44 varış + 1 dk → 07:54');
+    assert.equal(yeni[1].baslangic, T + 14 * dk, '07:44 varış, 07:44 otobüsü: sınırda ama yetişilebilir');
+  });
+
+  it('varıştan 1 dakikadan fazla önce kalkan otobüse yetişilmez; tam varışta kalkana yetişilir (videodaki 141M)', () => {
+    const otobus = PLAN.map((b) => ({ ...b, durakPayiMs: 2 * dk }));
+    // 16:36'da 3 dk yürüyüş: 16:39 varış. 141M 16:39'da (canlı), sonraki 16:54.
+    const liste = { 1: [{ an: T + 9 * dk, seferId: 'a' }, { an: T + 24 * dk, seferId: 'b' }] };
+    assert.equal(yenidenZamanla(otobus, 0, T + 6 * dk, liste, { kalanYuruyusMs: 3 * dk })[1].seferId, 'a');
+    // 16:41'de varacaksa 16:39'daki gitmiş.
+    assert.equal(yenidenZamanla(otobus, 0, T + 8 * dk, liste, { kalanYuruyusMs: 3 * dk })[1].seferId, 'b');
   });
 });
 
@@ -74,7 +83,7 @@ describe('gecikmeyiYansit', () => {
     const sonra = gecikmeyiYansit(yeni, PLAN, 1, T + 42 * dk, KALKISLAR);
     assert.deepEqual([sonra[1].baslangic, sonra[1].bitis], [yeni[1].baslangic, yeni[1].bitis], 'bindiği bacak aynen');
     assert.deepEqual([sonra[2].baslangic, sonra[2].bitis], [T + 42 * dk, T + 45 * dk]);
-    assert.equal(sonra[3].baslangic, T + 50 * dk, '08:15 + 1 dk pay → 08:20 metrosu');
+    assert.equal(sonra[3].baslangic, T + 45 * dk, '08:15 varış → 08:15 metrosu (raylıda 15 sn pay)');
   });
 
   it('gecikme yarım dakikadan azsa aynen', () => {

@@ -51,6 +51,15 @@ describe('beklemeSecenekleri', () => {
     assert.equal(s[0].ad, '97M uzun ad');
   });
 
+  it('birkaç dakika arayla canlı ve tarife iki kalkış tek otobüs (canlı kalır)', () => {
+    const liste = [kalkis('141M', 2), kalkis('141M', 3, { canli: true }), kalkis('141M', 17)];
+    const s = beklemeSecenekleri(liste, ['141M'], T);
+    assert.deepEqual(s[0].kalkislar.map((k) => [(k.an - T) / dk, k.canli]), [
+      [3, true],
+      [17, false],
+    ]);
+  });
+
   it('planlanan hatta yalnız aynı desen (kısa servis seferi yok); kalkışı olmayan hat sona', () => {
     const liste = [kalkis('97M', 3, { desen: 'kisa' }), kalkis('97M', 9, { desen: 'p1' }), kalkis('141M', 5)];
     const s = beklemeSecenekleri(liste, ['97M', '141M', '41E'], T, { desen: 'p1', yon: 'Mecidiyeköy' });

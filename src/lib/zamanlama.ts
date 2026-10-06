@@ -31,15 +31,21 @@ export type YeniZaman = { baslangic: number; bitis: number; seferId?: string };
  * Otobüsün ara duraklardaki saati tahmin olduğu için uygulama otobüste daha uzun veriyor.
  */
 export const DURAKTA_PAY_MS = 30_000;
-/** Yürüyerek ya da aktarmayla varılacaksa sefer en az bu kadar sonra kalkmalı. */
-export const YETISME_PAYI_MS = 60_000;
+/**
+ * Yürüyerek ya da aktarmayla varılacak araçta, varış tahmininden bu oranda durak payı
+ * kadar önce kalkan sefer de yetişilebilir sayılır (otobüste 1 dk, raylıda 15 sn). Eskiden
+ * tersine 1 dk sonrası isteniyordu: 3 dk yürüyüp 16:39'da varacak yolcuya 16:39'da gelen
+ * 141M "yetişilmez" sayılıp 16:54'teki seçiliyordu. Yürüme süresi de otobüsün saati de
+ * tahmin; sınırdakini göstermek (kart "yetişmek zor" der) 15 dk sonrasını göstermekten iyi.
+ */
+export const VARIS_PAYI_ORANI = 0.5;
 
 export type ZamanlamaSecenegi = {
   /** `bas` bir araç bacağı ve `an` ona binilen gerçek an. */
   kesin?: boolean;
   /** `bas` bir yürüyüş bacağı ve yürüyüş sürüyor: bitmesine bu kadar var (ms). */
   kalanYuruyusMs?: number;
-  /** `an` bir önceki araçtan iniş anı: `bas` araçsa ona aktarmayla yetişilecek (yetişme payı). */
+  /** `an` bir önceki araçtan iniş anı: `bas` araçsa ona aktarmayla yetişilecek (varış payı). */
   aktarma?: boolean;
 };
 
@@ -75,7 +81,8 @@ export function yenidenZamanla(
     } else {
       // Duraktaysak (yeniden zamanlama bu bacaktan başlıyor) tarife payı kadar geçmişteki
       // sefer de olur; yürüyüp ya da aktarıp varacaksak yetişme payı gerekir.
-      const enErken = i === bas && !secenek.aktarma ? t - (b.durakPayiMs ?? DURAKTA_PAY_MS) : t + YETISME_PAYI_MS;
+      const pay = b.durakPayiMs ?? DURAKTA_PAY_MS;
+      const enErken = i === bas && !secenek.aktarma ? t - pay : t - pay * VARIS_PAYI_ORANI;
       const uygun = kalkislar[i]?.find((k) => k.an >= enErken);
       if (uygun) {
         baslangic = uygun.an;

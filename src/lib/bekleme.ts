@@ -70,10 +70,33 @@ export function beklemeSecenekleri(
       kisaAd,
       hat: { shortName: kisaAd, mode: ilk?.mode ?? null, agency: ilk?.isletmeci ? { name: ilk.isletmeci } : null },
       ad: ilk?.uzunAd || ilk?.yon || '',
-      kalkislar: uygun.slice(0, enCok).map((k) => ({ an: k.an, canli: k.canli, seferId: k.seferId })),
+      kalkislar: tekillestir(uygun)
+        .slice(0, enCok)
+        .map((k) => ({ an: k.an, canli: k.canli, seferId: k.seferId })),
     };
   });
   return secenekler.sort((a, b) => (a.kalkislar[0]?.an ?? Infinity) - (b.kalkislar[0]?.an ?? Infinity));
+}
+
+/** Aynı hattın bu kadar yakın iki kalkışı tek otobüs sayılır. */
+export const AYNI_OTOBUS_MS = 3 * 60_000;
+
+/**
+ * Aynı hattın birkaç dakika arayla iki kalkışı çoğu zaman tek otobüs: geç kalan bir seferin
+ * canlı saati ile sonraki seferin tarife saati üst üste biniyor ("2 dk, sonra 2 dk"). Canlı
+ * olan kalır; ikisi de tarifeyse ilki.
+ */
+export function tekillestir(liste: DurakKalkisi[]): DurakKalkisi[] {
+  const sonuc: DurakKalkisi[] = [];
+  for (const k of liste) {
+    const onceki = sonuc[sonuc.length - 1];
+    if (onceki && k.an - onceki.an < AYNI_OTOBUS_MS && onceki.canli !== k.canli) {
+      if (k.canli) sonuc[sonuc.length - 1] = k;
+      continue;
+    }
+    sonuc.push(k);
+  }
+  return sonuc;
 }
 
 /**
