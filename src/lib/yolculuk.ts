@@ -656,7 +656,11 @@ export function durumuZamanla(
   // telefon hareket etmiyorken "kalkış saati geçti, bindin" demek yanlış. Saat yalnız konum
   // gerçekten kesilince (tünel, yeraltı peron) devreye girer.
   const kabaTaze = gps != null && simdi - gps.an <= GPS_TAZE_MS && (gps.dogruluk == null || gps.dogruluk <= KABA_DOGRULUK_M);
-  if (kabaTaze) return d;
+  // Metroda (raylıda) araçtayken kaba konum saati durdurmaz: tren tarifeyle gidiyor, tünelde
+  // gelen kaba konum ise çoğu zaman telefonun eski konumu (binilen istasyonda kalmış, ±70–180 m)
+  // ve ilerlemeyi gösteremiyor; eskiden mavi nokta bu yüzden yarım dakika takılıyordu.
+  // Beklerken aynen: perondaki kaba konumla "kalkış saati geçti, bindin" denmesin.
+  if (kabaTaze && !(b.rayli && d.faz === 'icinde')) return d;
   if (d.faz === 'bekle') {
     if (simdi < b.binisMs + KALKIS_PAYI_MS) return d;
     // Konum kesilmeden önce durağın çevresinde değildiyse (evde, yolda) binilmiş olamaz.

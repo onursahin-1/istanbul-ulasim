@@ -214,6 +214,20 @@ describe('araçta saatle ilerleme', () => {
     assert.equal(durumuZamanla(icinde, 305_000, ADIMLAR, zamanli, kaba), icinde);
     assert.ok(durumuZamanla(icinde, 305_000, ADIMLAR, zamanli, null).ilerleme! > 1.5, 'konum yoksa saatle');
   });
+
+  it('metroda tünelde gelen kaba (eski) konum saati durdurmaz; beklerken durdurur', () => {
+    const metro = BACAKLAR.map((b, i) => (i === 1 ? { ...b, rayli: true, binisMs: 0, inisMs: 600_000 } : b));
+    const icinde: YolculukDurumu = { adim: 1, faz: 'icinde', kalanDurak: 4, durakta: false, ilerleme: 0 };
+    // Binilen istasyonda kalmış eski konum, ±176 m.
+    const eski = { an: 300_000, dogruluk: 176, konum: n(0) };
+    assert.ok(durumuZamanla(icinde, 305_000, ADIMLAR, metro, eski).ilerleme! > 1.5, 'saatle ilerler');
+    // İyi konum gelirse yine konum karar verir.
+    const iyi = { ...eski, dogruluk: 12 };
+    assert.equal(durumuZamanla(icinde, 305_000, ADIMLAR, metro, iyi), icinde);
+    // Peronda beklerken kaba konum varken kalkış saati geçti diye binilmiş sayılmaz.
+    const bekle: YolculukDurumu = { adim: 1, faz: 'bekle', kalanDurak: null, durakta: false };
+    assert.equal(durumuZamanla(bekle, 60_000, ADIMLAR, metro, { ...eski, an: 55_000 }), bekle);
+  });
 });
 
 describe('metroya yürürken istasyona inilmesi', () => {
