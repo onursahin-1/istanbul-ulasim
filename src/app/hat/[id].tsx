@@ -15,7 +15,21 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import Animated, {
+  Easing,
+  FadeInLeft,
+  FadeOut,
+  LinearTransition,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+  ZoomIn,
+  type EntryAnimationsValues,
+} from 'react-native-reanimated';
 import { Pressable } from '@/components/dokun';
+import { KayanMetin } from '@/components/kayan-metin';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -136,6 +150,16 @@ export default function HatEkrani() {
   const baslangicYonu = Math.max(0, desenler.findIndex((d) => d.code === desen));
   const yonNo = Math.min(yon ?? baslangicYonu, Math.max(desenler.length - 1, 0));
   const secili = desenler[yonNo];
+  // Açılışta ve yön değişince durak listesi çizilerek gelir (satırlar sırayla, otobüsler
+  // en son); bu pencereden sonra yeni gelen otobüs satırı önceki duraktan kayarak iner.
+  const desenKodu = secili?.code;
+  const [acilis, setAcilis] = useState({ kod: desenKodu, acik: true });
+  if (acilis.kod !== desenKodu) setAcilis({ kod: desenKodu, acik: true });
+  useEffect(() => {
+    if (!acilis.acik || !acilis.kod) return;
+    const t = setTimeout(() => setAcilis((a) => ({ ...a, acik: false })), ACILIS_MS);
+    return () => clearTimeout(t);
+  }, [acilis]);
   const duraklar = useMemo(() => secili?.stops ?? [], [secili]);
 
   // İşaretlenecek durak: kimliği tutan, tutmuyorsa (istasyondan gelindi) adı tutan.
@@ -392,11 +416,16 @@ export default function HatEkrani() {
                     <Text style={s.yaprakBaslik} numberOfLines={1}>
                       {yonAdi(secili) || 'Duraklar'}
                     </Text>
-                    <Text style={s.yaprakAlt} numberOfLines={1}>
-                      {yaklasan && isaretli >= 0
-                        ? `Durağına en yakın otobüs ${kalanYaz(yaklasan.kalan)}`
-                        : `${duraklar.length} durak`}
-                    </Text>
+                    {yaklasan && isaretli >= 0 ? (
+                      <View style={s.yaprakAltSatir}>
+                        <Text style={s.yaprakAlt}>Durağına en yakın otobüs </Text>
+                        <KayanMetin metin={kalanYaz(yaklasan.kalan)} style={s.yaprakAlt} />
+                      </View>
+                    ) : (
+                      <Text style={[s.yaprakAlt, { marginTop: 1 }]} numberOfLines={1}>
+                        {`${duraklar.length} durak`}
+                      </Text>
+                    )}
                   </View>
                   {otobusler.length > 0 && enTaze != null && (
                     <View style={s.canliOzet}>
@@ -441,8 +470,14 @@ export default function HatEkrani() {
                   const son = i === duraklar.length - 1;
                   const buDurak = i === isaretli;
                   return (
-                    <View
+                    <Animated.View
                       key={`${d.gtfsId}-${i}`}
+                      entering={
+                        acilis.acik && i < SIRALI_DURAK
+                          ? FadeInLeft.delay(40 + i * 45).duration(300)
+                          : undefined
+                      }
+                      layout={DURAK_YERLESIMI}
                       onLayout={
                         buDurak
                           ? (e) => {
@@ -472,6 +507,7 @@ export default function HatEkrani() {
                         <View style={s.cizgiSutun}>
                           {!ilk && <View style={[s.cizgiUst, { backgroundColor: renkKodu }]} />}
                           {!son && <View style={[s.cizgiAlt, { backgroundColor: renkKodu }]} />}
+                          {buDurak && !!yaklasan && yaklasan.kalan <= 1 && <NabizHalkasi renk={renkKodu} />}
                           <View
                             style={
                               ilk || son || buDurak
@@ -489,16 +525,27 @@ export default function HatEkrani() {
                         <Ikon ad="chevron-forward" boyut={15} renkKodu={tema.yurume} />
                       </Pressable>
                       {(durakSonrasi.get(i) ?? []).map((o) => (
-                        <OtobusSatiri
+                        <Animated.View
                           key={o.kimlik}
-                          otobus={o}
-                          renkKodu={renkKodu}
-                          sonDurak={son}
-                          durakAdi={baslikYap(duraklar[o.durak]?.name)}
-                          onPress={() => otobuseGit(o)}
-                        />
+                          // Açılışta otobüsler en son, yaylı belirir; sonra bir sonraki durağa
+                          // geçen otobüsün yeni satırı açılırken simgesi önceki duraktan iner.
+                          entering={
+                            acilis.acik
+                              ? ZoomIn.delay(40 + Math.min(i, SIRALI_DURAK) * 45 + 150).springify().damping(12)
+                              : otobusIner
+                          }
+                          exiting={FadeOut.duration(220)}
+                        >
+                          <OtobusSatiri
+                            otobus={o}
+                            renkKodu={renkKodu}
+                            sonDurak={son}
+                            durakAdi={baslikYap(duraklar[o.durak]?.name)}
+                            onPress={() => otobuseGit(o)}
+                          />
+                        </Animated.View>
                       ))}
-                    </View>
+                    </Animated.View>
                   );
                 })}
               </View>
@@ -513,6 +560,41 @@ export default function HatEkrani() {
         </View>
       )}
     </View>
+  );
+}
+
+/** Açılışta sırayla gelen durak sayısı; uzun hatta sonrakiler hemen görünür. */
+const SIRALI_DURAK = 15;
+/** Açılış penceresi (ms): bu sürede gelen satırlar sırayla gelir. */
+const ACILIS_MS = 1500;
+/** Otobüs satırları eklenip çıkınca duraklar yaylı kayar. */
+const DURAK_YERLESIMI = LinearTransition.springify().damping(22).stiffness(200);
+
+/** Bir sonraki durağa geçen otobüs: satır açılırken yukarıdan (önceki duraktan) iner. */
+function otobusIner(v: EntryAnimationsValues) {
+  'worklet';
+  const ayar = { duration: 600, easing: Easing.out(Easing.cubic) };
+  return {
+    initialValues: { transform: [{ translateY: -(v.targetHeight + 8) }], opacity: 0 },
+    animations: { transform: [{ translateY: withTiming(0, ayar) }], opacity: withTiming(1, { duration: 300 }) },
+  };
+}
+
+/** Senin durağının noktası: en yakın otobüs bir durak kalınca etrafında halka atar. */
+function NabizHalkasi({ renk }: { renk: string }) {
+  const azalt = useReducedMotion();
+  const p = useSharedValue(0);
+  useEffect(() => {
+    if (azalt) return;
+    p.value = withRepeat(withTiming(1, { duration: 1100, easing: Easing.out(Easing.quad) }), -1, false);
+  }, [azalt, p]);
+  const halka = useAnimatedStyle(() => ({ opacity: 0.7 * (1 - p.value), transform: [{ scale: 0.6 + 0.7 * p.value }] }));
+  if (azalt) return null;
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[{ position: 'absolute', width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: renk }, halka]}
+    />
   );
 }
 
@@ -594,7 +676,8 @@ const stiller = (t: Tema) =>
     tepeAlt: { fontSize: 12, opacity: 0.85, marginTop: 1 },
     yaprakBas: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 10 },
     yaprakBaslik: { fontSize: 16, fontWeight: '700', color: t.yazi },
-    yaprakAlt: { fontSize: 12.5, color: t.soluk, marginTop: 1 },
+    yaprakAlt: { fontSize: 12.5, color: t.soluk },
+    yaprakAltSatir: { flexDirection: 'row', alignItems: 'baseline', marginTop: 1 },
     yonSeridi: {
       flexGrow: 0,
       height: 76,

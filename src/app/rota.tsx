@@ -14,14 +14,13 @@ import Animated, {
   LayoutAnimationConfig,
   LinearTransition,
   useAnimatedStyle,
-  useReducedMotion,
   useSharedValue,
   withDelay,
-  withRepeat,
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
 import { Pressable } from '@/components/dokun';
+import { Blok, Parilti } from '@/components/iskelet';
 import { KayanMetin } from '@/components/kayan-metin';
 import { ModalSayfa } from '@/components/modal-sayfa';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -886,48 +885,19 @@ function IskeletListesi() {
   );
 }
 
-/** Parıltının kademeleri: ortası en parlak (degrade kütüphanesi olmadan yumuşak kenar). */
-const PARILTI = [0.05, 0.12, 0.2, 0.12, 0.05];
-const PARILTI_GENISLIK = 120;
-
 function IskeletKart() {
   const s = useStiller(stiller);
-  const tema = useTema();
-  const azalt = useReducedMotion();
-  const [genislik, setGenislik] = useState(0);
-  const x = useSharedValue(0);
-  useEffect(() => {
-    if (azalt || !genislik) return;
-    x.value = withRepeat(withTiming(1, { duration: 1300, easing: Easing.inOut(Easing.quad) }), -1, false);
-  }, [azalt, genislik, x]);
-  const bant = useAnimatedStyle(() => ({
-    transform: [{ translateX: -PARILTI_GENISLIK + x.value * (genislik + 2 * PARILTI_GENISLIK) }],
-  }));
-  const blok = (width: number | `${number}%`, height: number) => (
-    <View style={{ width, height, borderRadius: 6, backgroundColor: tema.cizgi }} />
-  );
   return (
-    <View
-      style={[s.kart, s.iskelet]}
-      onLayout={(e) => setGenislik(e.nativeEvent.layout.width)}
-      importantForAccessibility="no-hide-descendants"
-      accessibilityElementsHidden
-    >
+    <View style={[s.kart, s.iskelet]} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
       <View style={s.iskeletUst}>
-        {blok(70, 24)}
-        {blok(84, 14)}
+        <Blok en={70} boy={24} />
+        <Blok en={84} boy={14} />
       </View>
-      {blok('60%', 20)}
-      {blok('100%', 6)}
-      {blok('75%', 12)}
-      {blok('90%', 12)}
-      {!azalt && (
-        <Animated.View pointerEvents="none" style={[s.parilti, bant]}>
-          {PARILTI.map((o, i) => (
-            <View key={i} style={{ flex: 1, backgroundColor: `rgba(255,255,255,${tema.koyu ? o * 0.5 : o * 3})` }} />
-          ))}
-        </Animated.View>
-      )}
+      <Blok en="60%" boy={20} />
+      <Blok en="100%" boy={6} />
+      <Blok en="75%" boy={12} />
+      <Blok en="90%" boy={12} />
+      <Parilti />
     </View>
   );
 }
@@ -1024,7 +994,6 @@ const stiller = (t: Tema) =>
   iskelet: { overflow: 'hidden' },
   iskeletUst: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   iskeletYazi: { fontSize: 12.5, color: t.soluk, textAlign: 'center', marginBottom: 2 },
-  parilti: { position: 'absolute', top: 0, bottom: 0, left: 0, width: PARILTI_GENISLIK, flexDirection: 'row' },
   canliSatir: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: -3 },
   esnek: { flex: 1, minWidth: 0 },
   tarifeNotu: { fontSize: 11.5, color: t.soluk, paddingLeft: 16 },

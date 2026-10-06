@@ -3,6 +3,7 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { Pressable } from '@/components/dokun';
 import MapView, { Marker } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,8 +21,9 @@ import {
   TarifeEtiketi,
   useStiller,
   YaklasmaSeridi,
-  Yukleniyor,
 } from '@/components/ulasim';
+import { IskeletSatirlari } from '@/components/iskelet';
+import { KayanMetin } from '@/components/kayan-metin';
 import { aracVarisindanOtobus, araclariYerlestir, kalanYaz, yaklasanOtobus, yasYaz } from '@/lib/arac-konum';
 import { canliBilgi, kalkisCanli } from '@/lib/canli';
 import { trKucuk } from '@/lib/metin';
@@ -49,6 +51,10 @@ import { useCanliAralik } from '@/lib/canli-aralik';
 import { ekranAc, geriDon } from '@/lib/gezinti';
 
 const YENILEME_ARALIGI = 30_000;
+/** Tazelemede sırası değişen satır yeni yerine kayar, diğerleri yer açar. */
+const SATIR_YERLESIMI = LinearTransition.springify().damping(20).stiffness(180);
+/** Açılışta satırlar sırayla gelir; bu süreden sonra yeni gelen satır yalnız belirir. */
+const ACILIS_MS = 1200;
 
 export default function DurakEkrani() {
   const kenar = useSafeAreaInsets();
@@ -91,6 +97,19 @@ export default function DurakEkrani() {
   useEffect(() => {
     yukle();
   }, [yukle]);
+  // Satırların ilk gelişi sırayla (açılış); sonraki tazelemelerde yeni satır yalnız belirir.
+  const [acildi, setAcildi] = useState(false);
+  useEffect(() => {
+    if (!durak || acildi) return;
+    const t = setTimeout(() => setAcildi(true), ACILIS_MS);
+    return () => clearTimeout(t);
+  }, [durak, acildi]);
+  const satirGirisi = (i: number) =>
+    acildi
+      ? FadeIn.duration(300)
+      : FadeInDown.delay(40 + Math.min(i, 10) * 55)
+          .duration(360)
+          .easing(Easing.out(Easing.cubic));
   useCanliAralik(yukle, YENILEME_ARALIGI);
 
   // Bu durağın otobüs hatlarını köprü öncelikle tarasın; favoriyse kalıcı olarak.
@@ -299,7 +318,12 @@ export default function DurakEkrani() {
       >
         {cevrimdisi != null && <CevrimdisiSerit zaman={cevrimdisi} tekrarDene={yukle} />}
         {hata && <HataKutusu mesaj={hata} tekrarDene={yukle} />}
-        {!durak && !hata && <Yukleniyor metin="Durak bilgisi yükleniyor…" />}
+        {!durak && !hata && (
+          <View style={{ gap: 6 }} accessible accessibilityLabel="Durak bilgisi yükleniyor">
+            <Text style={s.bilgi}>Durak bilgisi yükleniyor…</Text>
+            <IskeletSatirlari />
+          </View>
+        )}
         {durak && (
           <>
             <View style={{ gap: 4 }}>
@@ -389,9 +413,9 @@ export default function DurakEkrani() {
               {yonler.length === 0 && siklikliHatlar.length === 0 && (
                 <Text style={s.bos}>Önümüzdeki 3 saatte bu duraktan sefer görünmüyor.</Text>
               )}
-              {yonler.map((y) => (
+              {yonler.map((y, i) => (
+                <Animated.View key={y.anahtar} entering={satirGirisi(i)} exiting={FadeOut.duration(220)} layout={SATIR_YERLESIMI}>
                 <Pressable
-                  key={y.anahtar}
                   style={s.sefer}
                   onPress={() =>
                     y.hat &&
@@ -430,17 +454,18 @@ export default function DurakEkrani() {
                       <TarifeEtiketi saat={istanbulSaatiYaz(y.kalkislar[0].an)} />
                     ) : null}
                     {y.yaklasan && (
-                      <View style={s.yaklasma}>
+                      // Otobüs görünmeye başlayınca şerit belirir; sayısı kayar.
+                      <Animated.View entering={FadeIn.duration(350)} exiting={FadeOut.duration(200)} style={s.yaklasma}>
                         <YaklasmaSeridi
                           kalan={y.yaklasan.kalan}
                           renk={y.hat ? hatRengi(y.hat, tema) : tema.vurgu}
                           soluk={y.yaklasan.otobus.sinif === 'eski'}
                         />
-                        <Text style={s.yaklasmaYazi} numberOfLines={1}>
-                          <Text style={s.yaklasmaKalin}>{`Otobüs ${kalanYaz(y.yaklasan.kalan)}`}</Text>
+                        <KayanMetin metin={`Otobüs ${kalanYaz(y.yaklasan.kalan)}`} style={[s.yaklasmaYazi, s.yaklasmaKalin]} />
+                        <Text style={[s.yaklasmaYazi, { flex: 1 }]} numberOfLines={1}>
                           {` · ${yasYaz(y.yaklasan.otobus.yasSn)}`}
                         </Text>
-                      </View>
+                      </Animated.View>
                     )}
                     {y.kalkislar[0].canli || canliVar ? (
                       // İlk kalkışın saati üstteki satırda; burada yalnız sonrakiler.
@@ -457,10 +482,16 @@ export default function DurakEkrani() {
                   </View>
                   <Dakika an={y.kalkislar[0].an} canli={y.kalkislar[0].canli} kimlik={y.kalkislar[0].kimlik} />
                 </Pressable>
+                </Animated.View>
               ))}
-              {siklikliHatlar.map(({ hat: h, metin }) => (
-                <Pressable
+              {siklikliHatlar.map(({ hat: h, metin }, i) => (
+                <Animated.View
                   key={`siklik-${h.gtfsId}`}
+                  entering={satirGirisi(yonler.length + i)}
+                  exiting={FadeOut.duration(220)}
+                  layout={SATIR_YERLESIMI}
+                >
+                <Pressable
                   style={s.sefer}
                   onPress={() =>
                         ekranAc({
@@ -482,6 +513,7 @@ export default function DurakEkrani() {
                   </View>
                   <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.soluk} />
                 </Pressable>
+                </Animated.View>
               ))}
             </View>
             )}
@@ -583,6 +615,6 @@ const stiller = (t: Tema) =>
   tarifeNokta: { width: 8, height: 8, borderRadius: 4, backgroundColor: t.yurume },
   tarifeYazi: { flex: 1, fontSize: 11.5, color: t.soluk },
   yaklasma: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 },
-  yaklasmaYazi: { flex: 1, fontSize: 12, color: t.soluk },
+  yaklasmaYazi: { fontSize: 12, color: t.soluk },
   yaklasmaKalin: { color: t.yazi, fontWeight: '600' },
 });
