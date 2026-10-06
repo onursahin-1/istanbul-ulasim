@@ -77,6 +77,7 @@ import {
   durumuIlerlet,
   durumuZamanla,
   elleBin,
+  elleVar,
   IYI_DOGRULUK_M,
   KABA_DOGRULUK_M,
   KISA_YURUME_M,
@@ -762,6 +763,12 @@ export default function RotaDetayEkrani() {
     [adimlar, ozetler, hatDegistir],
   );
 
+  /** "İstasyondayım": yürüyüş konumdan anlaşılamadan bittiyse (yeraltı) elle. */
+  const vardim = useCallback(() => {
+    kayitEkle('vardim-dugmesi', {});
+    setDurum((x) => (x ? elleVar(x, adimlar) : x));
+  }, [adimlar]);
+
   /** "Değiştir": araçtayken bindiği hattı düzeltir. */
   const hatSec = useCallback(
     (i: number, kisaAd: string) => {
@@ -1102,6 +1109,7 @@ export default function RotaDetayEkrani() {
         simdi,
         esdegerHatlar,
         bindim,
+        vardim,
         hatSec,
         secenekler,
         oranlar,

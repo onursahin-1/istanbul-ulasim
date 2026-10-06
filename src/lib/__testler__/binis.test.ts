@@ -12,6 +12,8 @@ import {
   durumuIlerlet,
   durumuZamanla,
   elleBin,
+  elleVar,
+  ISTASYONDA_KABA_MS,
   konumlaIlerleme,
   SINYAL_KAYBI_MS,
   type BacakOzeti,
@@ -227,5 +229,60 @@ describe('metroya yürürken istasyona inilmesi', () => {
     assert.equal(durumuZamanla(yuru, gps.an + SINYAL_KAYBI_MS + 1, ADIMLAR, BACAKLAR, gps), yuru, 'otobüs');
     const uzak = { ...gps, konum: n(-600 * M) };
     assert.equal(durumuZamanla(yuru, gps.an + SINYAL_KAYBI_MS + 1, ADIMLAR, rayli, uzak), yuru, 'uzak');
+  });
+});
+
+describe('yolculuk yeraltı istasyonun içinde başlatıldı', () => {
+  // Rota istasyondaki kaba konumdan çizildi: yürüyüş oradan girişe dolaşıyor (330 m), konum
+  // kesilmiyor, istasyona 80 m görünüyor ve doğruluk 100 m.
+  const rayli = BACAKLAR.map((b, i) => (i === 1 ? { ...b, rayli: true } : b));
+  const yol = [n(-80 * M), n(-80 * M, 29.0015), n(0, 29.0015), n(0)];
+  const bacaklar: BacakOzeti[] = [{ ...rayli[0], cizgi: yol }, rayli[1], rayli[2]];
+  const yuru: YolculukDurumu = { adim: 0, faz: 'yuru', kalanDurak: null, durakta: false };
+  const kaba = (an: number) => ({ an, dogruluk: 100, konum: n(-80 * M) });
+
+  it('kaba konum istasyonun dibinde sürerse 30 sn sonra istasyondayız', () => {
+    // Konumla tek başına anlaşılmıyor (yol boyunca 330 m kalmış görünüyor).
+    assert.equal(durumuIlerlet(yuru, n(-80 * M), ADIMLAR, bacaklar, { dogruluk: 100 }), yuru);
+    const t0 = 5_000_000;
+    const d1 = durumuZamanla(yuru, t0, ADIMLAR, bacaklar, kaba(t0));
+    assert.equal(d1.kabaYakin, t0);
+    const d2 = durumuZamanla(d1, t0 + 10_000, ADIMLAR, bacaklar, kaba(t0 + 9_000));
+    assert.equal(d2.faz, 'yuru');
+    const d3 = durumuZamanla(d2, t0 + ISTASYONDA_KABA_MS, ADIMLAR, bacaklar, kaba(t0 + ISTASYONDA_KABA_MS - 1_000));
+    assert.equal(d3.faz, 'bekle');
+    assert.equal(d3.kabaYakin, undefined);
+  });
+
+  it('arada iyi konum gelirse sayaç sıfırlanır (evde, sokakta)', () => {
+    const t0 = 5_000_000;
+    const d1 = durumuZamanla(yuru, t0, ADIMLAR, bacaklar, kaba(t0));
+    const iyi = { an: t0 + 15_000, dogruluk: 12, konum: n(-80 * M) };
+    const d2 = durumuZamanla(d1, t0 + 15_000, ADIMLAR, bacaklar, iyi);
+    assert.equal(d2.kabaYakin, undefined);
+    const d3 = durumuZamanla(d2, t0 + ISTASYONDA_KABA_MS + 1, ADIMLAR, bacaklar, kaba(t0 + ISTASYONDA_KABA_MS));
+    assert.equal(d3.faz, 'yuru', 'sayaç baştan başladı');
+  });
+
+  it('otobüse yürürken ya da istasyon doğruluk dairesinin dışındayken olmaz', () => {
+    const t0 = 5_000_000;
+    const otobus = [{ ...bacaklar[0] }, BACAKLAR[1], BACAKLAR[2]];
+    assert.equal(durumuZamanla(yuru, t0, ADIMLAR, otobus, kaba(t0)).kabaYakin, undefined);
+    const uzak = { an: t0, dogruluk: 100, konum: n(-400 * M) };
+    assert.equal(durumuZamanla(yuru, t0, ADIMLAR, bacaklar, uzak).kabaYakin, undefined);
+  });
+
+  it('kaba konum gelip sonra kesilirse (iPhone dururken yenilemiyor) bir dakika sonra istasyondayız', () => {
+    const t0 = 5_000_000;
+    const d = durumuZamanla(yuru, t0 + SINYAL_KAYBI_MS + 1, ADIMLAR, bacaklar, kaba(t0));
+    assert.equal(d.faz, 'bekle');
+    // İyi konumla aynı yerde kesilirse (evde) yol boyunca bakılır: varılmamış.
+    const iyi = { an: t0, dogruluk: 10, konum: n(-80 * M) };
+    assert.equal(durumuZamanla(yuru, t0 + SINYAL_KAYBI_MS + 1, ADIMLAR, bacaklar, iyi).faz, 'yuru');
+  });
+
+  it('"İstasyondayım" yürüyüşü bitirir', () => {
+    assert.equal(elleVar(yuru, ADIMLAR).faz, 'bekle');
+    assert.equal(elleVar(BEKLE, ADIMLAR), BEKLE);
   });
 });

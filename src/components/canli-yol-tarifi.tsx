@@ -92,6 +92,8 @@ export type YolTarifiVerisi = {
   simdi: number;
   /** Bacak sırasına göre aynı duraklar arasında giden öbür hatlar ("141M"). */
   esdegerHatlar?: Record<number, string[]>;
+  /** "İstasyondayım": yürüyüşün bittiği konumdan anlaşılamadıysa (yeraltı istasyon, bina içi) elle. */
+  vardim?: () => void;
   /** "Bindim": araç konumdan anlaşılmadan geldiyse (yeraltı, kötü GPS) elle binildi; birden çok hat varsa hangisi. */
   bindim?: (kisaAd?: string) => void;
   /** Araçtayken bindiği hattı düzeltir ("Değiştir"). */
@@ -560,6 +562,15 @@ function aracAdiKisa(b: Bacak): string {
   return aracAdi(b.route?.mode ?? b.mode);
 }
 
+/** "İstasyondayım" düğmesi bu kadar yakında görünür (m): yeraltında konum 100–200 m kayıyor. */
+const VARDIM_M = 400;
+
+/** "Duraktayım", metroda "İstasyondayım", vapurda "İskeledeyim". */
+function buradayimYazisi(mode?: string | null): string {
+  const ad = durakSozcugu(mode).ad;
+  return ad.startsWith('istasyon') ? 'İstasyondayım' : ad.startsWith('iskele') ? 'İskeledeyim' : 'Duraktayım';
+}
+
 /** "SIRADAKİ DURAKTA İN", metroda "İSTASYONDA", vapurda "İSKELEDE". */
 function siradakindeIn(mode?: string | null): string {
   const ad = durakSozcugu(mode).ad;
@@ -776,6 +787,28 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
         {sonraki && sonrakiAdim && (
           <SonrakiBinisKutusu v={v} yuruyus={a.bacak} binis={sonrakiAdim.bacak} simdiki={simdiki} aktarma={a.rol === 'aktarma'} />
         )}
+        {/* Konum anlayamazsa (yeraltı istasyon, bina içi) yürüyüşü elle bitirmek için; durağa
+            400 m'den yakınken. Sıradaki adım araç olmalı. */}
+        {simdiki &&
+          v.durum.faz === 'yuru' &&
+          !!v.vardim &&
+          !!sonraki &&
+          v.adimlar[sira + 1]?.tur === 'arac' &&
+          !!v.konum &&
+          mesafeMetre(v.konum, { latitude: b.to.lat, longitude: b.to.lon }) <= VARDIM_M && (
+            <Pressable
+              style={[s.dugme, { marginTop: 10 }]}
+              onPress={() => {
+                Haptics.selectionAsync().catch(() => {});
+                v.vardim?.();
+              }}
+              accessibilityRole="button"
+              accessibilityHint="Durağa vardıysan yolculuk bekleme adımından sürer"
+            >
+              <Ikon ad="checkmark-circle-outline" boyut={17} renkKodu={tema.vurgu} />
+              <Text style={[s.dugmeYazi, { color: tema.vurgu }]}>{buradayimYazisi(sonraki.route?.mode ?? sonraki.mode)}</Text>
+            </Pressable>
+          )}
         <TarifKutusu v={v} bacak={a.bacak} simdiki={simdiki} odak={setOdakY} />
       </>,
     );

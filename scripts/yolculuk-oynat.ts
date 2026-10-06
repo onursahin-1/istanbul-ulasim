@@ -159,6 +159,8 @@ function main() {
       console.log(`${saat(o.t)}  uygulama   ${durumYaz(u, bacaklar, adimlar)}`);
     } else if (o.tur === 'bindim-dugmesi') {
       console.log(`${saat(o.t)}  "Bindim" düğmesine basıldı`);
+    } else if (o.tur === 'vardim-dugmesi') {
+      console.log(`${saat(o.t)}  "İstasyondayım" düğmesine basıldı`);
     }
   }
 }

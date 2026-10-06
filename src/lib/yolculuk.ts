@@ -64,6 +64,11 @@ const VARSAYILAN_ARAC_HIZI_MS = 7;
 export const SINYAL_KAYBI_MS = 60_000;
 /** ...yeter ki son konum istasyona bu kadar yakın olsun. */
 export const ISTASYON_GIRISI_M = 200;
+/**
+ * Yeraltı istasyonda konum çoğu zaman kesilmiyor, kaba geliyor (Wi-Fi, 65–300 m) ve
+ * istasyon doğruluk dairesinin içinde kalıyor. Bu durum bu kadar sürerse istasyondayız.
+ */
+export const ISTASYONDA_KABA_MS = 30_000;
 
 /** Bundan kısa yürüyüşler (aynı duraktaki aktarma, OTP'nin birkaç metrelik bacakları) adım sayılmaz. */
 export const KISA_YURUME_M = 30;
@@ -118,6 +123,11 @@ export type YolculukDurumu = {
   ilerleme?: number;
   /** Araca binilen an (ms): konumdan, düğmeden ya da tarifeden. Yalnız araçtayken. */
   binisAn?: number;
+  /**
+   * Metroya yürürken kaba konumun istasyonun dibinde görülmeye başladığı an (ms):
+   * yeraltında konum kaba gelir, sürerse istasyona inilmiş sayılır (durumuZamanla).
+   */
+  kabaYakin?: number;
 };
 
 /** Bacaklardan adımlar: araç bacaklarının hepsi, kısa olmayan yürüyüşler. */
@@ -503,6 +513,15 @@ export function elleBin(d: YolculukDurumu, adimlar: Adim[], bacaklar: BacakOzeti
   return ilerlemeyiYaz(icineGir(sira, simdi), 0, son);
 }
 
+/**
+ * Kullanıcı "İstasyondayım / Duraktayım" dedi: yürüyüş bitti, sıradaki araç bekleniyor.
+ * Konum anlayamadıysa (yeraltı, bina içi) elle. Yürümüyorken ya da sırada araç yoksa değişmez.
+ */
+export function elleVar(d: YolculukDurumu, adimlar: Adim[]): YolculukDurumu {
+  if (d.faz !== 'yuru' || adimlar[d.adim + 1]?.tur !== 'arac') return d;
+  return sonrakiAdim(d, adimlar);
+}
+
 /** GPS bundan eskiyse "yok" sayılır (metro tüneli); ilerleme saatten tahmin edilir. */
 export const GPS_TAZE_MS = 25_000;
 /** Taze sayılması için en kötü doğruluk. */
@@ -527,16 +546,41 @@ export function durumuZamanla(
   gps: { an: number; dogruluk?: number | null; konum?: Nokta | null } | null,
 ): YolculukDurumu {
   const a = adimlar[d.adim];
-  // Metroya yürürken istasyona inildi: konum kesildi, son konum istasyonun yanındaydı.
+  // Metroya yürürken istasyona inildi. İki görünüşü var:
+  //   • konum kaba geliyor ve istasyon doğruluk dairesinin içinde (yeraltında Wi-Fi konumu):
+  //     30 sn sürerse istasyondayız. Yol boyunca bakılmıyor: yolculuk istasyonun içinde
+  //     başlatılınca rota da o kaba konumdan çizildiği için yürüyüş "hiç yürünmemiş" görünür.
+  //     İyi konum (evde, sokakta) bunu sıfırlar; evden başlatınca "vardın" denmez.
+  //   • konum kesildi, son konum istasyonun yanındaydı.
   if (a?.tur === 'yuru' && d.faz === 'yuru') {
     const sonraki = adimlar[d.adim + 1];
     const bitis = bacaklar[a.bacak]?.bitis;
-    if (sonraki?.tur !== 'arac' || !bacaklar[sonraki.bacak]?.rayli || !gps?.konum || !bitis) return d;
+    const sifirla = (x: YolculukDurumu) => {
+      if (x.kabaYakin == null) return x;
+      const { kabaYakin: _, ...geri } = x;
+      return geri;
+    };
+    if (sonraki?.tur !== 'arac' || !bacaklar[sonraki.bacak]?.rayli || !gps?.konum || !bitis) return sifirla(d);
+    const kabaTaze =
+      simdi - gps.an <= GPS_TAZE_MS &&
+      gps.dogruluk != null &&
+      gps.dogruluk > IYI_DOGRULUK_M &&
+      gps.dogruluk <= KABA_DOGRULUK_M;
+    if (kabaTaze) {
+      const icinde = mesafeMetre(gps.konum, bitis) <= Math.min(Math.max(gps.dogruluk!, 100), ISTASYON_GIRISI_M);
+      if (!icinde) return sifirla(d);
+      if (d.kabaYakin == null) return { ...d, kabaYakin: simdi };
+      return simdi - d.kabaYakin >= ISTASYONDA_KABA_MS ? sonrakiAdim(d, adimlar) : d;
+    }
+    d = sifirla(d);
     if (simdi - gps.an < SINYAL_KAYBI_MS || mesafeMetre(gps.konum, bitis) > ISTASYON_GIRISI_M) return d;
     // Yürüyüşün sonuna yakın olmalı: istasyonun yanındaki evde konum kesildi diye değil.
+    // Son konum kabaysa yol boyunca ilerlemeye bakılmaz: kaba konumla ölçülemez (yolculuk
+    // istasyonun içinde başlatılınca yürüyüş de o kaba konumdan çizilmiş olur).
     const b0 = bacaklar[a.bacak];
     const cizgi = b0?.cizgi;
-    if (cizgi && cizgi.length > 1) {
+    const iyiSon = gps.dogruluk == null || gps.dogruluk <= IYI_DOGRULUK_M;
+    if (cizgi && cizgi.length > 1 && iyiSon) {
       const yer = cizgiUzerindeYer(gps.konum, cizgi);
       if (yer.uzaklik <= 150 && yer.toplam - yer.boyunca > ISTASYON_GIRISI_M) return d;
     }
