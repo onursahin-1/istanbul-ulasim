@@ -84,6 +84,11 @@ export type YolTarifiVerisi = {
   oranlar?: Record<number, number[]>;
   /** Varış saatini paylaş. */
   paylas?: () => void;
+  /** Bekleme kartında bir hatta dokunulunca o seferin otobüsü haritada izlenir (yeniden dokununca bırakılır). */
+  otobusIzle?: (bacak: number, kisaAd: string, seferId: string) => void;
+  /** İzlenen sefer ve otobüsün durumu. */
+  izlenen?: { bacak: number; seferId: string } | null;
+  izlenenDurum?: { kalan: number; yasSn: number } | 'yok' | 'yukleniyor' | null;
 };
 
 const iso = (b: Bacak, uc: 'start' | 'end') => b[uc].estimated?.time ?? b[uc].scheduledTime;
@@ -583,6 +588,7 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
             <SecenekSatiri key={x.kisaAd} v={v} bacak={a.bacak} secenek={x} ilk={k === 0} />
           ))}
         </View>
+        {!!v.otobusIzle && <Text style={s.secenekKaynak}>Otobüsün yerini haritada görmek için hatta dokun.</Text>}
         {bindimGorunur && (
           <>
             <Text style={s.secenekBaslik}>Hangisi geldi? Bindiğine dokun:</Text>
@@ -717,8 +723,25 @@ function SecenekSatiri({ v, bacak, secenek, ilk }: { v: YolTarifiVerisi; bacak: 
   const otobusBurada = !!birinci && !!otobus && otobus.otobus.sefer === birinci.seferId;
   const kaynak = birinci?.canli || otobusBurada ? `Canlı${otobusBurada ? ` · otobüs ${kalanYaz(otobus.kalan)}` : ''}` : 'tarifeye göre';
   const ilkDk = birinci ? dk(birinci.an) : null;
+  const izleniyor = !!birinci && v.izlenen?.bacak === bacak && v.izlenen.seferId === birinci.seferId;
+  const durum = izleniyor ? v.izlenenDurum : null;
+  const izlemeYazisi =
+    durum === 'yukleniyor'
+      ? 'Otobüsün yeri aranıyor…'
+      : durum === 'yok'
+        ? 'Bu otobüsün canlı konumu şu an yok'
+        : durum
+          ? `Haritada · otobüs ${kalanYaz(durum.kalan)} · konum ${yasYaz(durum.yasSn)}`
+          : null;
   return (
-    <View style={[s.secenek, !ilk && s.secenekAyrac]}>
+    <Pressable
+      style={[s.secenek, !ilk && s.secenekAyrac, izleniyor && s.secenekIzlenen]}
+      onPress={birinci && v.otobusIzle ? () => v.otobusIzle?.(bacak, secenek.kisaAd, birinci.seferId) : undefined}
+      disabled={!birinci || !v.otobusIzle}
+      accessibilityRole="button"
+      accessibilityState={{ selected: izleniyor }}
+      accessibilityLabel={`${secenek.kisaAd}, ${ilkDk == null ? 'kalkış yok' : `${ilkDk} dakika`}. ${izleniyor ? 'Haritada izleniyor, bırakmak için dokun' : 'Haritada izlemek için dokun'}`}
+    >
       <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
         <View style={s.komutSatir}>
           <HatRozeti hat={secenek.hat} kucuk />
@@ -729,6 +752,12 @@ function SecenekSatiri({ v, bacak, secenek, ilk }: { v: YolTarifiVerisi; bacak: 
         <Text style={[s.secenekKaynak, (birinci?.canli || otobusBurada) && { color: tema.vurgu, fontWeight: '600' }]}>
           {birinci ? kaynak : 'kalkış bilgisi yok'}
         </Text>
+        {!!izlemeYazisi && (
+          <View style={s.komutSatir}>
+            <Ikon ad="locate" boyut={13} renkKodu={tema.vurgu} />
+            <Text style={[s.secenekKaynak, { color: tema.vurgu, flex: 1 }]}>{izlemeYazisi}</Text>
+          </View>
+        )}
       </View>
       <View style={{ alignItems: 'flex-end' }}>
         <View style={s.sayacSatir}>
@@ -742,7 +771,7 @@ function SecenekSatiri({ v, bacak, secenek, ilk }: { v: YolTarifiVerisi; bacak: 
           <Text style={s.secenekKaynak}>{`sonra ${sonrakiler.slice(0, 2).map((k) => dk(k.an)).join(', ')} dk`}</Text>
         )}
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -1259,6 +1288,7 @@ const stiller = (t: Tema) =>
     secenekler: { marginTop: 8 },
     secenek: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9 },
     secenekAyrac: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.cizgi },
+    secenekIzlenen: { backgroundColor: t.vurguAcik, borderRadius: 10, marginHorizontal: -8, paddingHorizontal: 8, borderTopColor: 'transparent' },
     secenekAd: { flex: 1, fontSize: 13, color: t.yazi, lineHeight: 17 },
     secenekKaynak: { fontSize: 12, color: t.soluk },
     secenekDk: { fontSize: 22, fontWeight: '800', color: t.yazi, fontVariant: ['tabular-nums'] },

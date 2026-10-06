@@ -49,7 +49,14 @@ import {
   type Bacak,
 } from '@/lib/otp';
 import { guzergahGetir } from '@/lib/secim';
-import { beklemeSecenekleri, binilenHatTahmini, durakOranlari, paylasimMetni, type BeklemeSecenegi } from '@/lib/bekleme';
+import {
+  ayniYoldanMi,
+  beklemeSecenekleri,
+  binilenHatTahmini,
+  durakOranlari,
+  paylasimMetni,
+  type BeklemeSecenegi,
+} from '@/lib/bekleme';
 import { seferBilgisi, sikliktanYazi, type SeferBilgisi } from '@/lib/sefer';
 import { aracAdi, baslikYap, haritaRengi, hatEtiketi, hatRengi, useTema, type Tema } from '@/lib/tema';
 import { OZEL_GUNLER } from '@/lib/ozel-gun-verisi';
@@ -91,11 +98,11 @@ const ZAMANLAMA_ARALIGI_MS = 20_000;
 const RAYLI_MODLAR = new Set(['SUBWAY', 'RAIL', 'FUNICULAR', 'MONORAIL', 'TRAM', 'CABLE_CAR', 'GONDOLA']);
 const rayliMi = (b?: Bacak) => RAYLI_MODLAR.has((b?.route?.mode ?? b?.mode ?? '').toUpperCase());
 
-/** Bacağın kendi hattının (aynı desen) kalkışları: yeniden zamanlama ve sefer sıklığı için. */
+/** Bacağın kendi hattının (aynı yoldan giden) kalkışları: yeniden zamanlama ve sefer sıklığı için. */
 function anaHatKalkislari(b: Bacak | undefined, liste: DurakKalkisi[] | undefined): DurakKalkisi[] {
-  if (!b || !liste) return [];
-  const desen = b.trip?.pattern?.code;
-  return liste.filter((k) => k.hatId === b.route?.gtfsId && (!desen || !k.desen || k.desen === desen));
+  const kisaAd = b?.route?.shortName;
+  if (!b || !liste || !kisaAd) return [];
+  return liste.filter((k) => ayniYoldanMi(k, { kisaAd, desen: b.trip?.pattern?.code, yon: b.headsign }));
 }
 
 function anOku(iso?: string | null): number | null {
@@ -135,6 +142,8 @@ export default function RotaDetayEkrani() {
   const [durum, setDurum] = useState<YolculukDurumu | null>(null);
   const [gorunen, setGorunen] = useState(0);
   const [kartBoyu, setKartBoyu] = useState(0);
+  const kartBoyuRef = useRef(0);
+  kartBoyuRef.current = kartBoyu;
   const [tumAdimlarAcik, setTumAdimlarAcik] = useState(false);
   const [simdi, setSimdi] = useState(() => Date.now());
   const sonKonum = useRef<Nokta | null>(null);
@@ -234,7 +243,10 @@ export default function RotaDetayEkrani() {
       const b = bacaklar[i];
       const ana = b?.route?.shortName;
       if (!b || !ana) continue;
-      tablo[i] = beklemeSecenekleri(liste, [ana, ...(esdegerHatlar[i] ?? [])], simdi, b.trip?.pattern?.code);
+      tablo[i] = beklemeSecenekleri(liste, [ana, ...(esdegerHatlar[i] ?? [])], simdi, {
+        desen: b.trip?.pattern?.code,
+        yon: b.headsign,
+      });
     }
     return tablo;
   }, [durakKalkislari, bacaklar, esdegerHatlar, simdi]);
@@ -727,6 +739,69 @@ export default function RotaDetayEkrani() {
     return () => clearInterval(z);
   }, [takipAcik, seferleriYukle]);
 
+  // Bekleme kartında dokunulan otobüs: haritada canlı konumu izlenir (yeniden dokununca bırakılır).
+  const [izlenen, setIzlenen] = useState<{ bacak: number; kisaAd: string; seferId: string } | null>(null);
+  const [izlenenOtobus, setIzlenenOtobus] = useState<
+    { otobus: YerlesikArac; kalan: number; cizgi: Nokta[] } | 'yok' | 'yukleniyor' | null
+  >(null);
+  /** Kullanıcı haritayı kendisi kaydırdıysa izlenen otobüs için harita yeniden ortalanmaz. */
+  const haritaElle = useRef(false);
+  const otobusIzle = useCallback((bacak: number, kisaAd: string, seferId: string) => {
+    haritaElle.current = false;
+    kayitEkle('otobus-izle', { bacak, kisaAd, seferId });
+    setIzlenen((o) => (o?.seferId === seferId ? null : { bacak, kisaAd, seferId }));
+  }, []);
+  useEffect(() => {
+    if (!izlenen) {
+      setIzlenenOtobus(null);
+      return;
+    }
+    let acik = true;
+    let desen: { gtfsId: string; lat: number | null; lon: number | null }[] = [];
+    setIzlenenOtobus('yukleniyor');
+    const yukle = async () => {
+      try {
+        if (!desen.length) desen = (await seferDeseniGetir(izlenen.seferId))?.pattern?.stops ?? [];
+        const araclar = araclariYerlestir(desen, await seferAraclariGetir(izlenen.seferId), Date.now());
+        const b = guncel.current.bacaklar[izlenen.bacak];
+        const sira = desen.findIndex((d) => d.gtfsId === b?.from.stop?.gtfsId);
+        const y = yaklasanOtobus(araclar, sira, izlenen.seferId);
+        if (!acik) return;
+        if (!y) {
+          setIzlenenOtobus('yok');
+          return;
+        }
+        const cizgi = desen
+          .filter((d) => d.lat != null && d.lon != null)
+          .map((d) => ({ latitude: d.lat!, longitude: d.lon! }));
+        setIzlenenOtobus({ ...y, cizgi });
+        // Otobüs, biniş durağı ve yolcu birlikte görünsün; kullanıcı haritayı kaydırdıysa dokunma.
+        if (!haritaElle.current && b) {
+          harita.current?.fitToCoordinates(
+            [
+              { latitude: y.otobus.lat, longitude: y.otobus.lon },
+              { latitude: b.from.lat, longitude: b.from.lon },
+              ...(sonKonum.current ? [sonKonum.current] : []),
+            ],
+            { edgePadding: { top: kenar.top + 90, right: 60, bottom: kartBoyuRef.current + 40, left: 60 }, animated: true },
+          );
+        }
+      } catch {
+        if (acik) setIzlenenOtobus((o) => (o === 'yukleniyor' ? 'yok' : o));
+      }
+    };
+    yukle();
+    const z = setInterval(yukle, 15_000);
+    return () => {
+      acik = false;
+      clearInterval(z);
+    };
+  }, [izlenen]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Araca binilince ya da yolculuk bitince izleme biter.
+  useEffect(() => {
+    if (!durum || durum.faz === 'icinde' || durum.faz === 'vardi') setIzlenen(null);
+  }, [durum?.faz, durum == null]); // eslint-disable-line react-hooks/exhaustive-deps
+
   /** Varış saatini paylaş: telefonun paylaşım menüsü. */
   const paylas = useCallback(() => {
     const son = bacaklar[bacaklar.length - 1];
@@ -918,6 +993,12 @@ export default function RotaDetayEkrani() {
         secenekler,
         oranlar,
         paylas,
+        otobusIzle,
+        izlenen: izlenen ? { bacak: izlenen.bacak, seferId: izlenen.seferId } : null,
+        izlenenDurum:
+          izlenenOtobus && typeof izlenenOtobus === 'object'
+            ? { kalan: izlenenOtobus.kalan, yasSn: izlenenOtobus.otobus.yasSn }
+            : izlenenOtobus,
       }
     : null;
 
@@ -945,6 +1026,7 @@ export default function RotaDetayEkrani() {
         showsUserLocation={takipAcik}
         showsPointsOfInterests={false}
         toolbarEnabled={false}
+        onPanDrag={() => (haritaElle.current = true)}
       >
         {bacaklar.map((b, i) => (
           <Polyline
@@ -985,6 +1067,21 @@ export default function RotaDetayEkrani() {
             />
           );
         })}
+        {/* Bekleme kartında dokunulan otobüs (planlanan seferin otobüsü zaten çiziliyorsa ikinci kez değil). */}
+        {izlenen &&
+          izlenenOtobus &&
+          typeof izlenenOtobus === 'object' &&
+          binisOtobusleri[izlenen.bacak]?.otobus.kimlik !== izlenenOtobus.otobus.kimlik && (
+            <HareketliOtobus
+              key={`izlenen-${izlenenOtobus.otobus.kimlik}`}
+              otobus={izlenenOtobus.otobus}
+              cizgi={izlenenOtobus.cizgi}
+              hiz={metrobusMu(izlenen.kisaAd) ? METROBUS_HIZI_MS : OTOBUS_HIZI_MS}
+              renk={haritaRengi(bacaklar[izlenen.bacak]?.route, tema)}
+              baslik={`${izlenen.kisaAd} · ${kalanYaz(izlenenOtobus.kalan)}`}
+              aciklama={`Konum ${yasYaz(izlenenOtobus.otobus.yasSn)}`}
+            />
+          )}
         <Marker
           coordinate={{ latitude: bacaklar[bacaklar.length - 1].to.lat, longitude: bacaklar[bacaklar.length - 1].to.lon }}
           title={hedef ? baslikYap(hedef) : 'Varış'}

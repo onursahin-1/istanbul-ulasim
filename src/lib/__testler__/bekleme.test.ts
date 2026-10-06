@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { beklemeSecenekleri, binilenHatTahmini, durakOranlari, durakSaatleri, paylasimMetni } from '../bekleme';
+import { ayniYoldanMi, beklemeSecenekleri, binilenHatTahmini, durakOranlari, durakSaatleri, paylasimMetni } from '../bekleme';
 import type { DurakKalkisi } from '../otp';
 
 const dk = 60_000;
@@ -53,7 +53,7 @@ describe('beklemeSecenekleri', () => {
 
   it('planlanan hatta yalnız aynı desen (kısa servis seferi yok); kalkışı olmayan hat sona', () => {
     const liste = [kalkis('97M', 3, { desen: 'kisa' }), kalkis('97M', 9, { desen: 'p1' }), kalkis('141M', 5)];
-    const s = beklemeSecenekleri(liste, ['97M', '141M', '41E'], T, 'p1');
+    const s = beklemeSecenekleri(liste, ['97M', '141M', '41E'], T, { desen: 'p1', yon: 'Mecidiyeköy' });
     assert.deepEqual(
       s.map((x) => [x.kisaAd, x.kalkislar.map((k) => (k.an - T) / dk)]),
       [
@@ -62,6 +62,16 @@ describe('beklemeSecenekleri', () => {
         ['41E', []],
       ],
     );
+  });
+});
+
+describe('ayniYoldanMi', () => {
+  it('aynı hattın başka güzergâh kaydı (başka desen) aynı yöne gidiyorsa aynı yol; kısa servis değil', () => {
+    const hat = { kisaAd: '141M', desen: 'p1', yon: 'Mecidiyeköy Metrobüs' };
+    assert.equal(ayniYoldanMi(kalkis('141M', 3, { desen: 'p1' }), hat), true);
+    assert.equal(ayniYoldanMi(kalkis('141M', 3, { desen: 'p7', yon: 'MECİDİYEKÖY METROBÜS ' }), hat), true);
+    assert.equal(ayniYoldanMi(kalkis('141M', 3, { desen: 'p9', yon: 'Mahmutbey' }), hat), false);
+    assert.equal(ayniYoldanMi(kalkis('97M', 3, { desen: 'p1' }), hat), false);
   });
 });
 

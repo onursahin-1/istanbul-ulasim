@@ -23,6 +23,24 @@ export type BeklemeSecenegi = {
   kalkislar: { an: number; canli: boolean; seferId: string }[];
 };
 
+/** Bir bacağın hattını tanıtan bilgi: kısa ad, desen ve yön. */
+export type BacakHatti = { kisaAd: string; desen?: string | null; yon?: string | null };
+
+const yonAnahtari = (s: string) => s.trim().toLocaleUpperCase('tr-TR');
+
+/**
+ * Bu kalkış bacağın yolundan mı gidiyor? Kısa ad aynı ve desen aynı; desen farklıysa yönü
+ * aynı olmalı. İETT aynı hattın her varyantını ayrı güzergâh kaydı (ayrı kimlik, ayrı desen)
+ * olarak yayımlıyor: kimliğe ya da desene bakınca aynı yoldan giden seferler kaçıyordu
+ * (bekleme kartı "3 dk" derken durak listesi 16:32'deki sefere göre kalıyordu). Kısa
+ * servis seferi ise başka yöne yazılı olduğu için yine dışarıda kalıyor.
+ */
+export function ayniYoldanMi(k: DurakKalkisi, hat: BacakHatti): boolean {
+  if (k.kisaAd !== hat.kisaAd) return false;
+  if (!hat.desen || !k.desen || k.desen === hat.desen) return true;
+  return !!k.yon && !!hat.yon && yonAnahtari(k.yon) === yonAnahtari(hat.yon);
+}
+
 /** Durakta beklerken bu kadar önce kalkmış görünen sefer listede kalır (tarife payı). */
 export const LISTE_PAYI_MS = 60_000;
 
@@ -30,19 +48,22 @@ export const LISTE_PAYI_MS = 60_000;
  * Bekleme kartının satırları: verilen hatların (ilki planlanan) duraktan sıradaki
  * kalkışları, ilk kalkana göre sıralı. Kalkışı görünmeyen hat sona, boş listeyle.
  *
- * @param desen Planlanan hattın deseni: o hatta yalnız aynı durak dizisindeki seferler
+ * @param ana Planlanan hattın deseni ve yönü: o hatta yalnız aynı yoldan giden seferler
  *   (kısa servis seferi "bin" diye gösterilmesin). Öbür hatlar için bilinmiyor.
  */
 export function beklemeSecenekleri(
   kalkislar: DurakKalkisi[],
   hatlar: string[],
   simdi: number,
-  desen?: string | null,
+  ana?: { desen?: string | null; yon?: string | null },
   enCok = 3,
 ): BeklemeSecenegi[] {
   const secenekler = [...new Set(hatlar.filter(Boolean))].map((kisaAd, i) => {
     const uygun = kalkislar.filter(
-      (k) => k.kisaAd === kisaAd && k.an >= simdi - LISTE_PAYI_MS && (i > 0 || !desen || !k.desen || k.desen === desen),
+      (k) =>
+        k.kisaAd === kisaAd &&
+        k.an >= simdi - LISTE_PAYI_MS &&
+        (i > 0 || ayniYoldanMi(k, { kisaAd, desen: ana?.desen, yon: ana?.yon })),
     );
     const ilk = kalkislar.find((k) => k.kisaAd === kisaAd);
     return {
