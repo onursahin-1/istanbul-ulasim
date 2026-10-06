@@ -4,7 +4,25 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Platform, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import Animated, {
+  Easing,
+  FadeIn,
+  FadeInDown,
+  FadeInRight,
+  FadeOut,
+  FadeOutLeft,
+  LayoutAnimationConfig,
+  LinearTransition,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 import { Pressable } from '@/components/dokun';
+import { KayanMetin } from '@/components/kayan-metin';
 import { ModalSayfa } from '@/components/modal-sayfa';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -18,7 +36,6 @@ import {
   NabizNoktasi,
   SureSeridi,
   useStiller,
-  Yukleniyor,
   type IkonAdi,
   esdegerKodlari,
 } from '@/components/ulasim';
@@ -36,6 +53,7 @@ import {
 import { VASITA_ADLARI, type VasitaTuru } from '@/lib/vasita';
 import { rotaSecenekleriKaydet, useKayitlar } from '@/lib/kayitlar';
 import { tazeKonum } from '@/lib/konum';
+import { useCanliAralik } from '@/lib/canli-aralik';
 import { guzergahlariSakla } from '@/lib/secim';
 import { ozelGunBul, ozelGunNotu } from '@/lib/ozel-gunler';
 import { OZEL_GUNLER } from '@/lib/ozel-gun-verisi';
@@ -68,6 +86,10 @@ type Grup = {
 };
 
 const SONRAKI_SAYISI = 3;
+/** Ekran açıkken liste bu aralıkla sessizce tazelenir (yalnız "şimdi" aramasında). */
+const TAZELEME_MS = 60_000;
+/** Kartlar yer değiştirince (tazelemede sıra değişti) yaylı kayar. */
+const KART_YERLESIMI = LinearTransition.springify().damping(20).stiffness(180);
 
 /** Zaman seçiminde kaç gün ileri gidilebilir (bugün dahil). */
 const GUN_SAYISI = 7;
@@ -211,20 +233,28 @@ export default function RotaEkrani() {
   // inceldiğinde arama yeniden başlıyor; öncekinin geç gelen hatası yenisinin
   // sonuçlarının üstüne kırmızı kutu olarak düşüyordu.
   const sonArama = useRef(0);
+  // Liste ekrandayken yapılan tazeleme (dakikalık ya da aşağı çekince) listeyi silmez;
+  // sonuç gelince kartlar yerinde güncellenir, değişen saatler kayar ve renklenir.
+  const listeVar = useRef(false);
+  listeVar.current = !!guzergahlar?.length;
+  const [sessizGeldi, setSessizGeldi] = useState(false);
 
   const ara = useCallback(
-    async (sinyal?: AbortSignal) => {
+    async (sinyal?: AbortSignal, sessizIstendi = false) => {
       const no = ++sonArama.current;
       const eski = () => no !== sonArama.current || !!sinyal?.aborted;
       if ([nereden.lat, nereden.lon, nereye.lat, nereye.lon].some((d) => !Number.isFinite(d))) {
         setHata('Başlangıç ya da varış noktası eksik. Geri dönüp tekrar seç.');
         return;
       }
-      setGuzergahlar(null);
-      setHata(null);
-      setBilgi(null);
-      setKapaliUyarisi(false);
-      setCevrimdisi(null);
+      const sessiz = sessizIstendi && listeVar.current;
+      if (!sessiz) {
+        setGuzergahlar(null);
+        setHata(null);
+        setBilgi(null);
+        setKapaliUyarisi(false);
+        setCevrimdisi(null);
+      }
       setAramaSaati(istanbulSaat());
       try {
         const aramaZamani = zaman
@@ -247,7 +277,15 @@ export default function RotaEkrani() {
         }
         const sonuc = await rotaPlanlaYedekli(baslangic, nereye, aramaZamani, rotaSecenekleri, sinyal);
         if (eski()) return;
+        // Sessiz tazelemede sonuç boşsa (bağlantı koptu, sefer bitti) eldeki liste kalır.
+        if (sessiz && sonuc.guzergahlar.length === 0) return;
+        setSessizGeldi(sessiz);
         setGuzergahlar(sonuc.guzergahlar);
+        if (sessiz) {
+          setHata(null);
+          setBilgi(null);
+          setKapaliUyarisi(false);
+        }
         // Listedeki otobüs hatlarını canlı veri köprüsüne bildir: otobüsleri birkaç dakika
         // içinde tanınır, kartlar ve yolculuk ekranı tarife yerine canlı saati gösterir.
         kopruyeIlgiBildir(
@@ -273,6 +311,8 @@ export default function RotaEkrani() {
         }
       } catch (e) {
         if ((e as Error).name === 'AbortError' || eski()) return;
+        // Sessiz tazeleme başarısızsa eldeki liste kalır, hata kutusu çıkmaz.
+        if (sessiz) return;
         setHata(e instanceof OtpHatasi ? e.message : 'Rota aranırken beklenmeyen bir sorun oluştu.');
       }
     },
@@ -285,6 +325,10 @@ export default function RotaEkrani() {
     ara(iptal.signal);
     return () => iptal.abort();
   }, [ara, yuklendi]);
+
+  // Ekran açıkken dakikada bir sessiz tazeleme: canlı saatler, geçen kalkışlar. İleri bir
+  // saat için aranmışsa gerek yok; ekran arkadayken çalışmaz (useCanliAralik).
+  useCanliAralik(() => ara(undefined, true), TAZELEME_MS, yuklendi && !zaman && !!guzergahlar?.length);
 
   const gruplar = useMemo(() => {
     if (!guzergahlar) return [];
@@ -411,11 +455,11 @@ export default function RotaEkrani() {
 
       <ScrollView
         contentContainerStyle={[s.sonuclar, { paddingBottom: kenar.bottom + 20 }]}
-        refreshControl={<RefreshControl refreshing={false} onRefresh={() => ara()} tintColor={tema.vurgu} />}
+        refreshControl={<RefreshControl refreshing={false} onRefresh={() => ara(undefined, true)} tintColor={tema.vurgu} />}
       >
         {cevrimdisi != null && <CevrimdisiSerit zaman={cevrimdisi} tekrarDene={() => ara()} />}
         {hata && <HataKutusu mesaj={hata} tekrarDene={() => ara()} />}
-        {!hata && !guzergahlar && <Yukleniyor metin="En uygun rotalar hesaplanıyor…" />}
+        {!hata && !guzergahlar && <IskeletListesi />}
         {bilgi && <Text style={s.bilgi}>{bilgi}</Text>}
         {kapaliUyarisi && (
           <View style={s.kapaliUyari}>
@@ -439,6 +483,9 @@ export default function RotaEkrani() {
             <Text style={s.ozelGunYazi}>{ozelGunNotu(ozelGun)}</Text>
           </View>
         )}
+        {/* Yeni aramada liste silinirken kartlar çıkış animasyonu oynatmasın. */}
+        {!!guzergahlar && (
+        <LayoutAnimationConfig skipExiting>
         {gruplar.map(({ ana: { g, sira }, sonrakiler, alternatifler, hatlar }, i) => {
           const cokHatli = alternatifler.some((a) => a.length > 0);
           const ilkArac = g.legs.find((b) => b.transitLeg);
@@ -451,17 +498,33 @@ export default function RotaEkrani() {
           const baslik = bolum && bolum !== 'genel' && bolum !== oncekiBolum ? BOLUM_BASLIKLARI[bolum] : null;
           const etiket = oneri ? 'ÖNERİLEN' : null;
           return (
-            <View key={sira}>
+            <Animated.View
+              // Aynı yol (aynı biniş ve iniş, aynı hatlar) tazelemede aynı kart kalır.
+              key={esdegerAnahtari(g)}
+              entering={
+                sessizGeldi
+                  ? FadeIn.duration(300)
+                  : FadeInDown.delay(60 + Math.min(i, 8) * 60)
+                      .duration(380)
+                      .easing(Easing.out(Easing.cubic))
+              }
+              exiting={FadeOut.duration(200)}
+              layout={KART_YERLESIMI}
+            >
             {baslik && <Text style={s.bolumBaslik}>{baslik}</Text>}
             <Pressable style={[s.kart, oneri && s.kartOneri]} onPress={() => detayaGit(sira, hatlar)}>
               <View style={s.kartUst}>
-                <Text style={s.sure}>{sureYaz(g.duration)}</Text>
-                {etiket ? <Text style={s.etiket}>{etiket}</Text> : <Text style={s.saat}>{`${saatYaz(g.start)}–${saatYaz(g.end)}`}</Text>}
+                <KayanMetin metin={sureYaz(g.duration)} style={s.sure} />
+                {etiket ? (
+                  <Text style={s.etiket}>{etiket}</Text>
+                ) : (
+                  <KayanMetin metin={`${saatYaz(g.start)}–${saatYaz(g.end)}`} style={s.saat} />
+                )}
               </View>
               <BacakZinciri bacaklar={g.legs} alternatifler={alternatifler} />
-              <SureSeridi bacaklar={g.legs} />
+              <SureSeridi bacaklar={g.legs} akar gecikme={sessizGeldi ? 0 : 200 + Math.min(i, 8) * 60} />
               <View style={s.kartAlt}>
-                {etiket && <Text style={[s.altYazi, s.kalin]}>{`${saatYaz(g.start)}–${saatYaz(g.end)}`}</Text>}
+                {etiket && <KayanMetin metin={`${saatYaz(g.start)}–${saatYaz(g.end)}`} style={[s.altYazi, s.kalin]} />}
                 <Text style={s.altYazi}>{sureYaz(g.walkTime)} yürüme</Text>
                 <Text style={s.altYazi}>{g.numberOfTransfers === 0 ? 'Aktarmasız' : `${g.numberOfTransfers} aktarma`}</Text>
                 {ucretler[sira] && <Text style={[s.altYazi, s.ucret]}>{ucretler[sira]}</Text>}
@@ -495,6 +558,10 @@ export default function RotaEkrani() {
                   // İlk bacak canlıyken sonraki araçların hangisinin tahmin olduğunu söyle.
                   const tarifeli = g.legs.filter((b) => b.transitLeg && b !== ilkArac && !b.start.estimated);
                   return (
+                    <CanliVurgu
+                      kimlik={ilkArac.trip?.gtfsId ?? null}
+                      an={Date.parse(ilkArac.start.estimated?.time ?? ilkArac.start.scheduledTime ?? '')}
+                    >
                     <View style={s.canliBlok}>
                       <View style={s.canliSatir}>
                         <NabizNoktasi renk={renk} />
@@ -510,6 +577,7 @@ export default function RotaEkrani() {
                         </Text>
                       )}
                     </View>
+                    </CanliVurgu>
                   );
                 })()}
               {sonrakiler.length > 0 && (
@@ -525,8 +593,14 @@ export default function RotaEkrani() {
                       // Birden çok hat aynı yolu gidiyorsa kalkışın hangi hatla olduğu.
                       const hat = cokHatli ? x.g.legs.find((b) => b.transitLeg)?.route?.shortName : null;
                       return (
+                        <Animated.View
+                          // Geçen kalkış sola çekilip kaybolur, yenisi sağdan gelir.
+                          key={`${hat ?? ''}${saat ?? x.sira}`}
+                          entering={sessizGeldi ? FadeInRight.duration(300) : undefined}
+                          exiting={FadeOutLeft.duration(220)}
+                          layout={LinearTransition.duration(300)}
+                        >
                         <Pressable hitSlop={5}
-                          key={x.sira}
                           style={s.hap}
                           onPress={() => detayaGit(x.sira, hatlar)}
                           accessibilityRole="button"
@@ -536,15 +610,18 @@ export default function RotaEkrani() {
                           <Text style={s.hapSaat}>{saatYaz(saat)}</Text>
                           {varis && <Text style={s.hapDakika}>{`varış ${varis}`}</Text>}
                         </Pressable>
+                        </Animated.View>
                       );
                     })}
                   </View>
                 </View>
               )}
             </Pressable>
-            </View>
+            </Animated.View>
           );
         })}
+        </LayoutAnimationConfig>
+        )}
         {guzergahlar && guzergahlar.length > 0 && (
           <Text style={s.not}>
             Otobüs, Metrobüs, minibüs, metro, Marmaray, tramvay, füniküler ve vapur dahildir. Marmaray'ın ve İDO
@@ -766,6 +843,95 @@ export default function RotaEkrani() {
  * Minibüs ve dolmuşta kısa ad güzergâhın tamamı olduğu için rozet araç tipini yazıyor;
  * burada güzergâhı da ekliyoruz, yoksa hangi minibüs olduğu anlaşılmıyor.
  */
+/**
+ * Canlı satırın arkası: aynı seferin canlı tahmini tazelemede en az 45 sn kaydıysa bir an
+ * renklenir (gecikme turuncu, erkene çekilme yeşil). Sefer değiştiyse renklenmez.
+ */
+function CanliVurgu({ kimlik, an, children }: { kimlik: string | null; an: number; children: React.ReactNode }) {
+  const tema = useTema();
+  const s = useStiller(stiller);
+  const [d, setD] = useState({ kimlik, an, n: 0, gec: true });
+  if (d.kimlik !== kimlik || d.an !== an) {
+    const fark = an - d.an;
+    const flas = !!kimlik && kimlik === d.kimlik && Math.abs(fark) >= 45_000 && Math.abs(fark) <= 30 * 60_000;
+    setD({ kimlik, an, n: flas ? d.n + 1 : d.n, gec: flas ? fark > 0 : d.gec });
+  }
+  const p = useSharedValue(0);
+  useEffect(() => {
+    if (d.n === 0) return;
+    p.value = withSequence(withTiming(1, { duration: 150 }), withDelay(500, withTiming(0, { duration: 1100 })));
+  }, [d.n, p]);
+  const zemin = useAnimatedStyle(() => ({ opacity: p.value }));
+  return (
+    <View>
+      <Animated.View
+        pointerEvents="none"
+        style={[s.vurguZemin, { backgroundColor: d.gec ? tema.uyariAcik : tema.vurguAcik }, zemin]}
+      />
+      {children}
+    </View>
+  );
+}
+
+/** Hesaplanırken: kart biçiminde gri kutular, üstlerinden bir parıltı geçer. */
+function IskeletListesi() {
+  const s = useStiller(stiller);
+  return (
+    <View style={{ gap: 10 }} accessible accessibilityLabel="En uygun rotalar hesaplanıyor">
+      <Text style={s.iskeletYazi}>En uygun rotalar hesaplanıyor…</Text>
+      {[0, 1, 2].map((i) => (
+        <IskeletKart key={i} />
+      ))}
+    </View>
+  );
+}
+
+/** Parıltının kademeleri: ortası en parlak (degrade kütüphanesi olmadan yumuşak kenar). */
+const PARILTI = [0.05, 0.12, 0.2, 0.12, 0.05];
+const PARILTI_GENISLIK = 120;
+
+function IskeletKart() {
+  const s = useStiller(stiller);
+  const tema = useTema();
+  const azalt = useReducedMotion();
+  const [genislik, setGenislik] = useState(0);
+  const x = useSharedValue(0);
+  useEffect(() => {
+    if (azalt || !genislik) return;
+    x.value = withRepeat(withTiming(1, { duration: 1300, easing: Easing.inOut(Easing.quad) }), -1, false);
+  }, [azalt, genislik, x]);
+  const bant = useAnimatedStyle(() => ({
+    transform: [{ translateX: -PARILTI_GENISLIK + x.value * (genislik + 2 * PARILTI_GENISLIK) }],
+  }));
+  const blok = (width: number | `${number}%`, height: number) => (
+    <View style={{ width, height, borderRadius: 6, backgroundColor: tema.cizgi }} />
+  );
+  return (
+    <View
+      style={[s.kart, s.iskelet]}
+      onLayout={(e) => setGenislik(e.nativeEvent.layout.width)}
+      importantForAccessibility="no-hide-descendants"
+      accessibilityElementsHidden
+    >
+      <View style={s.iskeletUst}>
+        {blok(70, 24)}
+        {blok(84, 14)}
+      </View>
+      {blok('60%', 20)}
+      {blok('100%', 6)}
+      {blok('75%', 12)}
+      {blok('90%', 12)}
+      {!azalt && (
+        <Animated.View pointerEvents="none" style={[s.parilti, bant]}>
+          {PARILTI.map((o, i) => (
+            <View key={i} style={{ flex: 1, backgroundColor: `rgba(255,255,255,${tema.koyu ? o * 0.5 : o * 3})` }} />
+          ))}
+        </Animated.View>
+      )}
+    </View>
+  );
+}
+
 function hatYazisi(bacak: Guzergah['legs'][number]): string {
   const e = hatEtiketi(bacak.route?.shortName, bacak.route?.mode ?? bacak.mode, bacak.route?.agency?.name);
   return [e.rozet, e.ayrinti].filter(Boolean).join(' · ');
@@ -854,6 +1020,11 @@ const stiller = (t: Tema) =>
   ucret: { color: t.vurgu, fontWeight: '700' },
   ilkArac: { fontSize: 12.5, color: t.yazi, fontWeight: '600' },
   canliBlok: { gap: 3 },
+  vurguZemin: { position: 'absolute', top: -3, bottom: -3, left: -6, right: -6, borderRadius: 8 },
+  iskelet: { overflow: 'hidden' },
+  iskeletUst: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  iskeletYazi: { fontSize: 12.5, color: t.soluk, textAlign: 'center', marginBottom: 2 },
+  parilti: { position: 'absolute', top: 0, bottom: 0, left: 0, width: PARILTI_GENISLIK, flexDirection: 'row' },
   canliSatir: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: -3 },
   esnek: { flex: 1, minWidth: 0 },
   tarifeNotu: { fontSize: 11.5, color: t.soluk, paddingLeft: 16 },

@@ -352,19 +352,60 @@ export function esdegerKodlari(hatlar?: (RozetHatti | null | undefined)[], enCok
 }
 
 /** Güzergâhın ne kadarının hangi araçta geçtiğini gösteren oransal şerit. */
-export function SureSeridi({ bacaklar }: { bacaklar: Bacak[] }) {
+export function SureSeridi({
+  bacaklar,
+  akar = false,
+  gecikme = 0,
+}: {
+  bacaklar: Bacak[];
+  /** İlk çizimde parçalar sırayla soldan dolar. */
+  akar?: boolean;
+  /** Dolmaya başlamadan önce bekleme (ms): kartlar sırayla gelirken. */
+  gecikme?: number;
+}) {
   const tema = useTema();
+  const azalt = useHareketAzalt();
+  // Tek değer 0 → 1; her parça bunun kendi aralığında dolar (70 ms arayla, 480 ms sürer).
+  const ARA = 70;
+  const SURE = 480;
+  const toplam = SURE + Math.max(0, bacaklar.length - 1) * ARA;
+  const p = useRef(new Animated.Value(akar ? 0 : 1)).current;
+  useEffect(() => {
+    if (!akar || azalt) {
+      p.setValue(1);
+      return;
+    }
+    const a = Animated.timing(p, { toValue: 1, duration: toplam, delay: gecikme, easing: Easing.linear, useNativeDriver: true });
+    a.start();
+    return () => a.stop();
+    // Yalnız ilk çizimde: tazelemede yeniden dolmasın.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [azalt]);
   return (
     <View style={stil.serit}>
-      {bacaklar.map((b, i) => (
-        <View
-          key={i}
-          style={{
-            flex: Math.max(b.duration ?? 1, 1),
-            backgroundColor: b.transitLeg ? hatRengi(b.route, tema) : tema.cizgi,
-          }}
-        />
-      ))}
+      {bacaklar.map((b, i) => {
+        // Yerel animasyon modülü interpolasyonda easing almıyor: yavaşlayarak dolma (cubic
+        // ease-out) ara noktalarla veriliyor.
+        const bas = (i * ARA) / toplam;
+        const d = SURE / toplam;
+        const dol = p.interpolate({
+          inputRange: [bas, bas + d * 0.25, bas + d * 0.5, bas + d],
+          outputRange: [0, 0.58, 0.875, 1],
+          extrapolate: 'clamp',
+        });
+        return (
+          <Animated.View
+            key={i}
+            style={{
+              flex: Math.max(b.duration ?? 1, 1),
+              backgroundColor: b.transitLeg ? hatRengi(b.route, tema) : tema.cizgi,
+              opacity: dol,
+              transformOrigin: 'left',
+              transform: [{ scaleX: dol }],
+            }}
+          />
+        );
+      })}
     </View>
   );
 }
