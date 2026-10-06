@@ -369,6 +369,20 @@ describe('yolculuk iniş durağında bitiyor (aranan yer istasyonun kendisi)', (
     assert.equal(d.faz, 'icinde');
   });
 
+  it('metroda 120 m, otobüste 60 m (araç durağa hat üstünde gelirken); kaba konumda en çok 150 m', () => {
+    const otobusle: BacakOzeti[] = [BACAKLAR[0], BACAKLAR[1]];
+    // Hattın üstünde, durağın 90 m gerisinde: metroda peronun ucu, otobüste hâlâ geliyor.
+    const geride90 = n(0.012 - 90 * M);
+    assert.equal(durumuIlerlet(inisteyiz, geride90, adimlar, ikiBacak, { dogruluk: 15 }).faz, 'vardi', 'metro 90 m');
+    assert.equal(durumuIlerlet(inisteyiz, geride90, adimlar, otobusle, { dogruluk: 15 }).faz, 'icinde', 'otobüs 90 m geride');
+    assert.equal(durumuIlerlet(inisteyiz, n(0.012 - 40 * M), adimlar, otobusle, { dogruluk: 15 }).faz, 'vardi', 'otobüs 40 m');
+    // İnip uzaklaşmış (hattın dışında, durağın ötesinde): vardın.
+    assert.equal(durumuIlerlet(inisteyiz, n(0.012 + 90 * M, 29.001), adimlar, otobusle, { dogruluk: 15 }).faz, 'vardi', 'inip yürüdü');
+    // Kaba konum: doğruluk kadar ama en çok 150 m.
+    assert.equal(durumuIlerlet(inisteyiz, n(0.012 - 200 * M), adimlar, ikiBacak, { dogruluk: 280 }).faz, 'icinde', 'kaba 200 m');
+    assert.equal(durumuIlerlet(inisteyiz, n(0.012 - 140 * M), adimlar, otobusle, { dogruluk: 200 }).faz, 'vardi', 'kaba 140 m');
+  });
+
   it('tünelde binilen istasyonda kalmış eski konum bitirmez', () => {
     assert.equal(durumuIlerlet(inisteyiz, n(0), adimlar, ikiBacak, { dogruluk: 176 }).faz, 'icinde');
   });

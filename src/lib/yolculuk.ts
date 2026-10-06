@@ -92,6 +92,15 @@ export const VARIS_M = 50;
 export const DURAK_M = 120;
 /** İniş durağından bu kadar uzaklaşınca inilmiş sayılır. */
 export const AYRILMA_M = 60;
+/**
+ * Yolculuk iniş durağında bitiyorsa (sonra yürüyüş yok), son durağa varmış sayıldıktan sonra
+ * konum durağın noktasına bu kadar yakınsa vardın. Metroda peron 100–200 m uzunluğunda,
+ * arka vagon istasyonun noktasından 80–90 m uzakta olabiliyor; otobüs durağı tek nokta.
+ */
+export const VARIS_DURAGI_RAYLI_M = 120;
+export const VARIS_DURAGI_M = 60;
+/** Kaba konumda bu sınır doğruluk kadar büyür, ama en çok bu kadar. */
+export const VARIS_DURAGI_KABA_M = 150;
 
 export type AdimTuru = 'yuru' | 'arac';
 /** Yürüyüşün yolculuktaki yeri: ilk binişe, aktarmaya, varışa ya da baştan sona yürüyüş. */
@@ -449,6 +458,14 @@ function yuruyusSonundaMi(bacak: BacakOzeti, konum: Nokta, pay: number): boolean
   return yer.toplam - yer.boyunca <= Math.max(2 * VARIS_M, pay);
 }
 
+/** Araç hattın üstünde, iniş durağına hat boyunca `esik`ten daha uzakta (henüz varmadı). */
+function duragaGeliyor(konum: Nokta, bacak: BacakOzeti, esik: number): boolean {
+  const c = bacak.cizgi;
+  if (!c || c.length < 2) return false;
+  const y = cizgiUzerindeYer(konum, c);
+  return y.uzaklik <= 40 && y.toplam - y.boyunca > esik;
+}
+
 /** Konum, otobüs hattının biniş durağı çevresinde hattın üstünde mi (ileride ya da geride). */
 function hatUstunde(p: Nokta, bacak: BacakOzeti): boolean {
   const c = bacak.cizgi;
@@ -554,11 +571,19 @@ export function durumuIlerlet(
     // Eskiden burada da durak 60 m uzaklaşmak bekleniyordu; istasyonda duran yolcu için
     // yolculuk hiç bitmiyordu.
     const sonAdim = d.adim === adimlar.length - 1;
+    const varisEsigi = Math.max(
+      bacak.rayli ? VARIS_DURAGI_RAYLI_M : VARIS_DURAGI_M,
+      Math.min(pay, VARIS_DURAGI_KABA_M),
+    );
     const varisDuragindayiz = (x: YolculukDurumu) =>
-      sonAdim && x.durakta && !!inis && mesafeMetre(konum, inis) <= Math.max(DURAK_M, pay);
+      sonAdim && x.durakta && !!inis && mesafeMetre(konum, inis) <= varisEsigi;
     if (varisDuragindayiz(d)) return sonrakiAdim(d, adimlar);
     // İniş yalnız iyi konumla: kaba konum araçta giderken de 60 m "uzak" görünebilir.
-    if (iyi && d.durakta && inis && mesafeMetre(konum, inis) > AYRILMA_M) return sonrakiAdim(d, adimlar);
+    // Yolculuğun son durağında, araç hâlâ hattın üstünde durağa geliyorsa (son durağa varmış
+    // sayıldı ama konum durağın gerisinde) inilmiş sayılmaz: "vardın" erken gelmesin.
+    if (iyi && d.durakta && inis && mesafeMetre(konum, inis) > AYRILMA_M && !(sonAdim && duragaGeliyor(konum, bacak, varisEsigi))) {
+      return sonrakiAdim(d, adimlar);
+    }
     // İlerleme ve kalan durak yalnız artar/azalır: halka hatlarda ya da GPS kayınca geri gitmesin.
     const yeni = konumlaIlerleme(bacak.duraklar, konum, pay, tolerans, bacak.cizgi);
     if (yeni == null) return d;
