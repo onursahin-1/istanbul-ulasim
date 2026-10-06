@@ -12,7 +12,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { bacakDuraklari } from '../src/lib/bacak.ts';
+import { bacakDuraklari, oncekiDurak } from '../src/lib/bacak.ts';
 import { polylineCoz, type Nokta } from '../src/lib/cografya.ts';
 import type { Bacak, Guzergah } from '../src/lib/otp.ts';
 import {
@@ -60,7 +60,7 @@ function ozetler(bacaklar: Bacak[]): BacakOzeti[] {
       binisMs: anOku(b.start.estimated?.time ?? b.start.scheduledTime),
       inisMs: anOku(b.end.estimated?.time ?? b.end.scheduledTime),
       cizgi: cizgi.length > 1 ? cizgi : duraklar,
-      ...(b.transitLeg ? { rayli: RAYLI.has((b.route?.mode ?? b.mode ?? '').toUpperCase()) } : {}),
+      ...(b.transitLeg ? { rayli: RAYLI.has((b.route?.mode ?? b.mode ?? '').toUpperCase()), oncekiDurak: oncekiDurak(b) } : {}),
     };
   });
 }

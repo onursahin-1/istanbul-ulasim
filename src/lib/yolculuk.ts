@@ -70,6 +70,20 @@ export const ISTASYON_GIRISI_M = 200;
  */
 export const ISTASYONDA_KABA_MS = 30_000;
 
+/**
+ * Otobüs durağında bekleyen: konum bu kadar süre neredeyse kıpırdamadan hattın üstünde
+ * (aşağıdaki uzaklıklarda) duruyorsa durağa gelinmiş sayılır. Durağın tabelası, verideki
+ * noktasından 100 m kadar ötede olabiliyor (meydanlarda birkaç cep, yanlış koordinat);
+ * eskiden yolcu tabelanın dibinde beklerken uygulama "durağa 90 m" demeye devam ediyordu.
+ */
+export const HATTA_BEKLEME_MS = 20_000;
+/** Konum otobüs hattının çizgisine bu kadar yakın olmalı (kaldırım, cep). Ev genelde 60 m+ uzakta. */
+export const HATTA_UZAKLIK_M = 35;
+/** ...ve biniş durağına hat boyunca bu kadar yakın (ileride ya da bir önceki durak yönünde). */
+export const HATTA_BOYUNCA_M = 250;
+/** Beklerken konumun oynayabileceği en çok (m): bundan çok oynuyorsa yürüyor. */
+const KIPIRDAMA_M = 25;
+
 /** Bundan kısa yürüyüşler (aynı duraktaki aktarma, OTP'nin birkaç metrelik bacakları) adım sayılmaz. */
 export const KISA_YURUME_M = 30;
 /** Yürüme bacağının sonuna bu kadar yaklaşınca varılmış sayılır. */
@@ -104,6 +118,11 @@ export type BacakOzeti = {
   cizgi?: Nokta[];
   /** Metro, Marmaray, füniküler: istasyon yeraltında, girince konum kesilir. */
   rayli?: boolean;
+  /**
+   * Araç bacağında hattın biniş durağından önceki durağı (desenden). Biniş durağının biraz
+   * gerisinde, hattın üstünde bekleyeni tanımak için (hattaBekliyor).
+   */
+  oncekiDurak?: Nokta | null;
 };
 
 export type Faz = 'yuru' | 'bekle' | 'icinde' | 'vardi';
@@ -430,6 +449,39 @@ function yuruyusSonundaMi(bacak: BacakOzeti, konum: Nokta, pay: number): boolean
   return yer.toplam - yer.boyunca <= Math.max(2 * VARIS_M, pay);
 }
 
+/** Konum, otobüs hattının biniş durağı çevresinde hattın üstünde mi (ileride ya da geride). */
+function hatUstunde(p: Nokta, bacak: BacakOzeti): boolean {
+  const c = bacak.cizgi;
+  if (c && c.length > 1) {
+    const y = cizgiUzerindeYer(p, c);
+    if (y.uzaklik <= HATTA_UZAKLIK_M && y.boyunca <= HATTA_BOYUNCA_M) return true;
+  }
+  const ilk = bacak.duraklar[0];
+  if (bacak.oncekiDurak && ilk) {
+    // Hattın biniş durağına gelen kısmı yok (bacak çizgisi duraktan başlıyor): önceki
+    // duraktan biniş durağına düz çizgi yeterli yakınlıkta.
+    const y = cizgiUzerindeYer(p, [bacak.oncekiDurak, ilk]);
+    if (y.uzaklik <= HATTA_UZAKLIK_M && y.toplam - y.boyunca <= HATTA_BOYUNCA_M) return true;
+  }
+  return false;
+}
+
+/**
+ * Otobüs durağında bekliyor mu: son 20 saniyedir iyi konum, neredeyse kıpırdamadan, otobüs
+ * hattının üstünde ve biniş durağına yakın. Durağın verideki noktasına uzaklığa bakılmıyor
+ * (tabela 100 m ötede olabilir); evde bekleyen hattın 60 m+ yanında kaldığı için sayılmaz.
+ * Raylıda kullanılmaz: metro hattı yerin altında, üstündeki evden de geçiyor.
+ */
+export function hattaBekliyor(iz: KonumOrnegi[], bacak: BacakOzeti): boolean {
+  if (bacak.rayli || !iz.length) return false;
+  const son = iz[iz.length - 1];
+  const pencere = iz.filter((o) => son.an - o.an <= HATTA_BEKLEME_MS + 10_000);
+  if (son.an - pencere[0].an < HATTA_BEKLEME_MS) return false;
+  if (pencere.some((o) => o.dogruluk != null && o.dogruluk > IYI_DOGRULUK_M)) return false;
+  if (pencere.some((o) => mesafeMetre(o.konum, son.konum) > KIPIRDAMA_M)) return false;
+  return pencere.every((o) => hatUstunde(o.konum, bacak));
+}
+
 /** durumuIlerlet'e konumla gelen ek bilgi. */
 export type IlerletmeEki = {
   /** Konumun doğruluğu, metre. Verilmezse iyi sayılır. */
@@ -482,6 +534,12 @@ export function durumuIlerlet(
   if (!bacak) return d;
 
   if (d.faz === 'yuru') {
+    // Otobüs durağının tabelasında bekliyor (verideki nokta ötede olsa da).
+    const sonraki = adimlar[d.adim + 1];
+    if (sonraki?.tur === 'arac' && ek.iz) {
+      const ab = bacaklar[sonraki.bacak];
+      if (ab && hattaBekliyor(ek.iz, ab)) return sonrakiAdim(d, adimlar);
+    }
     // Kaba konumda doğruluğu kadar (en çok 150 m) yakınlık yeter: duraktayız ama GPS bilemiyor.
     const esik = iyi ? VARIS_M : Math.min(pay, 150);
     if (mesafeMetre(konum, bacak.bitis) > esik) return d;

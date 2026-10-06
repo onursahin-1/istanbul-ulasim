@@ -33,3 +33,11 @@ export function bacakDuraklari(bacak: Bacak): { gtfsId: string; ad: string; lat:
   ekle(inis, bacak.to.name, bacak.to.lat, bacak.to.lon);
   return liste;
 }
+
+/** Araç bacağında desenin biniş durağından önceki durağı; yoksa (hat başı) null. */
+export function oncekiDurak(bacak: Bacak): { latitude: number; longitude: number } | null {
+  const duraklar = bacak.trip?.pattern?.stops ?? [];
+  const sira = duraklar.findIndex((d) => d.gtfsId === bacak.from.stop?.gtfsId);
+  const d = sira > 0 ? duraklar[sira - 1] : null;
+  return d && d.lat != null && d.lon != null ? { latitude: d.lat, longitude: d.lon } : null;
+}

@@ -13,6 +13,7 @@ import {
   durumuZamanla,
   elleBin,
   elleVar,
+  hattaBekliyor,
   ISTASYONDA_KABA_MS,
   konumlaIlerleme,
   SINYAL_KAYBI_MS,
@@ -284,5 +285,52 @@ describe('yolculuk yeraltı istasyonun içinde başlatıldı', () => {
   it('"İstasyondayım" yürüyüşü bitirir', () => {
     assert.equal(elleVar(yuru, ADIMLAR).faz, 'bekle');
     assert.equal(elleVar(BEKLE, ADIMLAR), BEKLE);
+  });
+});
+
+describe('otobüs durağında bekleme (tabela verideki noktadan ötede)', () => {
+  // Otobüs hattı kuzeye; durağın verideki noktası n(0). Tabela 100 m ileride, hattın 20 m yanında.
+  const DOGU = 1 / 84_000; // bir metre, derece boylam (41° enlemde)
+  const yuru: YolculukDurumu = { adim: 0, faz: 'yuru', kalanDurak: null, durakta: false };
+  const bekleyen = (yer: { latitude: number; longitude: number }, sure = 25, dogruluk = 6): KonumOrnegi[] =>
+    Array.from({ length: Math.floor(sure / 5) + 1 }, (_, i) => ({ an: 1_000_000 + i * 5_000, konum: yer, dogruluk }));
+  const tabela = n(100 * M, 29 + 20 * DOGU);
+
+  it('hattın yanında 20+ sn kıpırdamadan bekleyen durağa gelmiştir', () => {
+    const z = bekleyen(tabela);
+    assert.equal(hattaBekliyor(z, BACAKLAR[1]), true);
+    const d = durumuIlerlet(yuru, tabela, ADIMLAR, BACAKLAR, { dogruluk: 6, iz: z });
+    assert.equal(d.faz, 'bekle');
+  });
+
+  it('kısa süre ya da kaba konum yetmez', () => {
+    assert.equal(hattaBekliyor(bekleyen(tabela, 10), BACAKLAR[1]), false, '10 sn');
+    assert.equal(hattaBekliyor(bekleyen(tabela, 25, 90), BACAKLAR[1]), false, 'kaba');
+  });
+
+  it('evde (hattın 60 m yanında) beklemek durağa gelmek değildir', () => {
+    const ev = n(20 * M, 29 + 60 * DOGU);
+    assert.equal(hattaBekliyor(bekleyen(ev), BACAKLAR[1]), false);
+  });
+
+  it('hat boyunca yürüyen beklemiyor; biniş durağından çok ileride de değil', () => {
+    const yuruyen: KonumOrnegi[] = Array.from({ length: 6 }, (_, i) => ({
+      an: 1_000_000 + i * 5_000,
+      konum: n(i * 7 * M, 29 + 15 * DOGU),
+      dogruluk: 6,
+    }));
+    assert.equal(hattaBekliyor(yuruyen, BACAKLAR[1]), false, 'yürüyor');
+    assert.equal(hattaBekliyor(bekleyen(n(600 * M, 29 + 10 * DOGU)), BACAKLAR[1]), false, '600 m ileride');
+  });
+
+  it('önceki duraktan gelen kısımda (biniş durağının gerisinde) bekleyen de sayılır', () => {
+    const b = { ...BACAKLAR[1], oncekiDurak: n(-300 * M) };
+    const geride = n(-80 * M, 29 + 15 * DOGU);
+    assert.equal(hattaBekliyor(bekleyen(geride), b), true);
+    assert.equal(hattaBekliyor(bekleyen(geride), BACAKLAR[1]), false, 'önceki durak bilinmiyorsa');
+  });
+
+  it('metroda kullanılmaz', () => {
+    assert.equal(hattaBekliyor(bekleyen(tabela), { ...BACAKLAR[1], rayli: true }), false);
   });
 });

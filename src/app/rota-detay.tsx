@@ -52,6 +52,7 @@ import {
   yuruyusPlanla,
   type Bacak,
 } from '@/lib/otp';
+import { oncekiDurak } from '@/lib/bacak';
 import { cizgileriKes } from '@/lib/hareket';
 import { guzergahGetir } from '@/lib/secim';
 import {
@@ -226,7 +227,7 @@ export default function RotaDetayEkrani() {
         binisMs: anOku(b.start.estimated?.time ?? b.start.scheduledTime),
         inisMs: anOku(b.end.estimated?.time ?? b.end.scheduledTime),
         cizgi: cizgiler[i],
-        ...(b.transitLeg ? { rayli: rayliMi(b) } : {}),
+        ...(b.transitLeg ? { rayli: rayliMi(b), oncekiDurak: oncekiDurak(b) } : {}),
       })),
     [bacaklar, duraklar, cizgiler],
   );
