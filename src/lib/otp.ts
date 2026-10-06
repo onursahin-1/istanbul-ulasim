@@ -341,6 +341,8 @@ export type DurakKalkisi = {
 /** Köprünün araç tabanlı varışı: durağa gelen bir otobüs. */
 export type AracVarisi = {
   kapiNo: string;
+  /** Aracın güzergâh kaydı (GTFS route_id, besleme öneki yok): durak ekranında doğru satıra. */
+  rotaId?: string | null;
   /** Durağa varış anı, ms. */
   varis: number;
   kalanDurak: number;

@@ -103,4 +103,49 @@ describe('AracVarislari', () => {
     v.guncelle([arac('X', 1), arac('Y', 1, 0, 3600)], [], (k) => (k === 'Y' ? bilgi('141M_G_D0')() : null), SIMDI);
     assert.equal(v.araclar.length, 0);
   });
+
+  it('hat başında bekleyen otobüs tarifedeki kalkışı bekler', () => {
+    const kalkis = Math.floor(SIMDI.getTime() / 1000) + 8 * 60;
+    const v = new AracVarislari(T, yolBul, () => null, () => kalkis);
+    v.guncelle([arac('A-303', 0, 0, 0)], [], bilgi('141M_G_D0'), SIMDI);
+    const r = v.durakVarislari(T.rotaDuraklari.get(0)[2].durak, SIMDI.getTime())['141M'];
+    // 8 dk kalkış + 2 aralık × 120 sn.
+    assert.equal((r[0].varis - SIMDI.getTime()) / 1000, 8 * 60 + 240);
+  });
+});
+
+describe('kendini ölçme', () => {
+  it('otobüsler tarifenin 2 katı yavaş gidiyorsa çarpan 2ye yaklaşır, tahmin düzelir', () => {
+    // Uzun bir hat: 30 durak, tarifede 120 sn arayla; gerçekte 240 sn.
+    const uzun = sahteTarife();
+    const duraklar = [];
+    for (let i = 0; i < 30; i++) {
+      uzun.durakEnlem.push(ENLEM + 0.01);
+      uzun.durakBoylam.push(boylam(i));
+      duraklar.push({ durak: uzun.durakEnlem.length - 1, sira: i + 1 });
+    }
+    uzun.rotaDuraklari.set(5, duraklar);
+    uzun.kisaAdtanRotalar.set('UZUN', [5]);
+    uzun.guzergahtanRota.set('UZUN_G', 5);
+    const yb = () => duraklar.map((d, i) => ({ durak: d.durak, saniye: i * 120 }));
+    const v = new AracVarislari(uzun, yb, () => null);
+    const bilgiU = (an) => () => ({ hat: 'UZUN', guzergah: 'UZUN_G', an });
+    // 40 araç, her biri 75 sn'de bir konum; 240 sn'de bir durak.
+    const t0 = SIMDI.getTime();
+    for (let adim = 0; adim < 60; adim++) {
+      const an = t0 + adim * 75_000;
+      const araclar = [];
+      for (let k = 0; k < 40; k++) {
+        const yer = 0.5 + (adim * 75) / 240 - (k % 5) * 0.1;
+        if (yer > 28) continue;
+        araclar.push({ kapiNo: `K${k}`, enlem: ENLEM + 0.01, boylam: boylam(yer), tarih: new Date(an) });
+      }
+      v.guncelle(araclar, [], bilgiU(an), new Date(an));
+    }
+    const ozet = v.ozet();
+    assert.ok(ozet.olcum > 100, `ölçüm: ${ozet.olcum}`);
+    assert.ok(Math.abs(ozet.carpan.tarife - 2) < 0.25, `çarpan: ${ozet.carpan.tarife}`);
+    const h = ozet.hata['6 durak'];
+    assert.ok(Math.abs(h.duzeltilmisOrtalamaSn) < Math.abs(h.hamOrtalamaSn) / 2, JSON.stringify(h));
+  });
 });

@@ -47,7 +47,7 @@ import { araclariEslestir, gecikmeAkisi, konumAkisi, SeferHafizasi, zamaniCoz } 
 import { oku, yaz } from './ogrenilen.mjs';
 import { Tarayici, yogunlukTahmini } from './tarama.mjs';
 import { seferDuraklari, tarifeyiKur } from './tarife.mjs';
-import { AracVarislari, tarifedenYolBul } from './varis.mjs';
+import { AracVarislari, tarifedenKalkisBul, tarifedenYolBul } from './varis.mjs';
 import { KonumIzi } from './yon.mjs';
 
 const KLASOR = dirname(fileURLToPath(import.meta.url));
@@ -105,7 +105,21 @@ if (existsSync(SEGMENT_DOSYASI)) {
 }
 const kalite = new KaliteOlcer(tarife, segment);
 // Araç tabanlı varış (sefer eşleştirmesinden bağımsız): durak ekranı ve bekleme kartı için.
-const varislar = new AracVarislari(tarife, tarifedenYolBul(tarife, seferDuraklari), (a, b, anSn) => segment.sure(a, b, anSn));
+const varislar = new AracVarislari(
+  tarife,
+  tarifedenYolBul(tarife, seferDuraklari),
+  (a, b, anSn) => segment.sure(a, b, anSn),
+  tarifedenKalkisBul(tarife),
+);
+// Varış tahmininin kendi ölçümü (gerçeğe uyan çarpanlar): diskten sürer.
+const VARIS_DOSYASI = join(KAYIT_KLASORU, 'varis-olcumu.json');
+if (existsSync(VARIS_DOSYASI)) {
+  try {
+    varislar.yukle(JSON.parse(readFileSync(VARIS_DOSYASI, 'utf8')));
+  } catch (e) {
+    console.error(`varış ölçümü okunamadı: ${e.message}`);
+  }
+}
 /** GTFS durak kimliği → tarife sırası (uygulama "1:12345" gibi besleme önekiyle soruyor). */
 const durakSirasi = new Map(tarife.durakAd.map((ad, i) => [ad, i]));
 
@@ -199,6 +213,7 @@ function kaydet() {
   try {
     mkdirSync(KAYIT_KLASORU, { recursive: true });
     yaz(SEGMENT_DOSYASI, segment.disaAktar());
+    yaz(VARIS_DOSYASI, varislar.disaAktar());
   } catch (e) {
     console.error(`yol süreleri yazılamadı: ${e.message}`);
   }
@@ -227,6 +242,7 @@ function durumuTazele() {
   durum.bayat = !sonBasari || Date.now() - sonBasari > BAYAT_MS;
   durum.kalite = kalite.rapor();
   durum.segment = segment.ozet();
+  durum.varis = varislar.ozet();
 }
 
 let arizaYazildi = false;

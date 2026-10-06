@@ -171,7 +171,17 @@ export default function DurakEkrani() {
           .sort((a, b) => a.dakika - b.dakika);
         // Köprü bu durağa gelen otobüsleri görüyorsa onlar: tarife yalnız son görülenden sonrası.
         const hatKodu = (d.pattern?.route?.shortName ?? '').trim().toLocaleUpperCase('tr-TR');
-        const araclar = aracVarislari[peron ?? durak?.gtfsId ?? '']?.[hatKodu] ?? [];
+        const hepsi = aracVarislari[peron ?? durak?.gtfsId ?? '']?.[hatKodu] ?? [];
+        // Aynı hattın birkaç güzergâh satırı varsa (halka, varyant) her otobüs kendi
+        // güzergâhının satırına; güzergâhı hiçbir satıra uymayan hepsinde.
+        const kimlik = (g?: string | null) => (g ?? '').slice((g ?? '').lastIndexOf(':') + 1);
+        const satirRotalari = new Set(
+          (durak?.desenler ?? [])
+            .filter((x) => (x.pattern?.route?.shortName ?? '').trim().toLocaleUpperCase('tr-TR') === hatKodu)
+            .map((x) => kimlik(x.pattern?.route?.gtfsId)),
+        );
+        const kendi = hepsi.filter((v) => v.rotaId === kimlik(d.pattern?.route?.gtfsId));
+        const araclar = kendi.length ? kendi : hepsi.filter((v) => !v.rotaId || !satirRotalari.has(v.rotaId));
         let yaklasanArac: typeof yaklasan = null;
         if (araclar.length) {
           const son = araclar[araclar.length - 1].varis;
