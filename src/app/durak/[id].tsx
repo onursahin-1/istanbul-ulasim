@@ -22,8 +22,8 @@ import {
   YaklasmaSeridi,
   Yukleniyor,
 } from '@/components/ulasim';
-import { araclariYerlestir, kalanYaz, yaklasanOtobus, yasYaz } from '@/lib/arac-konum';
-import { kalkisCanli } from '@/lib/canli';
+import { aracVarisindanOtobus, araclariYerlestir, kalanYaz, yaklasanOtobus, yasYaz } from '@/lib/arac-konum';
+import { canliBilgi, kalkisCanli } from '@/lib/canli';
 import { trKucuk } from '@/lib/metin';
 import { siklikYaz } from '@/lib/siklik';
 import { hatSikligi } from '@/lib/siklik-verisi';
@@ -33,6 +33,8 @@ import { hatlarinDuyurulari, type Duyuru } from '@/lib/duyuru';
 import {
   duyurulariGetir,
   durakSaatleriYedekli,
+  durakVarislariGetir,
+  type AracVarisi,
   OtpHatasi,
   saatsizHatlariGetir,
   saatsizHatMi,
@@ -115,6 +117,19 @@ export default function DurakEkrani() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [durakKimligi]);
 
+  // Köprünün araç tabanlı varışları ("Otobüsüm Nerede?" gibi): durağa gelen her otobüs,
+  // sefer eşleştirmesinden bağımsız. Durak her tazelendiğinde (ve peronları için) sorulur.
+  const [aracVarislari, setAracVarislari] = useState<Record<string, Record<string, AracVarisi[]>>>({});
+  useEffect(() => {
+    if (!durak?.gtfsId) return;
+    let gecerli = true;
+    const peronlar = (durak.desenler ?? []).flatMap((d) => (d.stoptimes ?? []).map((k) => k?.stop?.gtfsId ?? ''));
+    durakVarislariGetir([durak.gtfsId, ...peronlar]).then((v) => gecerli && setAracVarislari(v));
+    return () => {
+      gecerli = false;
+    };
+  }, [durak]);
+
   const ad = baslikYap(durak?.name);
 
   const hatlar = useMemo(() => {
@@ -145,7 +160,7 @@ export default function DurakEkrani() {
           sira >= 0 && d.pattern?.vehiclePositions?.length
             ? yaklasanOtobus(araclariYerlestir(desenDuraklari, d.pattern.vehiclePositions, simdi), sira, ilkSefer)
             : null;
-        const kalkislar = (d.stoptimes ?? [])
+        let kalkislar = (d.stoptimes ?? [])
           .map((k) => ({
             saniye: k.realtimeDeparture ?? k.scheduledDeparture ?? 0,
             an: (k.serviceDay ?? 0) + (k.realtimeDeparture ?? k.scheduledDeparture ?? 0),
@@ -154,6 +169,24 @@ export default function DurakEkrani() {
           }))
           .filter((k) => k.dakika >= 0)
           .sort((a, b) => a.dakika - b.dakika);
+        // Köprü bu durağa gelen otobüsleri görüyorsa onlar: tarife yalnız son görülenden sonrası.
+        const hatKodu = (d.pattern?.route?.shortName ?? '').trim().toLocaleUpperCase('tr-TR');
+        const araclar = aracVarislari[peron ?? durak?.gtfsId ?? '']?.[hatKodu] ?? [];
+        let yaklasanArac: typeof yaklasan = null;
+        if (araclar.length) {
+          const son = araclar[araclar.length - 1].varis;
+          kalkislar = [
+            ...araclar.map((v) => ({
+              saniye: Math.round((v.varis / 1000 + 3 * 3600) % 86_400),
+              an: Math.round(v.varis / 1000),
+              // Araç tabanlı: tarifeden sapma yok, "canlı" olduğu yeter.
+              canli: canliBilgi(0),
+              dakika: Math.max(0, Math.round((v.varis - simdi) / 60_000)),
+            })),
+            ...kalkislar.filter((k) => k.an * 1000 > son + 3 * 60_000),
+          ];
+          yaklasanArac = { otobus: aracVarisindanOtobus(araclar[0]), kalan: araclar[0].kalanDurak };
+        }
         return {
           anahtar: `${d.pattern?.code ?? ''}|${peron ?? ''}`,
           desen: d.pattern?.code ?? '',
@@ -164,7 +197,7 @@ export default function DurakEkrani() {
           guzergah: hatEtiketi(d.pattern?.route?.shortName, d.pattern?.route?.mode, d.pattern?.route?.agency?.name)
             .ayrinti,
           kalkislar,
-          yaklasan,
+          yaklasan: yaklasanArac ?? yaklasan,
         };
       })
       .filter((x) => x.hat && x.kalkislar.length > 0);
@@ -178,7 +211,7 @@ export default function DurakEkrani() {
       }
     }
     return liste.sort((a, b) => a.kalkislar[0].dakika - b.kalkislar[0].dakika);
-  }, [durak]);
+  }, [durak, aracVarislari]);
 
   // Gündüz seferleri sıklıkla tanımlı hatlar (Marmaray, M7, M11, T5, T6 …): OTP bunların
   // kalkışlarını döndürmüyor, satırları hiç görünmüyordu. Saat yerine sıklık yazılıyor.

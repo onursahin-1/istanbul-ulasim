@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { ayniYoldanMi, beklemeSecenekleri, binilenHatTahmini, durakOranlari, durakSaatleri, paylasimMetni } from '../bekleme';
+import { aracVarislariniKat, ayniYoldanMi, beklemeSecenekleri, binilenHatTahmini, durakOranlari, durakSaatleri, paylasimMetni } from '../bekleme';
 import type { DurakKalkisi } from '../otp';
 
 const dk = 60_000;
@@ -81,6 +81,41 @@ describe('ayniYoldanMi', () => {
     assert.equal(ayniYoldanMi(kalkis('141M', 3, { desen: 'p7', yon: 'MECİDİYEKÖY METROBÜS ' }), hat), true);
     assert.equal(ayniYoldanMi(kalkis('141M', 3, { desen: 'p9', yon: 'Mahmutbey' }), hat), false);
     assert.equal(ayniYoldanMi(kalkis('97M', 3, { desen: 'p1' }), hat), false);
+  });
+});
+
+describe('aracVarislariniKat', () => {
+  const arac = (kapiNo: string, dakika: number, kalanDurak: number) => ({
+    kapiNo,
+    varis: T + dakika * dk,
+    kalanDurak,
+    yasSn: 20,
+    enlem: 41,
+    boylam: 29,
+    ogrenilen: 1,
+  });
+
+  it('gelen otobüsler canlı kalkış olur; onlardan önceki tarife ve yanlış sefer tabanlı canlı atılır', () => {
+    // Tarife: 141M 1, 21, 41 dk; sefer tabanlı "canlı" 38 dk (yanlış sefere bağlanmış).
+    // Gerçekte iki otobüs 5 ve 11 dk uzakta (Otobüsüm Nerede'deki gibi).
+    const liste = [kalkis('141M', 1), kalkis('141M', 21), kalkis('141M', 38, { canli: true }), kalkis('97M', 13)];
+    const sonuc = aracVarislariniKat(liste, { '141M': [arac('B-1799', 5, 3), arac('A-1715', 11, 7)] });
+    assert.deepEqual(
+      sonuc.map((k) => [k.kisaAd, (k.an - T) / dk, k.kapiNo ?? null, k.canli]),
+      [
+        ['141M', 5, 'B-1799', true],
+        ['141M', 11, 'A-1715', true],
+        ['97M', 13, null, false],
+        ['141M', 21, null, false],
+        ['141M', 38, null, true],
+      ],
+    );
+    assert.ok(sonuc[0].seferId.startsWith('arac:'));
+  });
+
+  it('otobüs görülmeyen hat olduğu gibi kalır', () => {
+    const liste = [kalkis('97M', 13)];
+    assert.equal(aracVarislariniKat(liste, {}), liste);
   });
 });
 

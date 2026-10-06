@@ -228,6 +228,21 @@ ayrı. Bir dilimde en az 4 ölçüm olunca kullanılıyor; her gece eski ölçü
 aynı tahminin öğrenilen sürelerle yapılmış hâli. Tarifeden belirgin biçimde iyi çıkarsa
 canlı akışa, sonra da rota motorunun tarifesine geçecek.
 
+### Araç tabanlı varış (`/durak-varislari`)
+
+Sefer eşleştirmesi (yukarıda) her aracı bir tarife seferine bağlıyor; İETT tarifesi gerçekten
+uzak olduğundan araç yanlış sefere bağlanabiliyor ya da hiçbirine bağlanamıyor. Durak ekranı
+ve yol tarifindeki bekleme kartı bu yüzden ayrıca `varis.mjs`'i kullanıyor: durağa doğru gelen
+her otobüsün hattın durak sırasındaki yeri bulunuyor, durağa kalan yol öğrenilen durak arası
+sürelerle (yoksa tarife aralığıyla) toplanıyor. Sefer saati kullanılmıyor; "Otobüsüm Nerede?"
+gibi. Aracın hattı hat taramasından, yönü sefer eşleşmesinden, taze güzergâh kodundan ya da
+iki konumundan geliyor.
+
+```
+GET /durak-varislari?durak=1:301262,1:301263&hat=141M,97M
+→ { nabiz, bayat, duraklar: { "1:301262": { "141M": [{ kapiNo, varis, kalanDurak, yasSn, enlem, boylam, ogrenilen }] } } }
+```
+
 ### Yolculuk kaydı (geliştirme)
 
 Uygulamanın geliştirme sürümünde (Expo Go) "Yolculuğu başlat" deyince takip sırasında gelen

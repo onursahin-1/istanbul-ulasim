@@ -626,6 +626,8 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
   // Sayacın altı: saat ve kaynağı, kaçırılırsa sonraki sefer. Canlıysa durağa varış saati
   // (yakındaki duraklardaki gibi), değilse tarife saati.
   const sonrakiSefer = v.seferler[a.bacak]?.sonrakiSaniye;
+  // Köprünün gördüğü, bu kalkışı yapacak otobüs (araç tabanlı varış).
+  const ilkArac = (secenekler[0]?.kalkislar ?? []).find((k) => k.kapiNo && Math.abs(k.an - kalkis) < 60_000);
   // Sonraki iki sefer dakika olarak ("sonra 5, 17 dk"); liste yoksa kaçırılırsa sonrakinin saati.
   const sonrakiDk = (secenekler[0]?.kalkislar ?? [])
     .filter((k) => k.an > kalkis + 30_000)
@@ -680,11 +682,18 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
         </View>
         {otobus && <YaklasmaSeridi kalan={otobus.kalan} renk={renk} soluk={otobus.otobus.sinif === 'eski'} />}
       </View>
-      {otobus && (
+      {otobus ? (
         <Text style={s.detay}>
           <Text style={s.kalin}>{`Otobüs ${kalanYaz(otobus.kalan)}`}</Text>
           {` · konum ${yasYaz(otobus.otobus.yasSn)}`}
         </Text>
+      ) : (
+        !!ilkArac?.kapiNo && (
+          <Text style={s.detay}>
+            <Text style={s.kalin}>{`Otobüs ${kalanYaz(ilkArac.kalanDurak ?? 0)}`}</Text>
+            {` · ${ilkArac.kapiNo}`}
+          </Text>
+        )
       )}
       {/* Biniş konumdan anlaşılıyor; yeraltında ya da GPS zayıfken anlaşılamazsa elle. */}
       {bindimGoster && (
@@ -721,7 +730,12 @@ function SecenekSatiri({ v, bacak, secenek, ilk }: { v: YolTarifiVerisi; bacak: 
   const otobus = v.binisOtobusleri[bacak];
   // Canlı otobüs yalnız planlanan seferinki biliniyor: bu satırın ilk kalkışıysa yazılır.
   const otobusBurada = !!birinci && !!otobus && otobus.otobus.sefer === birinci.seferId;
-  const kaynak = birinci?.canli || otobusBurada ? `Canlı${otobusBurada ? ` · otobüs ${kalanYaz(otobus.kalan)}` : ''}` : 'tarifeye göre';
+  // Araç tabanlı kalkış (köprü otobüsü görüyor): kaç durak uzakta ve kapı numarası.
+  const kaynak = birinci?.kapiNo
+    ? `Canlı · otobüs ${kalanYaz(birinci.kalanDurak ?? 0)} · ${birinci.kapiNo}`
+    : birinci?.canli || otobusBurada
+      ? `Canlı${otobusBurada ? ` · otobüs ${kalanYaz(otobus.kalan)}` : ''}`
+      : 'tarifeye göre';
   const ilkDk = birinci ? dk(birinci.an) : null;
   const izleniyor = !!birinci && v.izlenen?.bacak === bacak && v.izlenen.seferId === birinci.seferId;
   const durum = izleniyor ? v.izlenenDurum : null;

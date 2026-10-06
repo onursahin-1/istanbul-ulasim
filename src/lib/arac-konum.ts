@@ -83,6 +83,35 @@ export type YerlesikArac = {
 const nokta = (lat: number, lon: number) => ({ latitude: lat, longitude: lon });
 
 /**
+ * Köprünün araç tabanlı varışındaki otobüs, haritada ve yaklaşma şeridinde gösterilecek
+ * biçimde. Durak sırası bilinmiyor (yalnız durağa kalan durak); sefer yok.
+ */
+export function aracVarisindanOtobus(v: {
+  kapiNo: string;
+  kalanDurak: number;
+  yasSn: number;
+  enlem: number;
+  boylam: number;
+}): YerlesikArac {
+  const sinif = yasSinifi(v.yasSn);
+  return {
+    kimlik: v.kapiNo,
+    etiket: v.kapiNo,
+    konum: 0,
+    durum: v.kalanDurak === 0 ? 'durakta' : 'yaklasiyor',
+    durak: 0,
+    yasSn: v.yasSn,
+    sinif: sinif === 'gizli' ? 'eski' : sinif,
+    gecikme: null,
+    sefer: null,
+    lat: v.enlem,
+    lon: v.boylam,
+    heading: null,
+    an: Date.now() - v.yasSn * 1000,
+  };
+}
+
+/**
  * Otobüsün durak sırasındaki yeri.
  *
  * En yakın durağa 40 m'den yakınsa o durakta. Değilse en yakın durağın hangi

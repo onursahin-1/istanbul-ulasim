@@ -86,7 +86,7 @@ export function konumdakiPlan(tarife, seferIdx, durakIdx, enlem, boylam) {
  * Zaman alanını çözer. Filo servisi yalnızca "16:38:55" veriyor (tarihsiz),
  * hat servisi ise "2026-09-21 16:38:49". İkisini de kabul ediyoruz.
  */
-function zamaniCoz(metin, simdi = new Date()) {
+export function zamaniCoz(metin, simdi = new Date()) {
   const d = String(metin ?? '').trim();
   const tam = d.match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
   if (tam) {

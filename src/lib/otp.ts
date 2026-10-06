@@ -330,7 +330,53 @@ export type DurakKalkisi = {
   mode: string | null;
   isletmeci: string | null;
   yon: string | null;
+  /** Araç tabanlı varış (köprü): otobüsün kapı numarası ve durağa kalan durak. Tarifede yok. */
+  kapiNo?: string;
+  kalanDurak?: number;
+  /** Araç konumunun yaşı (sn) ve yeri: haritada izlemek için. */
+  yasSn?: number;
+  konum?: { lat: number; lon: number };
 };
+
+/** Köprünün araç tabanlı varışı: durağa gelen bir otobüs. */
+export type AracVarisi = {
+  kapiNo: string;
+  /** Durağa varış anı, ms. */
+  varis: number;
+  kalanDurak: number;
+  yasSn: number;
+  enlem: number;
+  boylam: number;
+  /** Kalan yolun ne kadarı öğrenilmiş sürelerle (0–1); gerisi tarife aralığı. */
+  ogrenilen: number;
+};
+
+/**
+ * Köprüden araç tabanlı varışlar: her durak için hat hat, durağa gelen otobüsler (sefer
+ * eşleştirmesinden bağımsız, "Otobüsüm Nerede?" gibi). Köprü kapalıysa ya da veri bayatsa boş.
+ */
+export async function durakVarislariGetir(
+  durakIdler: string[],
+  hatlar: string[] = [],
+): Promise<Record<string, Record<string, AracVarisi[]>>> {
+  const idler = [...new Set(durakIdler.filter(Boolean))];
+  if (!idler.length) return {};
+  const iptal = new AbortController();
+  const sure = setTimeout(() => iptal.abort(), 5_000);
+  try {
+    const adres =
+      `${KOPRU_ADRESI}/durak-varislari?durak=${encodeURIComponent(idler.join(','))}` +
+      (hatlar.length ? `&hat=${encodeURIComponent(hatlar.filter(Boolean).join(','))}` : '');
+    const yanit = await fetch(adres, { signal: iptal.signal });
+    if (!yanit.ok) return {};
+    const govde = (await yanit.json()) as { bayat?: boolean; duraklar?: Record<string, Record<string, AracVarisi[]>> };
+    return govde.bayat ? {} : (govde.duraklar ?? {});
+  } catch {
+    return {};
+  } finally {
+    clearTimeout(sure);
+  }
+}
 
 /**
  * Bir duraktan önümüzdeki saatlerde bütün kalkışlar, her hat. Canlı yol tarifinde bekleme

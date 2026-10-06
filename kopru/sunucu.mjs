@@ -24,6 +24,10 @@
 //   /duyurular             İETT hat duyuruları, JSON → uygulama
 //   POST /ilgi             uygulamanın baktığı hatlar; hat taraması onları öne alır
 //   POST /yolculuk-kaydi   geliştirme: yolculuk takibinin konum ve adım kaydı → kayit/yolculuklar/
+//                          (köprünün o yolculuktaki hatlar için araç eşlemesi de her nabızda eklenir)
+//   /araclar?hat=141M      bir hattın şu an eşlenen araçları: kapı no, sefer, gecikme (tanı için)
+//   /durak-varislari?durak=ID[,ID]&hat=141M,97M
+//                          araç tabanlı varış: durağa gelen her otobüs kaç dakikada (varis.mjs)
 //   /durum                 insan için JSON özet (varış doğruluğu ölçümü `kalite`de)
 //
 // Doğruluk ölçümü: kayit/kalite-YYYY-MM-DD.json, özet için `node kalite-rapor.mjs`.
@@ -39,10 +43,11 @@ import { SegmentOgrenici } from './segment.mjs';
 import { duyurulariDuzenle, duyurulariEslestir } from './duyuru.mjs';
 import { sozlukKur } from './yazim.mjs';
 import { ArizaHatasi, duyurular as duyurulariIste, filoKonumlari, hatlar as hatlariIste, Kapi, SinirHatasi } from './iett.mjs';
-import { araclariEslestir, gecikmeAkisi, konumAkisi, SeferHafizasi } from './kopru.mjs';
+import { araclariEslestir, gecikmeAkisi, konumAkisi, SeferHafizasi, zamaniCoz } from './kopru.mjs';
 import { oku, yaz } from './ogrenilen.mjs';
 import { Tarayici, yogunlukTahmini } from './tarama.mjs';
-import { tarifeyiKur } from './tarife.mjs';
+import { seferDuraklari, tarifeyiKur } from './tarife.mjs';
+import { AracVarislari, tarifedenYolBul } from './varis.mjs';
 import { KonumIzi } from './yon.mjs';
 
 const KLASOR = dirname(fileURLToPath(import.meta.url));
@@ -99,6 +104,10 @@ if (existsSync(SEGMENT_DOSYASI)) {
   }
 }
 const kalite = new KaliteOlcer(tarife, segment);
+// Araç tabanlı varış (sefer eşleştirmesinden bağımsız): durak ekranı ve bekleme kartı için.
+const varislar = new AracVarislari(tarife, tarifedenYolBul(tarife, seferDuraklari), (a, b, anSn) => segment.sure(a, b, anSn));
+/** GTFS durak kimliği → tarife sırası (uygulama "1:12345" gibi besleme önekiyle soruyor). */
+const durakSirasi = new Map(tarife.durakAd.map((ad, i) => [ad, i]));
 
 /** Canlı akışa hangi varış tahmini: TAHMIN ortam değişkeni ya da ölçüme göre kendiliğinden. */
 function tahminKarari() {
@@ -165,6 +174,9 @@ let duyuruListesi = { alindi: null, duyurular: [] };
 const BOS_KONUM = () => konumAkisi([], new Date());
 const BOS_GECIKME = () => gecikmeAkisi([], new Date());
 let konumlar = BOS_KONUM();
+/** Son nabzın eşlemesi ve anı: tanı uç noktası ve yolculuk kaydı için. */
+let sonEslesenler = [];
+let sonNabizAn = 0;
 let gecikmeler = BOS_GECIKME();
 let sonBasari = 0;
 
@@ -228,6 +240,14 @@ async function nabiz() {
     const { eslesenler, sayac } = araclariEslestir(tarife, araclar, hafiza, tarayici, simdi, iz);
 
     konumlar = konumAkisi(eslesenler, simdi);
+    varislar.guncelle(
+      araclar.map((a) => ({ ...a, tarih: zamaniCoz(a.saat, simdi)?.tarih ?? null })),
+      eslesenler,
+      (k) => tarayici.bilgi(k),
+      simdi,
+    );
+    sonEslesenler = eslesenler;
+    sonNabizAn = simdi.getTime();
     // Varış tahmini: öğrenilen yol süreleri, ölçüm onları sabit gecikmeden iyi bulduysa
     // (kalite.mjs, yontemKarari). TAHMIN=ogrenilen|sabit ile elle de seçilebilir.
     const karar = tahminKarari();
@@ -316,6 +336,39 @@ function ilgiAl(istek, cevap) {
   });
 }
 
+const saatYaz = (sn) => {
+  const g = ((Math.round(sn) % 86400) + 86400) % 86400;
+  return `${String(Math.floor(g / 3600)).padStart(2, '0')}:${String(Math.floor((g % 3600) / 60)).padStart(2, '0')}`;
+};
+
+/**
+ * Bir hattın son nabızda eşlenen araçları: hangi kapı numarası hangi sefere bağlandı,
+ * seferin o noktadaki tarife saati ve gecikme. "22 dk gecikmeli" gibi bir tahminin
+ * gerçek mi yoksa aracın yanlış (önceki) sefere bağlanması mı olduğunu görmek için.
+ */
+function hatAraclari(kisaAd) {
+  const rotalar = new Set(tarife.kisaAdtanRotalar.get(String(kisaAd ?? '').trim().toUpperCase()) ?? []);
+  return sonEslesenler
+    .filter((e) => rotalar.has(e.rotaIdx))
+    .map((e) => ({
+      kapiNo: e.kapiNo,
+      seferId: e.seferId,
+      rotaId: e.rotaId,
+      yon: e.yon,
+      durakId: e.durakId,
+      sira: e.sira,
+      tarifeSaati: saatYaz(e.planlanan),
+      gecikmeDk: Math.round(e.gecikme / 60),
+      eslesme: e.yoldan,
+      konumSaati: new Date(e.damga * 1000).toISOString(),
+      enlem: e.enlem,
+      boylam: e.boylam,
+    }));
+}
+
+/** Yolculuk kaydı başına: hangi hatlar izleniyor, en son hangi nabız yazıldı. */
+const yolculukHatlari = new Map();
+
 // Geliştirme: uygulamanın yolculuk takibi kaydı. Her olay bir satır; dosya yolculuk başına.
 function yolculukKaydiAl(istek, cevap) {
   let govde = '';
@@ -330,7 +383,24 @@ function yolculukKaydiAl(istek, cevap) {
       if (typeof kimlik !== 'string' || !/^[0-9-]{10,24}$/.test(kimlik) || !Array.isArray(olaylar)) throw new Error();
       const klasor = join(KAYIT_KLASORU, 'yolculuklar');
       mkdirSync(klasor, { recursive: true });
-      appendFileSync(join(klasor, `${kimlik}.jsonl`), olaylar.map((o) => JSON.stringify(o)).join('\n') + '\n');
+      // Yolculuğun hatları: başlangıçtaki güzergâhtan, yolda değişen hattan.
+      const kayit = yolculukHatlari.get(kimlik) ?? { hatlar: new Set(), nabiz: 0 };
+      for (const o of olaylar) {
+        if (o?.tur === 'basla') {
+          for (const b of o.guzergah?.legs ?? []) if (b?.transitLeg && b.route?.shortName) kayit.hatlar.add(b.route.shortName);
+        }
+        if (o?.tur === 'hat-degisti' && o.kisaAd) kayit.hatlar.add(o.kisaAd);
+      }
+      const satirlar = olaylar.map((o) => JSON.stringify(o));
+      // Köprünün o andaki eşlemesi (nabız değiştiyse): kayıt masada köprüyle birlikte okunsun.
+      if (kayit.hatlar.size && sonNabizAn && sonNabizAn !== kayit.nabiz) {
+        kayit.nabiz = sonNabizAn;
+        const hatlar = Object.fromEntries([...kayit.hatlar].map((h) => [h, hatAraclari(h)]));
+        satirlar.push(JSON.stringify({ t: Date.now(), tur: 'kopru-araclar', nabiz: new Date(sonNabizAn).toISOString(), hatlar }));
+      }
+      yolculukHatlari.set(kimlik, kayit);
+      if (yolculukHatlari.size > 50) yolculukHatlari.delete(yolculukHatlari.keys().next().value);
+      appendFileSync(join(klasor, `${kimlik}.jsonl`), satirlar.join('\n') + '\n');
       yanitla(cevap, Buffer.from(JSON.stringify({ kabul: olaylar.length })), 'application/json; charset=utf-8');
     } catch {
       cevap.writeHead(400);
@@ -351,6 +421,27 @@ createServer((istek, cevap) => {
   if (yol === '/sefer-guncellemeleri') return yanitla(cevap, bayat ? BOS_GECIKME() : gecikmeler, 'application/x-protobuf');
   if (yol === '/ilgi' && istek.method === 'POST') return ilgiAl(istek, cevap);
   if (yol === '/yolculuk-kaydi' && istek.method === 'POST') return yolculukKaydiAl(istek, cevap);
+  if (yol === '/durak-varislari') {
+    const sorgu = new URL(istek.url ?? '/', 'http://x').searchParams;
+    const hatlar = (sorgu.get('hat') ?? '')
+      .split(',')
+      .map((h) => h.trim().toUpperCase())
+      .filter(Boolean);
+    const simdiMs = Date.now();
+    const bayatMi = !sonBasari || simdiMs - sonBasari > BAYAT_MS;
+    const duraklar = {};
+    for (const id of (sorgu.get('durak') ?? '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 12)) {
+      const sira = durakSirasi.get(id.includes(':') ? id.slice(id.lastIndexOf(':') + 1) : id);
+      duraklar[id] = sira == null || bayatMi ? {} : varislar.durakVarislari(sira, simdiMs, hatlar.length ? new Set(hatlar) : null);
+    }
+    const govde = { nabiz: sonNabizAn ? new Date(sonNabizAn).toISOString() : null, bayat: bayatMi, duraklar };
+    return yanitla(cevap, Buffer.from(JSON.stringify(govde)), 'application/json; charset=utf-8');
+  }
+  if (yol === '/araclar') {
+    const hat = new URL(istek.url ?? '/', 'http://x').searchParams.get('hat') ?? '';
+    const govde = { hat, nabiz: sonNabizAn ? new Date(sonNabizAn).toISOString() : null, araclar: hatAraclari(hat) };
+    return yanitla(cevap, Buffer.from(JSON.stringify(govde, null, 2)), 'application/json; charset=utf-8');
+  }
   if (yol === '/duyurular') {
     return yanitla(cevap, Buffer.from(JSON.stringify(duyuruListesi)), 'application/json; charset=utf-8');
   }
@@ -359,7 +450,7 @@ createServer((istek, cevap) => {
     return yanitla(cevap, Buffer.from(JSON.stringify(durum, null, 2)), 'application/json; charset=utf-8');
   }
   cevap.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-  cevap.end('Bilinmeyen adres. /durum, /arac-konumlari, /sefer-guncellemeleri, /duyurular\n');
+  cevap.end('Bilinmeyen adres. /durum, /araclar?hat=141M, /durak-varislari?durak=ID, /arac-konumlari, /sefer-guncellemeleri, /duyurular\n');
 }).listen(PORT, () => {
   console.log(`köprü http://localhost:${PORT} · nabız ${NABIZ / 1000} sn`);
 });

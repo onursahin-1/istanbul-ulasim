@@ -22,9 +22,9 @@ export type ZamanlanacakBacak = {
   /** Durakta beklerken kaç ms önce "kalkmış" sefer hâlâ yakalanabilir; verilmezse DURAKTA_PAY_MS. */
   durakPayiMs?: number;
 };
-/** Biniş durağından bir kalkış: an (ms) ve seferin kimliği. */
-export type SecilenKalkis = { an: number; seferId?: string };
-export type YeniZaman = { baslangic: number; bitis: number; seferId?: string };
+/** Biniş durağından bir kalkış: an (ms), seferin kimliği ve canlı mı (otobüs görülüyor). */
+export type SecilenKalkis = { an: number; seferId?: string; canli?: boolean };
+export type YeniZaman = { baslangic: number; bitis: number; seferId?: string; canli?: boolean };
 
 /**
  * Durakta beklerken bu kadar önce kalkmış görünen sefer hâlâ yakalanabilir (tarife payı).
@@ -76,6 +76,7 @@ export function yenidenZamanla(
     }
     let baslangic: number;
     let seferId: string | undefined;
+    let canli = false;
     if (i === bas && secenek.kesin) {
       baslangic = an;
     } else {
@@ -87,11 +88,12 @@ export function yenidenZamanla(
       if (uygun) {
         baslangic = uygun.an;
         seferId = uygun.seferId;
+        canli = !!uygun.canli;
       } else {
         baslangic = Math.max(b.baslangic, t);
       }
     }
-    sonuc[i] = { baslangic, bitis: baslangic + sure, ...(seferId ? { seferId } : {}) };
+    sonuc[i] = { baslangic, bitis: baslangic + sure, ...(seferId ? { seferId } : {}), ...(canli ? { canli } : {}) };
     t = baslangic + sure;
   }
   return sonuc;
@@ -161,9 +163,11 @@ export function zamanlamayiUygula(g: Guzergah, yeni: YeniZaman[]): Guzergah {
       return b;
     }
     degisti = true;
+    // Canlı (otobüsü görülen) kalkış: tahmini saat de o, kart "Canlı" desin.
+    const tahmini = y.canli ? { time: istanbulIso(y.baslangic) } : null;
     return {
       ...b,
-      start: { scheduledTime: istanbulIso(y.baslangic), estimated: null },
+      start: { scheduledTime: istanbulIso(y.baslangic), estimated: tahmini },
       end: { scheduledTime: istanbulIso(y.bitis), estimated: null },
       ...(y.seferId && b.trip && y.seferId !== b.trip.gtfsId ? { trip: { ...b.trip, gtfsId: y.seferId } } : {}),
     };

@@ -11,7 +11,7 @@
 // Bağımlılıksız: testlerden çağrılabiliyor.
 
 import { mesafeMetre, type Nokta } from './cografya';
-import type { DurakKalkisi } from './otp';
+import type { AracVarisi, DurakKalkisi } from './otp';
 
 export type BeklemeSecenegi = {
   kisaAd: string;
@@ -19,9 +19,59 @@ export type BeklemeSecenegi = {
   hat: { shortName: string; mode: string | null; agency: { name: string } | null };
   /** Hattın adı (uzun ad, yoksa yön). */
   ad: string;
-  /** Sıradaki kalkışlar, en çok `enCok`. */
-  kalkislar: { an: number; canli: boolean; seferId: string }[];
+  /** Sıradaki kalkışlar, en çok `enCok`. Araç tabanlı olanlarda kapı no ve kalan durak. */
+  kalkislar: { an: number; canli: boolean; seferId: string; kapiNo?: string; kalanDurak?: number }[];
 };
+
+/** Araç tabanlı kalkışın sahte sefer kimliği öneki: tarifede böyle bir sefer yok. */
+export const ARAC_ONEKI = 'arac:';
+export const aracKalkisiMi = (seferId?: string | null) => !!seferId?.startsWith(ARAC_ONEKI);
+
+/**
+ * Köprünün araç tabanlı varışlarını duraktan kalkış listesine katar. Bir hatta durağa gelen
+ * otobüs görülüyorsa o hattın son görülen otobüsten önceki (ve onunla aynı dakikalardaki)
+ * tarife ya da sefer tabanlı canlı kalkışları atılır: hangi otobüslerin geldiği belli, tarife
+ * yalnız onlardan sonrası için. Otobüs görülmeyen hatlar olduğu gibi kalır.
+ *
+ * @param varislar hat (büyük harf) → durağa gelen araçlar
+ */
+export function aracVarislariniKat(kalkislar: DurakKalkisi[], varislar: Record<string, AracVarisi[]>): DurakKalkisi[] {
+  const anahtar = (s: string) => s.trim().toLocaleUpperCase('tr-TR');
+  const hatlar = new Map(Object.entries(varislar).map(([h, l]) => [anahtar(h), l] as const));
+  if (![...hatlar.values()].some((l) => l.length)) return kalkislar;
+  const sonuc: DurakKalkisi[] = [];
+  const eklenen = new Set<string>();
+  for (const k of kalkislar) {
+    const liste = hatlar.get(anahtar(k.kisaAd));
+    if (!liste?.length) {
+      sonuc.push(k);
+      continue;
+    }
+    const sonAraç = liste[liste.length - 1].varis;
+    if (k.an > sonAraç + AYNI_OTOBUS_MS) sonuc.push(k);
+    if (!eklenen.has(k.kisaAd)) {
+      eklenen.add(k.kisaAd);
+      for (const v of liste) {
+        // İstanbul gününün başı (sn) ve ondan saniye: tarifeli kalkışlarla aynı biçim.
+        const gunBasi = Math.floor((v.varis / 1000 + 3 * 3600) / 86_400) * 86_400 - 3 * 3600;
+        sonuc.push({
+          ...k,
+          an: v.varis,
+          serviceDay: gunBasi,
+          saniye: Math.round(v.varis / 1000) - gunBasi,
+          canli: true,
+          seferId: `${ARAC_ONEKI}${v.kapiNo}`,
+          desen: undefined,
+          kapiNo: v.kapiNo,
+          kalanDurak: v.kalanDurak,
+          yasSn: v.yasSn,
+          konum: { lat: v.enlem, lon: v.boylam },
+        });
+      }
+    }
+  }
+  return sonuc.sort((a, b) => a.an - b.an);
+}
 
 /** Bir bacağın hattını tanıtan bilgi: kısa ad, desen ve yön. */
 export type BacakHatti = { kisaAd: string; desen?: string | null; yon?: string | null };
@@ -72,7 +122,7 @@ export function beklemeSecenekleri(
       ad: ilk?.uzunAd || ilk?.yon || '',
       kalkislar: tekillestir(uygun)
         .slice(0, enCok)
-        .map((k) => ({ an: k.an, canli: k.canli, seferId: k.seferId })),
+        .map((k) => ({ an: k.an, canli: k.canli, seferId: k.seferId, kapiNo: k.kapiNo, kalanDurak: k.kalanDurak })),
     };
   });
   return secenekler.sort((a, b) => (a.kalkislar[0]?.an ?? Infinity) - (b.kalkislar[0]?.an ?? Infinity));
