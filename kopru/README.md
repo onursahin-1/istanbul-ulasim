@@ -228,6 +228,21 @@ ayrı. Bir dilimde en az 4 ölçüm olunca kullanılıyor; her gece eski ölçü
 aynı tahminin öğrenilen sürelerle yapılmış hâli. Tarifeden belirgin biçimde iyi çıkarsa
 canlı akışa, sonra da rota motorunun tarifesine geçecek.
 
+### Yolculuk kaydı (geliştirme)
+
+Uygulamanın geliştirme sürümünde (Expo Go) "Yolculuğu başlat" deyince takip sırasında gelen
+her konum (doğruluğu ve hızıyla), her adım geçişi ("durakta", "bindi", "indi") ve yolda yeniden
+kurulan saatler köprüye gönderilir: `POST /yolculuk-kaydi` → `kayit/yolculuklar/<tarih-saat>.jsonl`.
+Kayıt masada yeniden oynatılır; takip hesabı kayıttaki konumlarla adım adım çalışır ve
+uygulamanın o an ne dediğiyle yan yana yazılır:
+
+```
+npm run yolculuk-oynat                 (proje klasöründe; en yeni kayıt)
+npm run yolculuk-oynat -- kopru\kayit\yolculuklar\2026-10-06-081502.jsonl
+```
+
+Köprü kapalıyken kayıt sessizce düşer; yolculuğu etkilemez.
+
 ## Sınırlar
 
 - Yalnızca İETT otobüs ve minibüsleri. Metro, Marmaray, tramvay ve vapurda canlı veri

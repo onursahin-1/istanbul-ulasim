@@ -27,7 +27,7 @@ import { canliRenk, DONUS_SIMGELERI, GeriCubugu, HatRozeti, Ikon, useStiller } f
 import { bacakCanli } from '@/lib/canli';
 import { hemenBildir, izinIste, useHatirlaticilar } from '@/lib/bildirim';
 import { sesliTarifKaydet, useKayitlar } from '@/lib/kayitlar';
-import { polylineCoz, type Nokta } from '@/lib/cografya';
+import { cizgiUzerindeYer, mesafeMetre, polylineCoz, type Nokta } from '@/lib/cografya';
 import {
   araclariYerlestir,
   kalanYaz,
@@ -46,7 +46,7 @@ import {
   type Bacak,
 } from '@/lib/otp';
 import { guzergahGetir } from '@/lib/secim';
-import { seferBilgisi, sikliktanYazi, type SeferBilgisi } from '@/lib/sefer';
+import { seferBilgisi, sikliktanYazi, type Kalkis, type SeferBilgisi } from '@/lib/sefer';
 import { aracAdi, baslikYap, haritaRengi, hatEtiketi, hatRengi, useTema, type Tema } from '@/lib/tema';
 import { OZEL_GUNLER } from '@/lib/ozel-gun-verisi';
 import { TARIFE_TARIHI, UCRET_ADLARI, ucretKisa, ucretYaz, yolculukUcreti } from '@/lib/ucret';
@@ -55,11 +55,17 @@ import {
   baslangicDurumu,
   durumuIlerlet,
   durumuZamanla,
+  elleBin,
+  IYI_DOGRULUK_M,
+  KABA_DOGRULUK_M,
   KISA_YURUME_M,
   yenidenCizilmeli,
   type BacakOzeti,
+  type KonumOrnegi,
   type YolculukDurumu,
 } from '@/lib/yolculuk';
+import { kayitBaslat, kayitBitir, kayitEkle } from '@/lib/yolculuk-kaydi';
+import { bacakZamanlari, yenidenZamanla, zamanlamayiUygula, type SecilenKalkis } from '@/lib/zamanlama';
 import { adimlariYaz } from '@/lib/yuruyus';
 import { isodanSaniye, mesafeYaz, saatYaz, saniyedenSaat, sureYaz } from '@/lib/zaman';
 import { geriDon } from '@/lib/gezinti';
@@ -67,8 +73,19 @@ import { metrobusMu } from '@/lib/metin';
 
 type Takip = { bacak: number; kalanDurak: number } | null;
 
-/** Bundan kötü doğruluklu konum adım geçişine karar vermez (metre). */
-const KOTU_DOGRULUK_M = 50;
+/** Bundan kötü doğruluklu konum yürüyüşü yeniden çizdirmez (metre). Adım kararları yolculuk.ts'de. */
+const KOTU_DOGRULUK_M = IYI_DOGRULUK_M;
+/** Konum izinde tutulan süre ve en çok ölçüm (binişi hızdan anlamak için). */
+const IZ_SURESI_MS = 20 * 60_000;
+const IZ_EN_COK = 400;
+/** Yolculuk aranan saatten bu kadar uzakta başlatıldıysa saatler yeniden kurulmaz (ileri tarihli plana bakılıyor). */
+const ZAMANLAMA_UFKU_MS = 90 * 60_000;
+/** Yürürken ve beklerken saatlerin yeniden kurulma aralığı. */
+const ZAMANLAMA_ARALIGI_MS = 20_000;
+
+/** Raylı (yeraltı, sık sefer): durakta tarife payı kısa; otobüs tarifesi ara duraklarda tahmin, payı uzun. */
+const RAYLI_MODLAR = new Set(['SUBWAY', 'RAIL', 'FUNICULAR', 'MONORAIL', 'TRAM', 'CABLE_CAR', 'GONDOLA']);
+const rayliMi = (b?: Bacak) => RAYLI_MODLAR.has((b?.route?.mode ?? b?.mode ?? '').toUpperCase());
 
 function anOku(iso?: string | null): number | null {
   const an = Date.parse(iso ?? '');
@@ -111,10 +128,14 @@ export default function RotaDetayEkrani() {
   const [simdi, setSimdi] = useState(() => Date.now());
   const sonKonum = useRef<Nokta | null>(null);
   /** Son konumun zamanı ve doğruluğu: tazeyse ilerlemeyi konum, değilse saat belirliyor. */
-  const sonGps = useRef<{ an: number; dogruluk?: number | null } | null>(null);
+  const sonGps = useRef<{ an: number; dogruluk?: number | null; konum?: Nokta | null } | null>(null);
+  /** Son dakikaların konumları: binişi hızdan anlamak için (yolculuk.ts, binisiAlgila). */
+  const iz = useRef<KonumOrnegi[]>([]);
+  const sonIslenen = useRef<{ an: number; konum: Nokta } | null>(null);
+  const sonSinyalKaydi = useRef(0);
   const [konum, setKonum] = useState<Nokta | null>(null);
   const [acikBacaklar, setAcikBacaklar] = useState<Record<number, boolean>>({});
-  const [seferler, setSeferler] = useState<Record<number, SeferBilgisi>>({});
+  const [kalkisListeleri, setKalkisListeleri] = useState<Record<number, Kalkis[]>>({});
   const [hatirlatAcik, setHatirlatAcik] = useState(false);
   const { hatirlaticilar, yenile: hatirlaticilariYenile } = useHatirlaticilar();
   const { ucretTuru, ekranAcik, sesliTarif, sesCinsiyeti, rotaSecenekleri } = useKayitlar();
@@ -149,8 +170,9 @@ export default function RotaDetayEkrani() {
         duraklar: duraklar[i].map((d) => ({ latitude: d.lat, longitude: d.lon })),
         binisMs: anOku(b.start.estimated?.time ?? b.start.scheduledTime),
         inisMs: anOku(b.end.estimated?.time ?? b.end.scheduledTime),
+        ...(b.transitLeg ? { cizgi: cizgiler[i], rayli: rayliMi(b) } : {}),
       })),
-    [bacaklar, duraklar],
+    [bacaklar, duraklar, cizgiler],
   );
   const adimlar = useMemo(() => adimlariKur(ozetler), [ozetler]);
   // Eski liste görünümü (takip dışı) için: içinde bulunulan araç bacağı ve kalan durak.
@@ -162,12 +184,26 @@ export default function RotaDetayEkrani() {
     [durum, adimlar],
   );
 
+  // Sefer sıklığı ve "kaçırırsan sonraki": biniş saati yolda yeniden kurulabildiği için
+  // kalkış listesinden her seferinde güncel biniş saatine göre.
+  const seferler = useMemo(() => {
+    const tablo: Record<number, SeferBilgisi> = {};
+    for (const [anahtar, liste] of Object.entries(kalkisListeleri)) {
+      const b = bacaklar[Number(anahtar)];
+      if (b) tablo[Number(anahtar)] = seferBilgisi(liste, isodanSaniye(b.start.estimated?.time ?? b.start.scheduledTime));
+    }
+    return tablo;
+  }, [kalkisListeleri, bacaklar]);
+
   const ucret = useMemo(() => yolculukUcreti(bacaklar, ucretTuru, OZEL_GUNLER), [bacaklar, ucretTuru]);
   // Yürüme bacaklarının adım adım tarifi; toplu taşıma bacaklarında boş kalır.
   const yolTarifleri = useMemo(() => bacaklar.map((b) => (b.transitLeg ? [] : adimlariYaz(b.steps))), [bacaklar]);
 
   // Hatırlatıcılar: yola çıkış anı ve her aracın iniş durağına varış anı.
-  const hatirlatmaGrubu = `rota-${sira}-${guzergah?.start ?? ''}`;
+  // Grup anahtarı aranan güzergâhın ilk saatiyle: yolda saatler yeniden kurulunca kurulu
+  // hatırlatıcılar kaybolmasın.
+  const ilkBaslangic = useRef(guzergah?.start ?? '');
+  const hatirlatmaGrubu = `rota-${sira}-${ilkBaslangic.current}`;
   const kuruluHatirlatici = hatirlaticilar.filter((h) => h.grup === hatirlatmaGrubu).length;
   const kalkisAni = useMemo(() => {
     const an = Date.parse(guzergah?.start ?? '');
@@ -260,6 +296,9 @@ export default function RotaDetayEkrani() {
     }
   }, [binisOtobusleri, yaklasmaUyarisi, bacaklar]);
 
+  const kalkisListeleriRef = useRef<Record<number, Kalkis[]>>({});
+  const kalaniZamanlaRef = useRef<() => void>(() => {});
+
   /** Bacak açıldığında biniş durağının o hatta ait kalkışlarını bir kez çeker. */
   const seferleriYukle = useCallback(
     async (i: number) => {
@@ -271,8 +310,12 @@ export default function RotaDetayEkrani() {
       sorulanlar.current.add(i);
       try {
         const kalkislar = await hatKalkislariGetir(durakId, hatId);
-        const binis = isodanSaniye(b.start.estimated?.time ?? b.start.scheduledTime);
-        setSeferler((onceki) => ({ ...onceki, [i]: seferBilgisi(kalkislar, binis) }));
+        // Yalnız bu bacağın deseni (aynı durak dizisi): kısa servis seferi seçilmesin.
+        const desen = b.trip?.pattern?.code;
+        const uygun = desen && kalkislar.some((k) => k.desen) ? kalkislar.filter((k) => k.desen === desen) : kalkislar;
+        kalkisListeleriRef.current = { ...kalkisListeleriRef.current, [i]: uygun };
+        setKalkisListeleri(kalkisListeleriRef.current);
+        kalaniZamanlaRef.current();
       } catch {
         // Sefer sıklığı süslemedir; alınamazsa ekranın geri kalanı çalışmaya devam eder.
       }
@@ -323,14 +366,32 @@ export default function RotaDetayEkrani() {
   );
 
   const konumuIsle = useCallback(
-    (nokta: Nokta, dogruluk?: number | null) => {
+    (nokta: Nokta, dogruluk?: number | null, hiz?: number | null) => {
+      const an = Date.now();
+      sonGps.current = { an, dogruluk, konum: nokta };
+      // Dururken saniyede bir gelen aynı konum yalnız "sinyal var" demek: ekranı yormasın.
+      const onceki = sonIslenen.current;
+      if (onceki && an - onceki.an < 5_000 && mesafeMetre(onceki.konum, nokta) < 3) {
+        // Kayıtta "sinyal var" izi (oynatmada konum kesildi sanılmasın), on saniyede bir.
+        if (an - sonSinyalKaydi.current >= 10_000) {
+          sonSinyalKaydi.current = an;
+          kayitEkle('sinyal', { d: dogruluk ?? null });
+        }
+        return;
+      }
+      sonIslenen.current = { an, konum: nokta };
       sonKonum.current = nokta;
-      sonGps.current = { an: Date.now(), dogruluk };
       setKonum(nokta);
-      // Doğruluğu kötü konum (kapalı alan, dar sokak: 50 m'den kötü) ekranda gösterilir
-      // ama adım geçişine karar vermez: yanlışlıkla "otobüse bindin" denmesin.
+      kayitEkle('konum', { lat: nokta.latitude, lon: nokta.longitude, d: dogruluk ?? null, h: hiz ?? null });
+      if (dogruluk != null && dogruluk > KABA_DOGRULUK_M) return;
+      iz.current = [...iz.current.filter((o) => an - o.an <= IZ_SURESI_MS), { an, konum: nokta, dogruluk: dogruluk ?? null, hiz }].slice(
+        -IZ_EN_COK,
+      );
+      // Kaba konum (50–300 m: otobüs içi, istasyon) da işlenir ama yalnız ileri götüren
+      // kararlara, temkinli girer: binişi ve araçtaki ilerlemeyi gösterir (yolculuk.ts).
+      const izAni = iz.current;
+      setDurum((d) => (d ? durumuIlerlet(d, nokta, adimlar, ozetler, { dogruluk, iz: izAni }) : d));
       if (dogruluk != null && dogruluk > KOTU_DOGRULUK_M) return;
-      setDurum((d) => (d ? durumuIlerlet(d, nokta, adimlar, ozetler) : d));
 
       const d = durumRef.current;
       const adim = d ? adimlar[d.adim] : undefined;
@@ -384,6 +445,7 @@ export default function RotaDetayEkrani() {
     }
   }, [takip, bacaklar]);
 
+  const zamanlamaAcik = useRef(false);
   const takibiDurdur = useCallback(() => {
     aboneligi.current?.remove();
     aboneligi.current = null;
@@ -394,6 +456,10 @@ export default function RotaDetayEkrani() {
     setKonum(null);
     sonKonum.current = null;
     sonGps.current = null;
+    iz.current = [];
+    sonIslenen.current = null;
+    zamanlamaAcik.current = false;
+    kayitBitir();
     setTumAdimlarAcik(false);
     uyarilanlar.current.clear();
     cizim.current.suruyor?.abort();
@@ -401,6 +467,89 @@ export default function RotaDetayEkrani() {
   }, []);
 
   useEffect(() => takibiDurdur, [takibiDurdur]);
+
+  // Yolda saatleri gerçeğe göre yeniden kurma (zamanlama.ts): yürürken kalan yürüyüşe,
+  // durakta şimdiye, binince gerçek biniş anına göre. Hızlı yürüyüp erken varınca önceki
+  // otobüs, metro erken gelip binilince ondan sonraki saatler.
+  const guncel = useRef({ adimlar, bacaklar, cizgiler });
+  guncel.current = { adimlar, bacaklar, cizgiler };
+  const kalaniZamanla = useCallback(() => {
+    if (!zamanlamaAcik.current) return;
+    const d = durumRef.current;
+    const { adimlar: liste, bacaklar: bl, cizgiler: cl } = guncel.current;
+    const a = d ? liste[d.adim] : undefined;
+    if (!d || !a || d.faz === 'vardi') return;
+    const simdi = Date.now();
+    const bas = a.bacak;
+    let an = simdi;
+    let secenek: { kesin?: boolean; kalanYuruyusMs?: number } = {};
+    if (d.faz === 'icinde') {
+      if (d.binisAn == null) return;
+      an = d.binisAn;
+      secenek = { kesin: true };
+    } else if (d.faz === 'yuru') {
+      // Kalan yürüyüş: çizgi boyunca kalan oran kadar planlanan süre. Hızlı yürüdükçe
+      // kısalır, durağa daha önce varılacağı için daha önceki sefer seçilebilir.
+      const cizgi = cl[a.bacak] ?? [];
+      const k = sonKonum.current;
+      let oran = 1;
+      if (k && cizgi.length > 1) {
+        const yer = cizgiUzerindeYer(k, cizgi);
+        if (yer.toplam > 0) oran = Math.max(0, Math.min(1, 1 - yer.boyunca / yer.toplam));
+      }
+      secenek = { kalanYuruyusMs: oran * (bl[a.bacak]?.duration ?? 0) * 1000 };
+    }
+    setGuzergah((g) => {
+      if (!g) return g;
+      const zaman = bacakZamanlari(g);
+      if (!zaman) return g;
+      const kalkislar: Record<number, SecilenKalkis[]> = {};
+      for (const [anahtar, l] of Object.entries(kalkisListeleriRef.current)) {
+        kalkislar[Number(anahtar)] = l.map((k) => ({ an: (k.serviceDay + k.saniye) * 1000, seferId: k.seferId }));
+      }
+      const yeni = yenidenZamanla(
+        zaman.map((z, i) => ({ ...z, durakPayiMs: rayliMi(g.legs[i]) ? 30_000 : 120_000 })),
+        bas,
+        an,
+        kalkislar,
+        secenek,
+      );
+      const sonuc = zamanlamayiUygula(g, yeni);
+      if (sonuc !== g) {
+        kayitEkle('zamanlama', {
+          bas,
+          an,
+          ...secenek,
+          bacaklar: sonuc.legs.map((b) => [b.start.scheduledTime, b.end.scheduledTime, b.trip?.gtfsId ?? null]),
+        });
+      }
+      return sonuc;
+    });
+  }, []);
+  kalaniZamanlaRef.current = kalaniZamanla;
+
+  // Adım ya da faz değişince (durağa varıldı, binildi, inildi) saatler yeniden kurulur;
+  // kayda da düşer.
+  useEffect(() => {
+    if (!durum) return;
+    kayitEkle('durum', { ...durum });
+    kalaniZamanla();
+  }, [durum?.adim, durum?.faz, durum?.binisAn]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (durum?.kalanDurak != null) kayitEkle('durum', { ...durum });
+  }, [durum?.kalanDurak]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Yürürken ve beklerken düzenli: hızlı yürüdükçe önceki otobüse, otobüs gelmeyince sonrakine.
+  useEffect(() => {
+    if (!takipAcik) return;
+    const z = setInterval(kalaniZamanla, ZAMANLAMA_ARALIGI_MS);
+    return () => clearInterval(z);
+  }, [takipAcik, kalaniZamanla]);
+
+  /** "Bindim" düğmesi: araç konumdan anlaşılmadan geldiyse (yeraltı, kötü GPS). */
+  const bindim = useCallback(() => {
+    kayitEkle('bindim-dugmesi');
+    setDurum((d) => (d ? elleBin(d, adimlar, ozetler, Date.now()) : d));
+  }, [adimlar, ozetler]);
 
   // Takip başlayınca içinde bulunulan bacak kendiliğinden açılır: kullanıcı yoldayken
   // hangi durakta olduğunu görmek için ayrıca dokunmak zorunda kalmasın.
@@ -414,7 +563,15 @@ export default function RotaDetayEkrani() {
   /** Adım adım görünümü açar: ilk adım, aktarmalar için sonraki seferler. */
   const yolculuguAc = () => {
     setTakipAcik(true);
-    setDurum(baslangicDurumu(adimlar));
+    const ilk = baslangicDurumu(adimlar);
+    durumRef.current = ilk;
+    setDurum(ilk);
+    // Şimdi yola çıkılıyorsa saatler şimdiye göre kurulur (aranan saat değil); ileri bir
+    // saatin planına bakılıyorsa dokunulmaz.
+    const planBasi = anOku(guzergah?.start);
+    zamanlamaAcik.current = planBasi != null && Math.abs(planBasi - Date.now()) <= ZAMANLAMA_UFKU_MS;
+    kayitBaslat({ sira, hedef: hedef ?? null, zamanlama: zamanlamaAcik.current, guzergah });
+    kalaniZamanla();
     setGorunen(0);
     setSimdi(Date.now());
     bacaklar.forEach((b, i) => b.transitLeg && seferleriYukle(i));
@@ -429,9 +586,13 @@ export default function RotaDetayEkrani() {
     yolculuguAc();
     // Yol tarifi için en yüksek doğruluk ve sık güncelleme: yürürken dönüşlere 5 m'de
     // bir bakılabilsin. Pil daha çok gider ama yalnız yolculuk sürerken.
+    // distanceInterval 0: iOS dururken de konum yollasın. Yoksa durakta beklerken konum
+    // kesiliyor, uygulama bunu "yeraltına inildi" sanıp tarifeye göre "bindin" diyordu.
+    // Sık gelen konumlar konumuIsle'de seyreltiliyor.
     aboneligi.current = await Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 5, timeInterval: 2000 },
-      (k) => konumuIsleRef.current({ latitude: k.coords.latitude, longitude: k.coords.longitude }, k.coords.accuracy),
+      { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 0, timeInterval: 2000 },
+      (k) =>
+        konumuIsleRef.current({ latitude: k.coords.latitude, longitude: k.coords.longitude }, k.coords.accuracy, k.coords.speed),
     );
   };
 
@@ -561,6 +722,7 @@ export default function RotaDetayEkrani() {
         hedef,
         simdi,
         esdegerHatlar,
+        bindim,
       }
     : null;
 

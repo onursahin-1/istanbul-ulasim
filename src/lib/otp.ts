@@ -186,7 +186,7 @@ export type Bacak = {
   legGeometry: { points: string | null } | null;
   /** Yürüme bacaklarında adım adım yol tarifi; toplu taşımada boş. */
   steps: HamAdim[] | null;
-  trip: { gtfsId: string; pattern: { stops: DurakNoktasi[] | null } | null } | null;
+  trip: { gtfsId: string; pattern: { code?: string | null; stops: DurakNoktasi[] | null } | null } | null;
 };
 
 export type DurakNoktasi = { gtfsId: string; name: string | null; lat: number | null; lon: number | null };
@@ -294,12 +294,17 @@ export async function hatKalkislariGetir(
   hatId: string,
   aralikSaniye = 8 * 3600,
   sinyal?: AbortSignal,
-): Promise<{ saniye: number; serviceDay: number }[]> {
+): Promise<{ saniye: number; serviceDay: number; seferId?: string; desen?: string }[]> {
   type Cevap = { stop: { kalkislar: Kalkis[] | null } | null };
   const veri = await sorgula<Cevap>(HAT_KALKISLARI, { durak: durakId, aralik: aralikSaniye }, sinyal);
   return (veri.stop?.kalkislar ?? [])
     .filter((k) => k.trip?.route.gtfsId === hatId)
-    .map((k) => ({ saniye: k.realtimeDeparture ?? k.scheduledDeparture ?? 0, serviceDay: k.serviceDay ?? 0 }))
+    .map((k) => ({
+      saniye: k.realtimeDeparture ?? k.scheduledDeparture ?? 0,
+      serviceDay: k.serviceDay ?? 0,
+      seferId: k.trip?.gtfsId,
+      desen: k.trip?.pattern?.code,
+    }))
     .filter((k) => k.saniye > 0)
     .sort((a, b) => a.serviceDay + a.saniye - (b.serviceDay + b.saniye));
 }

@@ -73,6 +73,8 @@ export type YolTarifiVerisi = {
   simdi: number;
   /** Bacak sırasına göre aynı duraklar arasında giden öbür hatlar ("141M"). */
   esdegerHatlar?: Record<number, string[]>;
+  /** "Bindim": araç konumdan anlaşılmadan geldiyse (yeraltı, kötü GPS) elle binildi. */
+  bindim?: () => void;
 };
 
 const iso = (b: Bacak, uc: 'start' | 'end') => b[uc].estimated?.time ?? b[uc].scheduledTime;
@@ -503,6 +505,9 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
             ? `Şimdi in: ${baslikYap(b.to.name)}`
             : `${baslikYap(b.to.name)} ${durakSozcugu(b.route?.mode ?? b.mode).de} in`}
         </Text>
+        {v.durum.binisAn != null && (
+          <Text style={s.detay}>{`${baslikYap(b.from.name)} ${durakSozcugu(b.route?.mode ?? b.mode).de} ${saatEkli(Math.round(v.durum.binisAn / 1000))} bindin`}</Text>
+        )}
         <View style={s.buyukSatir}>
           <Text style={s.sayac}>
             {kalan === 0 ? '' : kalan}
@@ -520,6 +525,10 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
 
   const kalkis = an(b, 'start');
   const dk = Math.max(0, Math.round((kalkis - v.simdi) / 60_000));
+  // Düğme bu araç sıradaysa: beklerken ya da hemen önceki yürüyüşteyken (varış anlaşılmadıysa).
+  const bindimGoster =
+    !!v.bindim &&
+    ((v.durum.adim === sira && v.durum.faz === 'bekle') || (v.durum.adim === sira - 1 && v.durum.faz === 'yuru'));
   // Bir saatten uzaksa dakika yerine saat: "590 dk" okunmuyor.
   const uzak = dk >= 60;
   const canli = bacakCanli(b.start.scheduledTime, b.start.estimated?.time);
@@ -577,6 +586,20 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
           <Text style={s.kalin}>{`Otobüs ${kalanYaz(otobus.kalan)}`}</Text>
           {` · konum ${yasYaz(otobus.otobus.yasSn)}`}
         </Text>
+      )}
+      {/* Biniş konumdan anlaşılıyor; yeraltında ya da GPS zayıfken anlaşılamazsa elle. */}
+      {bindimGoster && (
+        <Pressable
+          style={[s.dugme, s.dugmeDolu, { marginTop: 10 }]}
+          onPress={() => {
+            Haptics.selectionAsync().catch(() => {});
+            v.bindim?.();
+          }}
+          accessibilityRole="button"
+          accessibilityHint="Araç geldiyse ve bindiysen yolculuk bu adımdan sürer"
+        >
+          <Text style={[s.dugmeYazi, { color: tema.vurguYazi }]}>{`${b.route?.shortName ?? 'Araç'} geldi, bindim`}</Text>
+        </Pressable>
       )}
       {cizelge}
     </>,

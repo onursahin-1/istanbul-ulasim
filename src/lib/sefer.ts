@@ -4,7 +4,13 @@
 // "her N dakikada bir" diye tanımlı olduğu için tek tek tarifeli saatleri anlamlı değil;
 // bunun yerine duraktan geçen ardışık kalkışların arasındaki farka bakıyoruz.
 
-export type Kalkis = { saniye: number; serviceDay: number };
+export type Kalkis = {
+  saniye: number;
+  serviceDay: number;
+  /** Seferin kimliği ve deseni: yeniden zamanlamada aynı yoldan giden sefer seçilsin. */
+  seferId?: string;
+  desen?: string;
+};
 
 export type SeferBilgisi = {
   /** Ardışık kalkışların ortanca aralığı, dakika. Sıklık çıkarılamadıysa null. */

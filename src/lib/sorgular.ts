@@ -66,7 +66,7 @@ query HatKalkislari($durak: String!, $aralik: Int!) {
       realtimeDeparture
       serviceDay
       headsign
-      trip { gtfsId route { gtfsId shortName } }
+      trip { gtfsId pattern { code } route { gtfsId shortName } }
     }
   }
 }`;
@@ -173,7 +173,7 @@ query RotaPlanla(
           route { ${HAT_ALANLARI} }
           legGeometry { points }
           steps { distance relativeDirection absoluteDirection streetName bogusName stayOn area exit }
-          trip { gtfsId pattern { stops { gtfsId name lat lon } } }
+          trip { gtfsId pattern { code stops { gtfsId name lat lon } } }
         }
       }
     }

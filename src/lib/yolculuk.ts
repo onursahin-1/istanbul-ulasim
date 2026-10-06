@@ -6,12 +6,21 @@
 //
 // Kurallar (yalnız ileri gidilir, konum titremesi geri götürmez):
 //   • Yürüme adımı: bacağın sonuna 50 m kalınca bitti. Sonraki adım araçsa "bekle".
-//   • Bekleme: telefon hattın biniş durağından sonraki bir durağa yaklaşınca "içinde".
-//     (Otobüs hareket etmeden binildiğini ayırt edemeyiz; ilk durak geçilince anlaşılıyor.)
+//   • Bekleme: araç hareket edince "içinde". İki yoldan anlaşılıyor: telefon hattın biniş
+//     durağından sonraki bir durağın dibinde, ya da konum izi hat çizgisi boyunca araç
+//     hızıyla (≥ 4 m/sn; yürüyüş ~1,4) biniş durağından uzaklaşıyor (binisiAlgila). İkincisi
+//     sıradaki durağa varmayı beklemiyor ve kaba konumla (metro istasyonunun Wi-Fi'si,
+//     otobüs içinde 65 m doğruluk) da çalışıyor; biniş anı duraktan ayrılış anı.
+//     Kullanıcı "Bindim" diyerek de geçebilir (elleBin).
 //   • İçinde: en yakın durağa göre kalan durak; iniş durağına varıp oradan 60 m
 //     uzaklaşınca bitti.
 //   • Arada konum gelmemişse (tünel, uyku): telefon sıradaki araç bacağının durakları
 //     üzerindeyse doğrudan o adıma atlanır.
+//   • Konum doğruluğu: 50 m'den iyisi her karara girer. 50–300 m arası "kaba" konum
+//     yalnız ileri götüren kararlara girer ve doğruluğu kadar geride sayılır (temkinli):
+//     binişi ve araçtaki ilerlemeyi gösterir, inişe ve yürüyüşün bitişine karar vermez.
+//     Eskiden 50 m'den kötüsü tamamen atılıyordu; iPhone otobüs içinde ve istasyonda sık
+//     sık 65 m verdiği için yolculuk "başlamamış gibi" kalıyordu.
 //   • Araçta duraklar arası kesirli ilerleme tutuluyor (1.4 = 2. duraktan %40 ileride):
 //     durak listesindeki mavi nokta duraktan durağa kayarak ilerlesin. Taze GPS varsa
 //     konum duraklar çizgisine izdüşürülüyor; yoksa (metro tüneli) ilerleme biniş ve
@@ -20,6 +29,35 @@
 // Bağımlılıksız: React Native'e dokunmuyor, testlerden çağrılabiliyor.
 
 import { cizgiUzerindeYer, cizgiyeUzaklik, mesafeMetre, type Nokta } from './cografya';
+
+/** Bir konum ölçümü. */
+export type KonumOrnegi = {
+  an: number;
+  konum: Nokta;
+  /** Metre; bilinmiyorsa null. */
+  dogruluk: number | null;
+  /** Telefonun ölçtüğü hız, m/sn (Doppler); bilinmiyorsa null. */
+  hiz?: number | null;
+};
+
+/** Bundan iyi doğruluklu konum her karara girer. */
+export const IYI_DOGRULUK_M = 50;
+/** Bundan kötüsü hiçbir karara girmez; arası "kaba": yalnız ileri götürür, temkinli. */
+export const KABA_DOGRULUK_M = 300;
+/** Biniş: hat çizgisi boyunca biniş durağından en az bu kadar uzaklaşılmış olmalı. */
+export const BINIS_ILERLEME_M = 150;
+/** Araç hızı: bundan hızlı ilerleme yürüyüş değil (m/sn, ~14 km/sa; hızlı yürüyüş ~2). */
+export const ARAC_HIZI_ESIGI_MS = 4;
+/** Duraktan ayrılıştan beri ortalama bundan hızlıysa (trafikte duran otobüs dahil) araçtayız. */
+export const ORTALAMA_ARAC_HIZI_MS = 2.5;
+/** Durakta hiç konum yoksa (metro peronu) bu kadar ilerleme tek başına biniş sayılır. */
+export const HIZSIZ_BINIS_M = 450;
+/** Biniş anı geri hesabında aracın varsayılan hızı, m/sn. */
+const VARSAYILAN_ARAC_HIZI_MS = 7;
+/** Raylı sisteme yürürken konum bu kadar süre kesilirse (istasyona inildi) yürüyüş bitti sayılır. */
+export const SINYAL_KAYBI_MS = 60_000;
+/** ...yeter ki son konum istasyona bu kadar yakın olsun. */
+export const ISTASYON_GIRISI_M = 200;
 
 /** Bundan kısa yürüyüşler (aynı duraktaki aktarma, OTP'nin birkaç metrelik bacakları) adım sayılmaz. */
 export const KISA_YURUME_M = 30;
@@ -48,6 +86,10 @@ export type BacakOzeti = {
   /** Biniş ve iniş anı (ms, canlı tahmin varsa o). Konum yokken ilerleme bunlardan. */
   binisMs?: number | null;
   inisMs?: number | null;
+  /** Araç bacağının çizgisi (biniş → iniş): binişi konum izinden anlamak için. */
+  cizgi?: Nokta[];
+  /** Metro, Marmaray, füniküler: istasyon yeraltında, girince konum kesilir. */
+  rayli?: boolean;
 };
 
 export type Faz = 'yuru' | 'bekle' | 'icinde' | 'vardi';
@@ -65,6 +107,8 @@ export type YolculukDurumu = {
    * ikinci duraktan %40 ileride. Yalnız ileri gider. Araçta değilken yok.
    */
   ilerleme?: number;
+  /** Araca binilen an (ms): konumdan, düğmeden ya da tarifeden. Yalnız araçtayken. */
+  binisAn?: number;
 };
 
 /** Bacaklardan adımlar: araç bacaklarının hepsi, kısa olmayan yürüyüşler. */
@@ -128,16 +172,122 @@ export function durakSirasi(ilerleme: number, son: number): number {
 
 /**
  * Telefonun duraklar çizgisindeki kesirli yeri: her iki durak arası düz bir parça
- * sayılıyor, konum en yakın parçaya izdüşürülüyor. Çizgiden DURAK_M'den uzaksa null.
+ * sayılıyor, konum en yakın parçaya izdüşürülüyor. Çizgiden `tolerans`tan uzaksa null.
+ * `pay` metre kadar geride sayılır: kaba konumda (doğruluk 65 m) ileri kaçmasın, çünkü
+ * ilerleme geri gitmiyor.
  */
-export function konumlaIlerleme(duraklar: Nokta[], konum: Nokta): number | null {
-  let enIyi: { sira: number; uzaklik: number } | null = null;
+export function konumlaIlerleme(duraklar: Nokta[], konum: Nokta, pay = 0, tolerans = DURAK_M): number | null {
+  let enIyi: { sira: number; oran: number; uzaklik: number } | null = null;
   for (let k = 0; k + 1 < duraklar.length; k++) {
     const yer = cizgiUzerindeYer(konum, [duraklar[k], duraklar[k + 1]]);
-    const sira = k + (yer.toplam > 0 ? yer.boyunca / yer.toplam : 0);
-    if (!enIyi || yer.uzaklik < enIyi.uzaklik) enIyi = { sira, uzaklik: yer.uzaklik };
+    const oran = yer.toplam > 0 ? yer.boyunca / yer.toplam : 0;
+    if (!enIyi || yer.uzaklik < enIyi.uzaklik) enIyi = { sira: k, oran, uzaklik: yer.uzaklik };
   }
-  return enIyi && enIyi.uzaklik <= DURAK_M ? enIyi.sira : null;
+  if (!enIyi || enIyi.uzaklik > tolerans) return null;
+  if (pay <= 0) return enIyi.sira + enIyi.oran;
+  const boylar = duraklar.slice(1).map((d, k) => mesafeMetre(duraklar[k], d));
+  let metre = boylar.slice(0, enIyi.sira).reduce((t, x) => t + x, 0) + enIyi.oran * boylar[enIyi.sira] - pay;
+  if (metre <= 0) return 0;
+  for (let k = 0; k < boylar.length; k++) {
+    if (metre <= boylar[k]) return k + (boylar[k] > 0 ? metre / boylar[k] : 0);
+    metre -= boylar[k];
+  }
+  return boylar.length;
+}
+
+/** Kaba konum doğruluğu kadar geride sayılır; iyisi olduğu yerde. */
+const temkinPayi = (dogruluk: number | null | undefined) =>
+  dogruluk != null && dogruluk > IYI_DOGRULUK_M ? dogruluk : 0;
+
+type IzNoktasi = { an: number; hiz: number | null; boyunca: number; uzaklik: number; pay: number };
+
+function iziCizgiyeYerlestir(iz: KonumOrnegi[], cizgi: Nokta[]): IzNoktasi[] {
+  return iz
+    .filter((o) => o.dogruluk == null || o.dogruluk <= KABA_DOGRULUK_M)
+    .map((o) => {
+      const yer = cizgiUzerindeYer(o.konum, cizgi);
+      return {
+        an: o.an,
+        hiz: o.hiz != null && o.hiz >= 0 ? o.hiz : null,
+        boyunca: yer.boyunca,
+        uzaklik: yer.uzaklik,
+        pay: temkinPayi(o.dogruluk),
+      };
+    });
+}
+
+/**
+ * İzde araç hızı görüldü mü: art arda iki iyi ölçümde telefonun kendi hızı ≥ 4,5 m/sn,
+ * ya da 10–120 sn arayla çizgi boyunca en az 50 m, ≥ 4 m/sn ilerleme. Kısa aralık ve
+ * en az 50 m şartı GPS titremesini (10–20 m) hız sanmamak için; kaba konumda paylar düşülür.
+ */
+function aracHiziGoruldu(noktalar: IzNoktasi[]): boolean {
+  for (let k = 1; k < noktalar.length; k++) {
+    const a = noktalar[k - 1];
+    const b = noktalar[k];
+    if (!a.pay && !b.pay && (a.hiz ?? 0) >= 4.5 && (b.hiz ?? 0) >= 4.5) return true;
+  }
+  for (let j = 1; j < noktalar.length; j++) {
+    for (let i = Math.max(0, j - 80); i < j; i++) {
+      const sn = (noktalar[j].an - noktalar[i].an) / 1000;
+      if (sn < 10 || sn > 120) continue;
+      const metre = noktalar[j].boyunca - noktalar[i].boyunca - (noktalar[i].pay + noktalar[j].pay) / 2;
+      if (metre >= 50 && metre / sn >= ARAC_HIZI_ESIGI_MS) return true;
+    }
+  }
+  return false;
+}
+
+/** Biniş durağında sayılan yakınlık (çizgi boyunca, metre). */
+const DURAK_YAKINI_M = 40;
+
+/** Biniş durağının dibindeki son konumun izdeki sırası (son konum hariç); yoksa -1. */
+function duraktanAyrilis(noktalar: IzNoktasi[]): number {
+  for (let k = noktalar.length - 2; k >= 0; k--) {
+    const p = noktalar[k];
+    if (p.boyunca - p.pay <= DURAK_YAKINI_M && p.uzaklik <= Math.max(DURAK_M, p.pay + 50)) return k;
+  }
+  return -1;
+}
+
+/**
+ * Konum izinden biniş: son konum hat çizgisinin üstünde (biniş durağından sonra) ve
+ * biniş durağından en az 150 m ilerde mi, oraya araç hızıyla mı gelindi? Öyleyse biniş
+ * anını (duraktan ayrılış) döner, değilse null.
+ *
+ * Hız şartı yürüyüşü ayırıyor: durakta beklerken birkaç yüz metre ilerdeki durağa
+ * yürüyen "bindi" sayılmasın. Durakta hiç konum yoksa (yeraltı peron) yalnız uzaklık.
+ *
+ * @param iz Zaman sıralı konumlar, sonuncusu şimdiki.
+ * @param cizgi Araç bacağının çizgisi, biniş durağından başlar.
+ */
+export function binisiAlgila(iz: KonumOrnegi[], cizgi: Nokta[]): number | null {
+  if (cizgi.length < 2) return null;
+  const noktalar = iziCizgiyeYerlestir(iz, cizgi);
+  const son = noktalar[noktalar.length - 1];
+  if (!son || son.uzaklik > Math.max(DURAK_M, son.pay + 30)) return null;
+  const ilerleme = son.boyunca - son.pay;
+  if (ilerleme < BINIS_ILERLEME_M) return null;
+  const tahmin = son.an - (ilerleme / VARSAYILAN_ARAC_HIZI_MS) * 1000;
+  const k = duraktanAyrilis(noktalar);
+  if (aracHiziGoruldu(k >= 0 ? noktalar.slice(k) : noktalar)) return k >= 0 ? noktalar[k].an : tahmin;
+  if (k < 0) return ilerleme >= HIZSIZ_BINIS_M ? tahmin : null;
+  const ayrilis = noktalar[k];
+  const sn = (son.an - ayrilis.an) / 1000;
+  const ortalama = sn > 0 ? (ilerleme - (ayrilis.boyunca + ayrilis.pay)) / sn : 0;
+  return ortalama >= ORTALAMA_ARAC_HIZI_MS ? ayrilis.an : null;
+}
+
+/** Durak yakınlığıyla anlaşılan binişte biniş anı: izdeki duraktan ayrılış, yoksa geri hesap. */
+function binisAniTahmini(iz: KonumOrnegi[] | undefined, cizgi: Nokta[] | undefined): number | undefined {
+  if (!iz?.length) return undefined;
+  const son = iz[iz.length - 1];
+  if (!cizgi || cizgi.length < 2) return son.an;
+  const noktalar = iziCizgiyeYerlestir(iz, cizgi);
+  const k = duraktanAyrilis(noktalar);
+  if (k >= 0) return noktalar[k].an;
+  const yer = cizgiUzerindeYer(son.konum, cizgi);
+  return son.an - (yer.boyunca / VARSAYILAN_ARAC_HIZI_MS) * 1000;
 }
 
 /**
@@ -168,24 +318,51 @@ function ilerlemeyiYaz(d: YolculukDurumu, yeni: number, son: number): YolculukDu
   return { ...d, ilerleme, kalanDurak: kalan, durakta };
 }
 
+/** durumuIlerlet'e konumla gelen ek bilgi. */
+export type IlerletmeEki = {
+  /** Konumun doğruluğu, metre. Verilmezse iyi sayılır. */
+  dogruluk?: number | null;
+  /** Son birkaç dakikanın konumları (sonuncusu bu konum): binişi hızdan anlamak için. */
+  iz?: KonumOrnegi[];
+};
+
+function icineGir(adim: number, binisAn: number | undefined): YolculukDurumu {
+  return { adim, faz: 'icinde', kalanDurak: null, durakta: false, ...(binisAn != null ? { binisAn } : {}) };
+}
+
 /** Telefonun yeni konumuna göre durumu ilerletir. Durum değişmediyse aynı nesneyi döner. */
 export function durumuIlerlet(
   d: YolculukDurumu,
   konum: Nokta,
   adimlar: Adim[],
   bacaklar: BacakOzeti[],
+  ek: IlerletmeEki = {},
 ): YolculukDurumu {
   if (d.faz === 'vardi' || !adimlar[d.adim]) return d;
+  const dogruluk = ek.dogruluk ?? null;
+  if (dogruluk != null && dogruluk > KABA_DOGRULUK_M) return d;
+  const iyi = dogruluk == null || dogruluk <= IYI_DOGRULUK_M;
+  const pay = temkinPayi(dogruluk);
+  const tolerans = Math.max(DURAK_M, pay + 30);
 
-  // Sıradaki araç adımının (şimdiki de olabilir) biniş sonrası duraklarındaysak oraya atla.
+  // Sıradaki araç adımına (şimdiki de olabilir) binildi mi?
   const bakilacak = adimlar.findIndex((a, i) => i >= d.adim && a.tur === 'arac' && !(i === d.adim && d.faz === 'icinde'));
   if (bakilacak >= 0) {
-    const liste = bacaklar[adimlar[bakilacak].bacak]?.duraklar ?? [];
+    const b = bacaklar[adimlar[bakilacak].bacak];
+    const liste = b?.duraklar ?? [];
+    const son = liste.length - 1;
+    // Biniş durağından sonraki bir durağın dibindeyiz (iyi konum). Konum izi varsa buna
+    // bakılmıyor: sıradaki durağa yürüyen de oraya varıyor, araç olduğunu hız söylüyor.
     const y = enYakinDurak(konum, liste);
-    if (y.sira >= 1 && y.metre <= DURAK_M) {
-      const son = liste.length - 1;
-      const giris: YolculukDurumu = { adim: bakilacak, faz: 'icinde', kalanDurak: null, durakta: false };
-      return ilerlemeyiYaz(giris, konumlaIlerleme(liste, konum) ?? y.sira, son);
+    if (!ek.iz && iyi && y.sira >= 1 && y.metre <= DURAK_M) {
+      return ilerlemeyiYaz(icineGir(bakilacak, binisAniTahmini(ek.iz, b?.cizgi)), konumlaIlerleme(liste, konum) ?? y.sira, son);
+    }
+    // Konum izi hat boyunca araç hızıyla ilerliyor (sıradaki durağa varmayı beklemeden).
+    if (ek.iz && b?.cizgi) {
+      const binisAn = binisiAlgila(ek.iz, b.cizgi);
+      if (binisAn != null) {
+        return ilerlemeyiYaz(icineGir(bakilacak, binisAn), konumlaIlerleme(liste, konum, pay, tolerans) ?? 0, son);
+      }
     }
   }
 
@@ -193,19 +370,34 @@ export function durumuIlerlet(
   if (!bacak) return d;
 
   if (d.faz === 'yuru') {
-    return mesafeMetre(konum, bacak.bitis) <= VARIS_M ? sonrakiAdim(d, adimlar) : d;
+    // Kaba konumda doğruluğu kadar (en çok 150 m) yakınlık yeter: duraktayız ama GPS bilemiyor.
+    const esik = iyi ? VARIS_M : Math.min(pay, 150);
+    return mesafeMetre(konum, bacak.bitis) <= esik ? sonrakiAdim(d, adimlar) : d;
   }
 
   if (d.faz === 'icinde') {
     const son = bacak.duraklar.length - 1;
     const inis = bacak.duraklar[son];
-    if (d.durakta && inis && mesafeMetre(konum, inis) > AYRILMA_M) return sonrakiAdim(d, adimlar);
+    // İniş yalnız iyi konumla: kaba konum araçta giderken de 60 m "uzak" görünebilir.
+    if (iyi && d.durakta && inis && mesafeMetre(konum, inis) > AYRILMA_M) return sonrakiAdim(d, adimlar);
     // İlerleme ve kalan durak yalnız artar/azalır: halka hatlarda ya da GPS kayınca geri gitmesin.
-    const yeni = konumlaIlerleme(bacak.duraklar, konum);
+    const yeni = konumlaIlerleme(bacak.duraklar, konum, pay, tolerans);
     return yeni == null ? d : ilerlemeyiYaz(d, yeni, son);
   }
 
   return d;
+}
+
+/**
+ * Kullanıcı "Bindim" dedi: şimdiki (ya da yürüyüşten sonraki) araç adımında araca
+ * binilmiş sayılır, biniş anı şimdi. Araçta değilken ve sırada araç yoksa değişmez.
+ */
+export function elleBin(d: YolculukDurumu, adimlar: Adim[], bacaklar: BacakOzeti[], simdi: number): YolculukDurumu {
+  if (d.faz === 'vardi' || d.faz === 'icinde') return d;
+  const sira = adimlar[d.adim]?.tur === 'arac' ? d.adim : adimlar[d.adim + 1]?.tur === 'arac' ? d.adim + 1 : -1;
+  if (sira < 0) return d;
+  const son = Math.max(0, (bacaklar[adimlar[sira].bacak]?.duraklar.length ?? 1) - 1);
+  return ilerlemeyiYaz(icineGir(sira, simdi), 0, son);
 }
 
 /** GPS bundan eskiyse "yok" sayılır (metro tüneli); ilerleme saatten tahmin edilir. */
@@ -229,9 +421,17 @@ export function durumuZamanla(
   simdi: number,
   adimlar: Adim[],
   bacaklar: BacakOzeti[],
-  gps: { an: number; dogruluk?: number | null } | null,
+  gps: { an: number; dogruluk?: number | null; konum?: Nokta | null } | null,
 ): YolculukDurumu {
   const a = adimlar[d.adim];
+  // Metroya yürürken istasyona inildi: konum kesildi, son konum istasyonun yanındaydı.
+  if (a?.tur === 'yuru' && d.faz === 'yuru') {
+    const sonraki = adimlar[d.adim + 1];
+    const bitis = bacaklar[a.bacak]?.bitis;
+    if (sonraki?.tur !== 'arac' || !bacaklar[sonraki.bacak]?.rayli || !gps?.konum || !bitis) return d;
+    if (simdi - gps.an < SINYAL_KAYBI_MS || mesafeMetre(gps.konum, bitis) > ISTASYON_GIRISI_M) return d;
+    return sonrakiAdim(d, adimlar);
+  }
   if (!a || a.tur !== 'arac' || (d.faz !== 'bekle' && d.faz !== 'icinde')) return d;
   const b = bacaklar[a.bacak];
   if (!b || b.binisMs == null || b.inisMs == null || b.duraklar.length < 2) return d;
@@ -239,9 +439,13 @@ export function durumuZamanla(
   const gpsTaze =
     gps != null && simdi - gps.an <= GPS_TAZE_MS && (gps.dogruluk == null || gps.dogruluk <= GPS_TAZE_DOGRULUK_M);
   if (gpsTaze) return d;
+  // Araçtayken kaba konum da geliyorsa (otobüs içi 65 m) ilerlemeyi o belirler: saat,
+  // trafikte bekleyen otobüsü ileri götürüp yanlış durakta "indin" diyebilir.
+  const kabaTaze = gps != null && simdi - gps.an <= GPS_TAZE_MS && (gps.dogruluk == null || gps.dogruluk <= KABA_DOGRULUK_M);
+  if (d.faz === 'icinde' && kabaTaze) return d;
   if (d.faz === 'bekle') {
     if (simdi < b.binisMs + KALKIS_PAYI_MS) return d;
-    const giris: YolculukDurumu = { ...d, faz: 'icinde', kalanDurak: null, durakta: false };
+    const giris: YolculukDurumu = { ...d, faz: 'icinde', kalanDurak: null, durakta: false, binisAn: b.binisMs };
     return ilerlemeyiYaz(giris, zamanlaIlerleme(b.duraklar, b.binisMs, b.inisMs, simdi), son);
   }
   if (d.durakta) return simdi > b.inisMs + INIS_PAYI_MS ? sonrakiAdim(d, adimlar) : d;

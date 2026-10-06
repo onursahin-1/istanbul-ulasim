@@ -23,12 +23,13 @@
 //   /sefer-guncellemeleri  GTFS-RT TripUpdate       → OTP STOP_TIME_UPDATER
 //   /duyurular             İETT hat duyuruları, JSON → uygulama
 //   POST /ilgi             uygulamanın baktığı hatlar; hat taraması onları öne alır
+//   POST /yolculuk-kaydi   geliştirme: yolculuk takibinin konum ve adım kaydı → kayit/yolculuklar/
 //   /durum                 insan için JSON özet (varış doğruluğu ölçümü `kalite`de)
 //
 // Doğruluk ölçümü: kayit/kalite-YYYY-MM-DD.json, özet için `node kalite-rapor.mjs`.
 
 import { createServer } from 'node:http';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -315,6 +316,29 @@ function ilgiAl(istek, cevap) {
   });
 }
 
+// Geliştirme: uygulamanın yolculuk takibi kaydı. Her olay bir satır; dosya yolculuk başına.
+function yolculukKaydiAl(istek, cevap) {
+  let govde = '';
+  istek.setEncoding('utf8');
+  istek.on('data', (parca) => {
+    govde += parca;
+    if (govde.length > 4_000_000) istek.destroy();
+  });
+  istek.on('end', () => {
+    try {
+      const { kimlik, olaylar } = JSON.parse(govde || '{}');
+      if (typeof kimlik !== 'string' || !/^[0-9-]{10,24}$/.test(kimlik) || !Array.isArray(olaylar)) throw new Error();
+      const klasor = join(KAYIT_KLASORU, 'yolculuklar');
+      mkdirSync(klasor, { recursive: true });
+      appendFileSync(join(klasor, `${kimlik}.jsonl`), olaylar.map((o) => JSON.stringify(o)).join('\n') + '\n');
+      yanitla(cevap, Buffer.from(JSON.stringify({ kabul: olaylar.length })), 'application/json; charset=utf-8');
+    } catch {
+      cevap.writeHead(400);
+      cevap.end();
+    }
+  });
+}
+
 function yanitla(cevap, govde, tur) {
   cevap.writeHead(200, { 'Content-Type': tur, 'Content-Length': govde.length, 'Cache-Control': 'no-store' });
   cevap.end(govde);
@@ -326,6 +350,7 @@ createServer((istek, cevap) => {
   if (yol === '/arac-konumlari') return yanitla(cevap, bayat ? BOS_KONUM() : konumlar, 'application/x-protobuf');
   if (yol === '/sefer-guncellemeleri') return yanitla(cevap, bayat ? BOS_GECIKME() : gecikmeler, 'application/x-protobuf');
   if (yol === '/ilgi' && istek.method === 'POST') return ilgiAl(istek, cevap);
+  if (yol === '/yolculuk-kaydi' && istek.method === 'POST') return yolculukKaydiAl(istek, cevap);
   if (yol === '/duyurular') {
     return yanitla(cevap, Buffer.from(JSON.stringify(duyuruListesi)), 'application/json; charset=utf-8');
   }
