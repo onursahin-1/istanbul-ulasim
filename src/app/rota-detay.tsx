@@ -162,6 +162,8 @@ export default function RotaDetayEkrani() {
   const sonSinyalKaydi = useRef(0);
   const [konum, setKonum] = useState<Nokta | null>(null);
   const [acikBacaklar, setAcikBacaklar] = useState<Record<number, boolean>>({});
+  // Yolculuğun başladığı an ve o anki planın varışı: varış kartında "plandan 4 dk erken".
+  const [yolculukOzeti, setYolculukOzeti] = useState<{ baslangic: number; planliVaris: number | null } | null>(null);
   // Araç bacaklarının biniş durağından bütün kalkışlar (her hat) ve seferin durak saatleri.
   const [durakKalkislari, setDurakKalkislari] = useState<Record<number, DurakKalkisi[]>>({});
   const [seferSaatleri, setSeferSaatleri] = useState<Record<number, Map<string, number>>>({});
@@ -891,6 +893,7 @@ export default function RotaDetayEkrani() {
   /** Adım adım görünümü açar: ilk adım, aktarmalar için sonraki seferler. */
   const yolculuguAc = () => {
     setTakipAcik(true);
+    setYolculukOzeti({ baslangic: Date.now(), planliVaris: anOku(guzergah?.end) });
     const ilk = baslangicDurumu(adimlar);
     durumRef.current = ilk;
     setDurum(ilk);
@@ -1061,6 +1064,7 @@ export default function RotaDetayEkrani() {
         oranlar,
         paylas,
         otobusIzle,
+        yolculukOzeti: yolculukOzeti ?? undefined,
         izlenen: izlenen ? { bacak: izlenen.bacak, seferId: izlenen.seferId } : null,
         izlenenDurum:
           izlenenOtobus && typeof izlenenOtobus === 'object'
