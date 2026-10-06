@@ -195,7 +195,8 @@ export default function RotaDetayEkrani() {
         duraklar: duraklar[i].map((d) => ({ latitude: d.lat, longitude: d.lon })),
         binisMs: anOku(b.start.estimated?.time ?? b.start.scheduledTime),
         inisMs: anOku(b.end.estimated?.time ?? b.end.scheduledTime),
-        ...(b.transitLeg ? { cizgi: cizgiler[i], rayli: rayliMi(b) } : {}),
+        cizgi: cizgiler[i],
+        ...(b.transitLeg ? { rayli: rayliMi(b) } : {}),
       })),
     [bacaklar, duraklar, cizgiler],
   );

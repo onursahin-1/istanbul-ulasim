@@ -283,8 +283,14 @@ describe('durumuZamanla', () => {
   it('taze ve iyi konum varken karışmaz (durakta bekleyen metroyu kaçırmış olabilir)', () => {
     const gps = { an: t0 + KALKIS_PAYI_MS - 5_000, dogruluk: 10 };
     assert.equal(durumuZamanla(bekle, t0 + KALKIS_PAYI_MS + 1, ADIMLAR, zamanli, gps), bekle);
-    const kotu = { ...gps, dogruluk: 80 };
-    assert.equal(durumuZamanla(bekle, t0 + KALKIS_PAYI_MS + 1, ADIMLAR, zamanli, kotu).faz, 'icinde');
+    // Kaba konum da gelmeye devam ediyorsa (bina içi) saat "bindin" demez; konum kararı verir.
+    const kaba = { ...gps, dogruluk: 80 };
+    assert.equal(durumuZamanla(bekle, t0 + KALKIS_PAYI_MS + 1, ADIMLAR, zamanli, kaba), bekle);
+    // Konum kesildi: durağın yanında kesildiyse binilmiş sayılır, uzakta kesildiyse sayılmaz.
+    const kesik = { an: t0 - 60_000, dogruluk: 10, konum: n(0) };
+    assert.equal(durumuZamanla(bekle, t0 + KALKIS_PAYI_MS + 1, ADIMLAR, zamanli, kesik).faz, 'icinde');
+    const uzakta = { ...kesik, konum: n(-0.01) };
+    assert.equal(durumuZamanla(bekle, t0 + KALKIS_PAYI_MS + 1, ADIMLAR, zamanli, uzakta), bekle);
   });
 
   it('inişe varınca durakta; konum hiç gelmezse bir süre sonra sonraki adıma geçer', () => {

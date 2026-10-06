@@ -59,7 +59,8 @@ function ozetler(bacaklar: Bacak[]): BacakOzeti[] {
       duraklar,
       binisMs: anOku(b.start.estimated?.time ?? b.start.scheduledTime),
       inisMs: anOku(b.end.estimated?.time ?? b.end.scheduledTime),
-      ...(b.transitLeg ? { cizgi: cizgi.length > 1 ? cizgi : duraklar, rayli: RAYLI.has((b.route?.mode ?? b.mode ?? '').toUpperCase()) } : {}),
+      cizgi: cizgi.length > 1 ? cizgi : duraklar,
+      ...(b.transitLeg ? { rayli: RAYLI.has((b.route?.mode ?? b.mode ?? '').toUpperCase()) } : {}),
     };
   });
 }

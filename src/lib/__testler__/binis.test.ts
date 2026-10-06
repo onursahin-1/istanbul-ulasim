@@ -107,12 +107,27 @@ describe('binisiAlgila', () => {
     assert.equal(d.faz, 'icinde');
   });
 
-  it('metro: peronda hiç konum yok, sonraki istasyonda kaba konum gelince anlar', () => {
+  it('metro: istasyon girişinden sonra konum yok, sonraki istasyonda kaba konum gelince anlar', () => {
+    // Giriş istasyonun 150 m yanında (hattın yanında değil); 4 dk sonra 1 km ilerde kaba konum.
+    const giris: KonumOrnegi = { an: 1_760_000, konum: n(0, 29.0018), dogruluk: 10 };
     const istasyon: KonumOrnegi = { an: 2_000_000, konum: n(0.009), dogruluk: 100 };
-    assert.ok(binisiAlgila([istasyon], CIZGI)! < 2_000_000, 'biniş anı geri hesap');
-    const { d } = oynat(BEKLE, [istasyon]);
+    assert.equal(binisiAlgila([giris, istasyon], CIZGI), 1_760_000, 'biniş anı girişte görülen son an');
+    const { d } = oynat(BEKLE, [giris, istasyon]);
     assert.equal(d.faz, 'icinde');
     assert.ok(d.kalanDurak! >= 1, 'kaba konum doğruluğu kadar geride sayılır');
+  });
+
+  it('hattın yanında oturan, yolculuğu evden başlatınca binmiş sayılmaz (videodaki hata)', () => {
+    // Ev, biniş istasyonundan 700 m ilerde hattın 60 m yanında; bina içi konum 30–200 m sıçrıyor.
+    const ev = (k: number, dogruluk: number, sapma: number) => ({
+      an: 3_000_000 + k * 5_000,
+      konum: n(0.0063 + sapma, 29.0007),
+      dogruluk,
+    });
+    const liste = [ev(0, 30, 0), ev(1, 200, 0.0015), ev(2, 120, -0.001), ev(3, 65, 0.0008), ev(4, 200, 0.002)];
+    const { d } = oynat({ adim: 0, faz: 'yuru', kalanDurak: null, durakta: false }, liste);
+    assert.equal(d.adim, 0);
+    assert.equal(d.faz, 'yuru');
   });
 
   it('hattın çizgisinden uzaktaki hızlı hareket (başka yoldaki taksi) biniş değil', () => {
@@ -158,6 +173,22 @@ describe('kaba konumla ilerleme', () => {
 
   it('300 m\'den kötü konum hiçbir şeyi değiştirmez', () => {
     assert.equal(durumuIlerlet(BEKLE, n(0.009), ADIMLAR, BACAKLAR, { dogruluk: 1200 }), BEKLE);
+  });
+});
+
+describe('yürüyüşün sonu yol boyunca', () => {
+  // İstasyon evin 40 m yanında ama giriş otoyolun öbür yakasında: 880 m dolaşan yürüyüş.
+  const yol = [n(0.0004), n(0.0004, 29.004), n(-0.002, 29.004), n(-0.002), n(0)];
+  const bacaklar: BacakOzeti[] = [{ ...BACAKLAR[0], cizgi: yol }, BACAKLAR[1], BACAKLAR[2]];
+  const yuru: YolculukDurumu = { adim: 0, faz: 'yuru', kalanDurak: null, durakta: false };
+
+  it('yürüyüşün başında, istasyona kuş uçuşu 40 m iken varılmış sayılmaz', () => {
+    assert.equal(durumuIlerlet(yuru, n(0.0004), ADIMLAR, bacaklar, { dogruluk: 10 }), yuru);
+    assert.equal(durumuIlerlet(yuru, n(0.0004), ADIMLAR, bacaklar, { dogruluk: 90 }), yuru);
+  });
+
+  it('yolun sonuna gelince varılmış sayılır', () => {
+    assert.equal(durumuIlerlet(yuru, n(-0.0002), ADIMLAR, bacaklar, { dogruluk: 10 }).faz, 'bekle');
   });
 });
 
