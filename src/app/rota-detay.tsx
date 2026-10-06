@@ -12,6 +12,8 @@ import { Pressable } from '@/components/dokun';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useReducedMotion } from 'react-native-reanimated';
+
 import { AltYaprak } from '@/components/alt-yaprak';
 import { RotaCizelgesi, RotaOzeti } from '@/components/rota-cizelgesi';
 import {
@@ -50,6 +52,7 @@ import {
   yuruyusPlanla,
   type Bacak,
 } from '@/lib/otp';
+import { cizgileriKes } from '@/lib/hareket';
 import { guzergahGetir } from '@/lib/secim';
 import {
   aracKalkisiMi,
@@ -177,6 +180,14 @@ export default function RotaDetayEkrani() {
 
   const bacaklar = useMemo(() => guzergah?.legs ?? [], [guzergah]);
   const cizgiler = useMemo(() => bacaklar.map(bacakNoktalari), [bacaklar]);
+  const hareketAzalt = useReducedMotion();
+  const [rotaCizimi, setRotaCizimi] = useState(() => (hareketAzalt ? 1 : 0));
+  const [isaretSayisi, setIsaretSayisi] = useState(() => (hareketAzalt ? 99 : 0));
+  // Çizim yavaşlayarak biter (ease-out).
+  const gorunenCizgiler = useMemo(
+    () => cizgileriKes(cizgiler, 1 - (1 - rotaCizimi) ** 2),
+    [cizgiler, rotaCizimi],
+  );
   const duraklar = useMemo(() => bacaklar.map((b) => (b.transitLeg ? bacakDuraklari(b) : [])), [bacaklar]);
   // Rota listesinden gelen eşdeğer hatlar ("141M" aynı duraklar arasında gidiyor), bacak
   // sırasıyla. Yolcu bindiği hattı değiştirebildiği için (97M yerine 141M) bütün hatlar
@@ -1032,6 +1043,38 @@ export default function RotaDetayEkrani() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [yaprakAlani, altCubuk, yaprakBoyu]);
 
+  // Rota detayı açılırken çizgi baştan sona çizilerek gelir (0,7 sn), ardından başlangıç,
+  // aktarma ve varış işaretleri sırayla belirir. Yalnız ilk açılışta; "hareketi azalt"
+  // açıksa hepsi birden.
+  const aktarmaIsaretleri = bacaklar.slice(0, -1).filter((b) => b.to.stop).length;
+  const cizimBasladi = useRef(false);
+  const cizimiBaslat = () => {
+    if (cizimBasladi.current) return;
+    cizimBasladi.current = true;
+    if (hareketAzalt) {
+      setRotaCizimi(1);
+      setIsaretSayisi(99);
+      return;
+    }
+    const bas = Date.now();
+    const kare = () => {
+      const t = Math.min(1, (Date.now() - bas) / ROTA_CIZIM_MS);
+      setRotaCizimi(t);
+      if (t < 1) {
+        requestAnimationFrame(kare);
+        return;
+      }
+      let k = 0;
+      const isaret = () => {
+        k += 1;
+        setIsaretSayisi(k);
+        if (k < aktarmaIsaretleri + 2) setTimeout(isaret, 90);
+      };
+      setTimeout(isaret, 80);
+    };
+    requestAnimationFrame(kare);
+  };
+
   const haritayiSigdir = (animated = false) => {
     haritaHazir.current = true;
     const tum = cizgiler.flat();
@@ -1091,34 +1134,43 @@ export default function RotaDetayEkrani() {
         ref={harita}
         style={StyleSheet.absoluteFill}
         userInterfaceStyle={tema.haritaStili}
-        onMapReady={() => haritayiSigdir()}
+        onMapReady={() => {
+          haritayiSigdir();
+          cizimiBaslat();
+        }}
         showsUserLocation={takipAcik}
         showsPointsOfInterests={false}
         toolbarEnabled={false}
         onPanDrag={() => (haritaElle.current = true)}
       >
-        {bacaklar.map((b, i) => (
-          <Polyline
-            key={i}
-            coordinates={cizgiler[i]}
-            strokeColor={soluklastir(b.transitLeg ? haritaRengi(b.route, tema) : tema.yurume, odakBacak != null && odakBacak !== i)}
-            strokeWidth={b.transitLeg ? (odakBacak === i ? 7 : 5) : 3}
-            zIndex={odakBacak === i ? 2 : 1}
-            lineDashPattern={b.transitLeg ? undefined : [2, 6]}
-          />
-        ))}
+        {bacaklar.map((b, i) =>
+          (gorunenCizgiler[i]?.length ?? 0) < 2 ? null : (
+            <Polyline
+              key={i}
+              coordinates={gorunenCizgiler[i]}
+              strokeColor={soluklastir(b.transitLeg ? haritaRengi(b.route, tema) : tema.yurume, odakBacak != null && odakBacak !== i)}
+              strokeWidth={b.transitLeg ? (odakBacak === i ? 7 : 5) : 3}
+              zIndex={odakBacak === i ? 2 : 1}
+              lineDashPattern={b.transitLeg ? undefined : [2, 6]}
+            />
+          ),
+        )}
         {bacaklar
           .slice(0, -1)
           .filter((b) => b.to.stop)
-          .map((b, i) => (
+          .map((b, i) =>
+            isaretSayisi < i + 2 ? null : (
             <Marker
               key={`aktarma-${i}`}
               coordinate={{ latitude: b.to.lat, longitude: b.to.lon }}
               title={baslikYap(b.to.name)}
               pinColor={b.transitLeg ? haritaRengi(b.route, tema) : tema.yurume}
             />
-          ))}
-        <Marker coordinate={{ latitude: bacaklar[0].from.lat, longitude: bacaklar[0].from.lon }} title="Başlangıç" pinColor={tema.vurgu} />
+            ),
+          )}
+        {isaretSayisi >= 1 && (
+          <Marker coordinate={{ latitude: bacaklar[0].from.lat, longitude: bacaklar[0].from.lon }} title="Başlangıç" pinColor={tema.vurgu} />
+        )}
         {Object.entries(binisOtobusleri).map(([i, { otobus, kalan }]) => {
           const b = bacaklar[Number(i)];
           // Bineceğin otobüs biniş durağına doğru geliyor: seferin durakları güzergâh yerine.
@@ -1134,6 +1186,12 @@ export default function RotaDetayEkrani() {
               renk={haritaRengi(b?.route, tema)}
               baslik={`${b?.route?.shortName ?? 'Otobüs'} · ${kalanYaz(kalan)}`}
               aciklama={`Konum ${yasYaz(otobus.yasSn)}`}
+              izlenen={
+                izlenen?.bacak === Number(i) &&
+                !!izlenenOtobus &&
+                typeof izlenenOtobus === 'object' &&
+                izlenenOtobus.otobus.kimlik === otobus.kimlik
+              }
             />
           );
         })}
@@ -1150,13 +1208,16 @@ export default function RotaDetayEkrani() {
               renk={haritaRengi(bacaklar[izlenen.bacak]?.route, tema)}
               baslik={`${izlenen.kisaAd} · ${kalanYaz(izlenenOtobus.kalan)}`}
               aciklama={`Konum ${yasYaz(izlenenOtobus.otobus.yasSn)}`}
+              izlenen
             />
           )}
-        <Marker
-          coordinate={{ latitude: bacaklar[bacaklar.length - 1].to.lat, longitude: bacaklar[bacaklar.length - 1].to.lon }}
-          title={hedef ? baslikYap(hedef) : 'Varış'}
-          pinColor={tema.yazi}
-        />
+        {isaretSayisi >= aktarmaIsaretleri + 2 && (
+          <Marker
+            coordinate={{ latitude: bacaklar[bacaklar.length - 1].to.lat, longitude: bacaklar[bacaklar.length - 1].to.lon }}
+            title={hedef ? baslikYap(hedef) : 'Varış'}
+            pinColor={tema.yazi}
+          />
+        )}
       </MapView>
 
       <View style={[s.geri, { top: kenar.top + 8 }]}>
@@ -1286,6 +1347,9 @@ export default function RotaDetayEkrani() {
     </View>
   );
 }
+
+/** Rotanın çizilerek açılma süresi (ms). */
+const ROTA_CIZIM_MS = 700;
 
 /** Odaklanılmayan bacağın çizgisi: aynı renk, saydam. */
 function soluklastir(renk: string, soluk: boolean): string {
