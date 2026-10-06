@@ -289,6 +289,9 @@ export function HatRozeti({
   );
 }
 
+/** Bundan kısa yürüyüşün dakikası bacak zincirinde yazılmaz. */
+export const KISA_YURUYUS_DK = 4;
+
 /** Bir güzergâhın bacaklarını "yürü 3 › 8A › 34G" biçiminde sıralar. */
 export function BacakZinciri({
   bacaklar,
@@ -312,9 +315,15 @@ export function BacakZinciri({
             {b.transitLeg ? (
               <HatRozeti hat={b.route} ekHatlar={ek} />
             ) : (
-              <View style={stil.yuru}>
+              <View
+                style={stil.yuru}
+                accessibilityLabel={`${Math.max(1, Math.round((b.duration ?? 0) / 60))} dakika yürüme`}
+              >
                 <Ikon ad="walk" boyut={15} renkKodu={tema.soluk} />
-                <Text style={[stil.yuruYazi, { color: tema.soluk }]}>{Math.round((b.duration ?? 0) / 60)}</Text>
+                {/* Kısa yürüyüşte (4 dk'dan az) dakika yazılmaz: simge yeter, zincir sadeleşir. */}
+                {Math.round((b.duration ?? 0) / 60) >= KISA_YURUYUS_DK && (
+                  <Text style={[stil.yuruYazi, { color: tema.soluk }]}>{Math.round((b.duration ?? 0) / 60)}</Text>
+                )}
               </View>
             )}
           </View>
