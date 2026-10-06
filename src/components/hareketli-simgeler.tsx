@@ -100,31 +100,36 @@ function Parcacik({ aci, uzaklik, renk, p }: { aci: number; uzaklik: number; ren
   return <Animated.View pointerEvents="none" style={[stil.parcacik, { backgroundColor: renk }, st]} />;
 }
 
-/** Alt çubuk simgesi: seçilince dolu hâli yaylı bir zıplamayla gelir. */
+/**
+ * Alt çubuk simgesi: seçiliyse dolu. Sekmeye basılınca (`tetik` artınca) yaylı zıplar.
+ * Sekme çubuğu seçili ve seçisiz iki kopyayı üst üste çizip saydamlıkla değiştirdiği için
+ * zıplama `secili`ye değil basışa bağlı; iki kopya birlikte zıplar.
+ */
 export function SekmeSimgesi({
   ad,
   doluAd,
   secili,
   renk,
   boyut,
+  tetik,
 }: {
   ad: IkonAdi;
   doluAd: IkonAdi;
   secili: boolean;
   renk: ColorValue;
   boyut: number;
+  tetik: number;
 }) {
   const azalt = useReducedMotion();
-  const degisim = useDegisim(secili);
   const olcek = useSharedValue(1);
   useEffect(() => {
-    if (degisim.n === 0 || !degisim.deger || azalt) return;
+    if (tetik === 0 || azalt) return;
     olcek.value = withSequence(
       withTiming(0.8, { duration: 90 }),
       withTiming(1.18, { duration: 140, easing: Easing.out(Easing.quad) }),
       withSpring(1, { damping: 10, stiffness: 260 }),
     );
-  }, [degisim.n, degisim.deger, azalt, olcek]);
+  }, [tetik, azalt, olcek]);
   const st = useAnimatedStyle(() => ({ transform: [{ scale: olcek.value }] }));
   return (
     <Animated.View style={st}>
