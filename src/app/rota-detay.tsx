@@ -7,7 +7,7 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as Location from 'expo-location';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Alert, Share, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Pressable } from '@/components/dokun';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -39,14 +39,18 @@ import {
 } from '@/lib/arac-konum';
 import {
   bacakDuraklari,
-  hatKalkislariGetir,
+  durakKalkislariGetir,
+  seferDeseniGetir,
+  seferSaatleriGetir,
+  type DurakKalkisi,
   kopruyeIlgiBildir,
   seferAraclariGetir,
   yuruyusPlanla,
   type Bacak,
 } from '@/lib/otp';
 import { guzergahGetir } from '@/lib/secim';
-import { seferBilgisi, sikliktanYazi, type Kalkis, type SeferBilgisi } from '@/lib/sefer';
+import { beklemeSecenekleri, binilenHatTahmini, durakOranlari, paylasimMetni, type BeklemeSecenegi } from '@/lib/bekleme';
+import { seferBilgisi, sikliktanYazi, type SeferBilgisi } from '@/lib/sefer';
 import { aracAdi, baslikYap, haritaRengi, hatEtiketi, hatRengi, useTema, type Tema } from '@/lib/tema';
 import { OZEL_GUNLER } from '@/lib/ozel-gun-verisi';
 import { TARIFE_TARIHI, UCRET_ADLARI, ucretKisa, ucretYaz, yolculukUcreti } from '@/lib/ucret';
@@ -86,6 +90,13 @@ const ZAMANLAMA_ARALIGI_MS = 20_000;
 /** Raylı (yeraltı, sık sefer): durakta tarife payı kısa; otobüs tarifesi ara duraklarda tahmin, payı uzun. */
 const RAYLI_MODLAR = new Set(['SUBWAY', 'RAIL', 'FUNICULAR', 'MONORAIL', 'TRAM', 'CABLE_CAR', 'GONDOLA']);
 const rayliMi = (b?: Bacak) => RAYLI_MODLAR.has((b?.route?.mode ?? b?.mode ?? '').toUpperCase());
+
+/** Bacağın kendi hattının (aynı desen) kalkışları: yeniden zamanlama ve sefer sıklığı için. */
+function anaHatKalkislari(b: Bacak | undefined, liste: DurakKalkisi[] | undefined): DurakKalkisi[] {
+  if (!b || !liste) return [];
+  const desen = b.trip?.pattern?.code;
+  return liste.filter((k) => k.hatId === b.route?.gtfsId && (!desen || !k.desen || k.desen === desen));
+}
 
 function anOku(iso?: string | null): number | null {
   const an = Date.parse(iso ?? '');
@@ -135,7 +146,9 @@ export default function RotaDetayEkrani() {
   const sonSinyalKaydi = useRef(0);
   const [konum, setKonum] = useState<Nokta | null>(null);
   const [acikBacaklar, setAcikBacaklar] = useState<Record<number, boolean>>({});
-  const [kalkisListeleri, setKalkisListeleri] = useState<Record<number, Kalkis[]>>({});
+  // Araç bacaklarının biniş durağından bütün kalkışlar (her hat) ve seferin durak saatleri.
+  const [durakKalkislari, setDurakKalkislari] = useState<Record<number, DurakKalkisi[]>>({});
+  const [seferSaatleri, setSeferSaatleri] = useState<Record<number, Map<string, number>>>({});
   const [hatirlatAcik, setHatirlatAcik] = useState(false);
   const { hatirlaticilar, yenile: hatirlaticilariYenile } = useHatirlaticilar();
   const { ucretTuru, ekranAcik, sesliTarif, sesCinsiyeti, rotaSecenekleri } = useKayitlar();
@@ -147,18 +160,30 @@ export default function RotaDetayEkrani() {
   const bacaklar = useMemo(() => guzergah?.legs ?? [], [guzergah]);
   const cizgiler = useMemo(() => bacaklar.map(bacakNoktalari), [bacaklar]);
   const duraklar = useMemo(() => bacaklar.map((b) => (b.transitLeg ? bacakDuraklari(b) : [])), [bacaklar]);
-  // Rota listesinden gelen eşdeğer hatlar ("141M" aynı duraklar arasında gidiyor), bacak sırasıyla.
-  const esdegerHatlar = useMemo(() => {
+  // Rota listesinden gelen eşdeğer hatlar ("141M" aynı duraklar arasında gidiyor), bacak
+  // sırasıyla. Yolcu bindiği hattı değiştirebildiği için (97M yerine 141M) bütün hatlar
+  // aranan güzergâhın hattıyla birlikte tutulur; "öbürleri" o an binilen hat dışındakiler.
+  const ilkHatlar = useRef((guzergah?.legs ?? []).map((b) => b.route?.shortName ?? ''));
+  const tumHatlar = useMemo(() => {
     const parcalar = (esdeger ?? '').split('|');
     const tablo: Record<number, string[]> = {};
     let arac = 0;
-    bacaklar.forEach((b, i) => {
+    (guzergah?.legs ?? []).forEach((b, i) => {
       if (!b.transitLeg) return;
-      const liste = (parcalar[arac++] ?? '').split(',').filter(Boolean);
-      if (liste.length) tablo[i] = liste;
+      const ek = (parcalar[arac++] ?? '').split(',').filter(Boolean);
+      tablo[i] = [...new Set([ilkHatlar.current[i], ...ek].filter(Boolean))];
     });
     return tablo;
-  }, [esdeger, bacaklar]);
+  }, [esdeger]); // eslint-disable-line react-hooks/exhaustive-deps
+  const esdegerHatlar = useMemo(() => {
+    const tablo: Record<number, string[]> = {};
+    for (const [anahtar, liste] of Object.entries(tumHatlar)) {
+      const i = Number(anahtar);
+      const obur = liste.filter((h) => h !== bacaklar[i]?.route?.shortName);
+      if (obur.length) tablo[i] = obur;
+    }
+    return tablo;
+  }, [tumHatlar, bacaklar]);
 
   // Adım adım görünüm için: hangi bacak hangi adım, konumla ilerlemek için bacakların özeti.
   const ozetler = useMemo<BacakOzeti[]>(
@@ -188,12 +213,43 @@ export default function RotaDetayEkrani() {
   // kalkış listesinden her seferinde güncel biniş saatine göre.
   const seferler = useMemo(() => {
     const tablo: Record<number, SeferBilgisi> = {};
-    for (const [anahtar, liste] of Object.entries(kalkisListeleri)) {
+    for (const [anahtar, liste] of Object.entries(durakKalkislari)) {
       const b = bacaklar[Number(anahtar)];
-      if (b) tablo[Number(anahtar)] = seferBilgisi(liste, isodanSaniye(b.start.estimated?.time ?? b.start.scheduledTime));
+      if (b) {
+        tablo[Number(anahtar)] = seferBilgisi(
+          anaHatKalkislari(b, liste),
+          isodanSaniye(b.start.estimated?.time ?? b.start.scheduledTime),
+        );
+      }
     }
     return tablo;
-  }, [kalkisListeleri, bacaklar]);
+  }, [durakKalkislari, bacaklar]);
+
+  // Bekleme kartının satırları: aynı yoldaki her hat, sıradaki kalkışlarıyla.
+  const secenekler = useMemo(() => {
+    const tablo: Record<number, BeklemeSecenegi[]> = {};
+    for (const [anahtar, liste] of Object.entries(durakKalkislari)) {
+      const i = Number(anahtar);
+      const b = bacaklar[i];
+      const ana = b?.route?.shortName;
+      if (!b || !ana) continue;
+      tablo[i] = beklemeSecenekleri(liste, [ana, ...(esdegerHatlar[i] ?? [])], simdi, b.trip?.pattern?.code);
+    }
+    return tablo;
+  }, [durakKalkislari, bacaklar, esdegerHatlar, simdi]);
+
+  // Durakların biniş ile iniş arasındaki oranı: seferin tarifesinden, yoksa mesafeden.
+  const oranlar = useMemo(() => {
+    const tablo: Record<number, number[]> = {};
+    duraklar.forEach((liste, i) => {
+      if (!bacaklar[i]?.transitLeg || liste.length < 2) return;
+      tablo[i] = durakOranlari(
+        liste.map((d) => ({ latitude: d.lat, longitude: d.lon, gtfsId: d.gtfsId })),
+        seferSaatleri[i],
+      );
+    });
+    return tablo;
+  }, [duraklar, bacaklar, seferSaatleri]);
 
   const ucret = useMemo(() => yolculukUcreti(bacaklar, ucretTuru, OZEL_GUNLER), [bacaklar, ucretTuru]);
   // Yürüme bacaklarının adım adım tarifi; toplu taşıma bacaklarında boş kalır.
@@ -296,25 +352,24 @@ export default function RotaDetayEkrani() {
     }
   }, [binisOtobusleri, yaklasmaUyarisi, bacaklar]);
 
-  const kalkisListeleriRef = useRef<Record<number, Kalkis[]>>({});
+  const durakKalkislariRef = useRef<Record<number, DurakKalkisi[]>>({});
   const kalaniZamanlaRef = useRef<() => void>(() => {});
 
-  /** Bacak açıldığında biniş durağının o hatta ait kalkışlarını bir kez çeker. */
+  /**
+   * Biniş durağından bütün kalkışları çeker: sefer sıklığı, bekleme kartındaki hatlar ve
+   * yolda yeniden zamanlama bunlardan. Bir kez; beklenen bacak için düzenli tazelenir.
+   */
   const seferleriYukle = useCallback(
-    async (i: number) => {
-      if (sorulanlar.current.has(i)) return;
+    async (i: number, tazele = false) => {
+      if (!tazele && sorulanlar.current.has(i)) return;
       const b = bacaklar[i];
       const durakId = b?.from.stop?.gtfsId;
-      const hatId = b?.route?.gtfsId;
-      if (!durakId || !hatId) return;
+      if (!b?.transitLeg || !durakId) return;
       sorulanlar.current.add(i);
       try {
-        const kalkislar = await hatKalkislariGetir(durakId, hatId);
-        // Yalnız bu bacağın deseni (aynı durak dizisi): kısa servis seferi seçilmesin.
-        const desen = b.trip?.pattern?.code;
-        const uygun = desen && kalkislar.some((k) => k.desen) ? kalkislar.filter((k) => k.desen === desen) : kalkislar;
-        kalkisListeleriRef.current = { ...kalkisListeleriRef.current, [i]: uygun };
-        setKalkisListeleri(kalkisListeleriRef.current);
+        const kalkislar = await durakKalkislariGetir(durakId);
+        durakKalkislariRef.current = { ...durakKalkislariRef.current, [i]: kalkislar };
+        setDurakKalkislari(durakKalkislariRef.current);
         kalaniZamanlaRef.current();
       } catch {
         // Sefer sıklığı süslemedir; alınamazsa ekranın geri kalanı çalışmaya devam eder.
@@ -322,6 +377,17 @@ export default function RotaDetayEkrani() {
     },
     [bacaklar],
   );
+
+  /** Seferin durak saatleri: otobüsteyken durakların saati aralarındaki gerçek orana göre. */
+  const saatleriYukle = useCallback(async (i: number, seferId?: string | null, gun?: string | null) => {
+    if (!seferId || !gun) return;
+    try {
+      const liste = await seferSaatleriGetir(seferId, gun);
+      if (liste.length) setSeferSaatleri((o) => ({ ...o, [i]: new Map(liste.map((s) => [s.gtfsId, s.saniye])) }));
+    } catch {
+      // Metro gibi sıklık tabanlı seferlerde gelmeyebilir: oranlar mesafeden.
+    }
+  }, []);
 
   const bacagiAcKapa = useCallback(
     (i: number) => {
@@ -471,8 +537,8 @@ export default function RotaDetayEkrani() {
   // Yolda saatleri gerçeğe göre yeniden kurma (zamanlama.ts): yürürken kalan yürüyüşe,
   // durakta şimdiye, binince gerçek biniş anına göre. Hızlı yürüyüp erken varınca önceki
   // otobüs, metro erken gelip binilince ondan sonraki saatler.
-  const guncel = useRef({ adimlar, bacaklar, cizgiler });
-  guncel.current = { adimlar, bacaklar, cizgiler };
+  const guncel = useRef({ adimlar, bacaklar, cizgiler, duraklar });
+  guncel.current = { adimlar, bacaklar, cizgiler, duraklar };
   const kalaniZamanla = useCallback(() => {
     if (!zamanlamaAcik.current) return;
     const d = durumRef.current;
@@ -504,8 +570,8 @@ export default function RotaDetayEkrani() {
       const zaman = bacakZamanlari(g);
       if (!zaman) return g;
       const kalkislar: Record<number, SecilenKalkis[]> = {};
-      for (const [anahtar, l] of Object.entries(kalkisListeleriRef.current)) {
-        kalkislar[Number(anahtar)] = l.map((k) => ({ an: (k.serviceDay + k.saniye) * 1000, seferId: k.seferId }));
+      for (const [anahtar, l] of Object.entries(durakKalkislariRef.current)) {
+        kalkislar[Number(anahtar)] = anaHatKalkislari(g.legs[Number(anahtar)], l).map((k) => ({ an: k.an, seferId: k.seferId }));
       }
       const yeni = yenidenZamanla(
         zaman.map((z, i) => ({ ...z, durakPayiMs: rayliMi(g.legs[i]) ? 30_000 : 120_000 })),
@@ -545,11 +611,131 @@ export default function RotaDetayEkrani() {
     return () => clearInterval(z);
   }, [takipAcik, kalaniZamanla]);
 
-  /** "Bindim" düğmesi: araç konumdan anlaşılmadan geldiyse (yeraltı, kötü GPS). */
-  const bindim = useCallback(() => {
-    kayitEkle('bindim-dugmesi');
-    setDurum((d) => (d ? elleBin(d, adimlar, ozetler, Date.now()) : d));
-  }, [adimlar, ozetler]);
+  // Yolcunun elle seçtiği hat (düğmeyle): konumdan yapılan tahmin onu ezmesin.
+  const elleSecilen = useRef(new Set<number>());
+
+  /**
+   * Bacağın hattını değiştirir (97M yerine 141M'ye binildi): hat, sefer ve durak deseni o
+   * hattın biniş anına (binilmediyse şimdiye) en yakın seferi olur. Durak listesi, canlı
+   * otobüs ve bildirimler bu hatta göre sürer.
+   */
+  const hatDegistir = useCallback(
+    async (i: number, kisaAd: string, seferId?: string) => {
+      const b = guncel.current.bacaklar[i];
+      if (!b || b.route?.shortName === kisaAd) return;
+      const hedefAn = durumRef.current?.binisAn ?? Date.now();
+      const adaylar = (durakKalkislariRef.current[i] ?? []).filter((k) => k.kisaAd === kisaAd);
+      const secilen =
+        adaylar.find((k) => k.seferId === seferId) ??
+        [...adaylar].sort((x, y) => Math.abs(x.an - hedefAn) - Math.abs(y.an - hedefAn))[0];
+      if (!secilen) return;
+      kayitEkle('hat-degisti', { bacak: i, kisaAd, seferId: secilen.seferId });
+      let sefer: Awaited<ReturnType<typeof seferDeseniGetir>> = null;
+      try {
+        sefer = await seferDeseniGetir(secilen.seferId);
+      } catch {
+        // Desen alınamazsa durak listesi eskisi kalır; hat ve sefer yine değişir.
+      }
+      const eskiDurakSayisi = guncel.current.duraklar[i]?.length ?? 0;
+      setGuzergah((g) =>
+        g
+          ? {
+              ...g,
+              legs: g.legs.map((x, j) =>
+                j !== i
+                  ? x
+                  : {
+                      ...x,
+                      route: {
+                        ...(x.route ?? { gtfsId: secilen.hatId, shortName: kisaAd }),
+                        gtfsId: secilen.hatId,
+                        shortName: kisaAd,
+                        longName: secilen.uzunAd,
+                        mode: secilen.mode ?? x.route?.mode,
+                        agency: secilen.isletmeci ? { name: secilen.isletmeci } : (x.route?.agency ?? null),
+                      },
+                      headsign: secilen.yon ?? x.headsign,
+                      trip: sefer ?? (x.trip ? { ...x.trip, gtfsId: secilen.seferId } : null),
+                    },
+              ),
+            }
+          : g,
+      );
+      // Araçtaysak ve durak sayısı değiştiyse ilerleme yeni listeye göre baştan (yalnız ileri gider).
+      const d = durumRef.current;
+      const yeniSayi = sefer ? bacakDuraklari({ ...b, trip: sefer }).length : eskiDurakSayisi;
+      if (d?.faz === 'icinde' && guncel.current.adimlar[d.adim]?.bacak === i && yeniSayi !== eskiDurakSayisi) {
+        setDurum((x) => (x ? { ...x, ilerleme: 0, kalanDurak: null, durakta: false } : x));
+      }
+      saatleriYukle(i, secilen.seferId, b.serviceDate);
+    },
+    [saatleriYukle],
+  );
+
+  /**
+   * "Bindim" düğmesi: araç konumdan anlaşılmadan geldiyse (yeraltı, kötü GPS). Birden çok
+   * hat varsa hangisine binildiği de seçilir.
+   */
+  const bindim = useCallback(
+    (kisaAd?: string) => {
+      kayitEkle('bindim-dugmesi', { kisaAd: kisaAd ?? null });
+      const d = durumRef.current;
+      if (d && kisaAd) {
+        const sira = adimlar[d.adim]?.tur === 'arac' ? d.adim : d.adim + 1;
+        const i = adimlar[sira]?.bacak;
+        if (i != null) {
+          elleSecilen.current.add(i);
+          hatDegistir(i, kisaAd);
+        }
+      }
+      setDurum((x) => (x ? elleBin(x, adimlar, ozetler, Date.now()) : x));
+    },
+    [adimlar, ozetler, hatDegistir],
+  );
+
+  /** "Değiştir": araçtayken bindiği hattı düzeltir. */
+  const hatSec = useCallback(
+    (i: number, kisaAd: string) => {
+      elleSecilen.current.add(i);
+      hatDegistir(i, kisaAd);
+    },
+    [hatDegistir],
+  );
+
+  // Konumdan anlaşılan binişte hangi hatta binildi: biniş anına en yakın kalkışı olan.
+  useEffect(() => {
+    const d = durumRef.current;
+    if (d?.faz !== 'icinde' || d.binisAn == null) return;
+    const i = adimlar[d.adim]?.bacak;
+    if (i == null || elleSecilen.current.has(i) || (tumHatlar[i]?.length ?? 0) < 2) return;
+    const tahmin = binilenHatTahmini(durakKalkislariRef.current[i] ?? [], tumHatlar[i], d.binisAn);
+    if (tahmin) hatDegistir(i, tahmin.kisaAd, tahmin.seferId);
+  }, [durum?.binisAn]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Beklenen aracın kalkışları yarım dakikada bir tazelenir: canlı geri sayım ve bekleme kartı.
+  useEffect(() => {
+    if (!takipAcik) return;
+    const z = setInterval(() => {
+      const d = durumRef.current;
+      const liste = guncel.current.adimlar;
+      if (!d) return;
+      const a = liste[d.adim];
+      const bekle = a?.tur === 'arac' && d.faz === 'bekle' ? a : d.faz === 'yuru' && liste[d.adim + 1]?.tur === 'arac' ? liste[d.adim + 1] : null;
+      if (bekle) seferleriYukle(bekle.bacak, true);
+    }, 30_000);
+    return () => clearInterval(z);
+  }, [takipAcik, seferleriYukle]);
+
+  /** Varış saatini paylaş: telefonun paylaşım menüsü. */
+  const paylas = useCallback(() => {
+    const son = bacaklar[bacaklar.length - 1];
+    const varis = saatYaz(son?.end.estimated?.time ?? son?.end.scheduledTime);
+    const hatlar = bacaklar
+      .filter((b) => b.transitLeg)
+      .map((b) => hatEtiketi(b.route?.shortName, b.route?.mode ?? b.mode, b.route?.agency?.name).rozet);
+    kayitEkle('paylas');
+    Share.share({ message: paylasimMetni(hedef ? baslikYap(hedef) : null, varis, hatlar) }).catch(() => {});
+  }, [bacaklar, hedef]);
 
   // Takip başlayınca içinde bulunulan bacak kendiliğinden açılır: kullanıcı yoldayken
   // hangi durakta olduğunu görmek için ayrıca dokunmak zorunda kalmasın.
@@ -574,7 +760,11 @@ export default function RotaDetayEkrani() {
     kalaniZamanla();
     setGorunen(0);
     setSimdi(Date.now());
-    bacaklar.forEach((b, i) => b.transitLeg && seferleriYukle(i));
+    bacaklar.forEach((b, i) => {
+      if (!b.transitLeg) return;
+      seferleriYukle(i);
+      saatleriYukle(i, b.trip?.gtfsId, b.serviceDate);
+    });
   };
 
   const takibiBaslat = async () => {
@@ -723,6 +913,10 @@ export default function RotaDetayEkrani() {
         simdi,
         esdegerHatlar,
         bindim,
+        hatSec,
+        secenekler,
+        oranlar,
+        paylas,
       }
     : null;
 

@@ -71,6 +71,36 @@ query HatKalkislari($durak: String!, $aralik: Int!) {
   }
 }`;
 
+// Canlı yol tarifinde biniş durağından bütün kalkışlar (her hat): bekleme kartında aynı
+// yoldaki hatların ayrı ayrı geri sayımı ve yolda saatleri yeniden kurmak için.
+const DURAK_KALKISLARI = `
+query DurakKalkislari($durak: String!, $aralik: Int!) {
+  stop(id: $durak) {
+    kalkislar: stoptimesWithoutPatterns(numberOfDepartures: 150, timeRange: $aralik, omitNonPickups: true) {
+      scheduledDeparture
+      realtimeDeparture
+      realtime
+      serviceDay
+      headsign
+      trip { gtfsId pattern { code } route { gtfsId shortName longName mode agency { name } } }
+    }
+  }
+}`;
+
+// Bir seferin durak saatleri: otobüsteyken her durağın saati (aralarındaki oran) için.
+const SEFER_SAATLERI = `
+query SeferSaatleri($sefer: String!, $gun: String!) {
+  trip(id: $sefer) {
+    stoptimesForDate(serviceDate: $gun) { stop { gtfsId } scheduledArrival scheduledDeparture }
+  }
+}`;
+
+// Bir seferin durak deseni: yolcu bindiği hattı değiştirince durak listesi o hattınki olsun.
+const SEFER_DESENI = `
+query SeferDeseni($sefer: String!) {
+  trip(id: $sefer) { gtfsId pattern { code stops { gtfsId name lat lon } } }
+}`;
+
 // Tarife ekranı: bir duraktan bir hizmet günündeki bütün kalkışlar, desen desen. Hangi
 // hattın hangi yönü olduğu desen koduyla süzülüyor (otp.ts, durakTarifesiGetir).
 const DURAK_TARIFESI = `
@@ -173,6 +203,7 @@ query RotaPlanla(
           route { ${HAT_ALANLARI} }
           legGeometry { points }
           steps { distance relativeDirection absoluteDirection streetName bogusName stayOn area exit }
+          serviceDate
           trip { gtfsId pattern { code stops { gtfsId name lat lon } } }
         }
       }
@@ -438,6 +469,9 @@ export const SORGULAR = {
   DURAK_ARA,
   ROTA_PLANLA,
   HAT_KALKISLARI,
+  DURAK_KALKISLARI,
+  SEFER_SAATLERI,
+  SEFER_DESENI,
   DURAK_TARIFESI,
   HATLAR,
   HAT_DETAYI,

@@ -56,6 +56,9 @@ const {
   DURAK_ARA,
   ROTA_PLANLA,
   HAT_KALKISLARI,
+  DURAK_KALKISLARI,
+  SEFER_SAATLERI,
+  SEFER_DESENI,
   DURAK_TARIFESI,
   HATLAR,
   HAT_DETAYI,
@@ -187,6 +190,8 @@ export type Bacak = {
   /** Yürüme bacaklarında adım adım yol tarifi; toplu taşımada boş. */
   steps: HamAdim[] | null;
   trip: { gtfsId: string; pattern: { code?: string | null; stops: DurakNoktasi[] | null } | null } | null;
+  /** Seferin hizmet günü, YYYYMMDD (araç bacaklarında). */
+  serviceDate?: string | null;
 };
 
 export type DurakNoktasi = { gtfsId: string; name: string | null; lat: number | null; lon: number | null };
@@ -307,6 +312,86 @@ export async function hatKalkislariGetir(
     }))
     .filter((k) => k.saniye > 0)
     .sort((a, b) => a.serviceDay + a.saniye - (b.serviceDay + b.saniye));
+}
+
+/** Canlı yol tarifi için bir duraktan bir kalkış (her hat). */
+export type DurakKalkisi = {
+  /** Kalkış anı, ms (canlı tahmin varsa o). */
+  an: number;
+  /** Hizmet gününün başı (sn) ve ondan saniye: sefer sıklığı hesabı bunlarla. */
+  serviceDay: number;
+  saniye: number;
+  canli: boolean;
+  seferId: string;
+  desen?: string;
+  hatId: string;
+  kisaAd: string;
+  uzunAd: string | null;
+  mode: string | null;
+  isletmeci: string | null;
+  yon: string | null;
+};
+
+/**
+ * Bir duraktan önümüzdeki saatlerde bütün kalkışlar, her hat. Canlı yol tarifinde bekleme
+ * kartı (aynı yoldaki hatlar ayrı ayrı) ve yolda saatlerin yeniden kurulması bunu kullanıyor.
+ */
+export async function durakKalkislariGetir(durakId: string, aralikSaniye = 4 * 3600, sinyal?: AbortSignal): Promise<DurakKalkisi[]> {
+  type Ham = {
+    scheduledDeparture: number | null;
+    realtimeDeparture: number | null;
+    realtime: boolean | null;
+    serviceDay: number | null;
+    headsign: string | null;
+    trip: {
+      gtfsId: string;
+      pattern: { code: string } | null;
+      route: { gtfsId: string; shortName: string | null; longName: string | null; mode: string | null; agency: { name: string } | null };
+    } | null;
+  };
+  type Cevap = { stop: { kalkislar: Ham[] | null } | null };
+  const veri = await sorgula<Cevap>(DURAK_KALKISLARI, { durak: durakId, aralik: aralikSaniye }, sinyal);
+  const liste: DurakKalkisi[] = [];
+  for (const k of veri.stop?.kalkislar ?? []) {
+    const saniye = k.realtimeDeparture ?? k.scheduledDeparture;
+    if (!k.trip || saniye == null || k.serviceDay == null) continue;
+    liste.push({
+      an: (k.serviceDay + saniye) * 1000,
+      serviceDay: k.serviceDay,
+      saniye,
+      canli: !!k.realtime,
+      seferId: k.trip.gtfsId,
+      desen: k.trip.pattern?.code,
+      hatId: k.trip.route.gtfsId,
+      kisaAd: k.trip.route.shortName ?? '',
+      uzunAd: k.trip.route.longName,
+      mode: k.trip.route.mode,
+      isletmeci: k.trip.route.agency?.name ?? null,
+      yon: k.headsign,
+    });
+  }
+  return liste.sort((a, b) => a.an - b.an);
+}
+
+/**
+ * Bir seferin durak saatleri (hizmet günü başından saniye). Sıklık tabanlı seferlerde
+ * (metro) gelmeyebilir; o zaman boş liste.
+ */
+export async function seferSaatleriGetir(seferId: string, gun: string, sinyal?: AbortSignal): Promise<{ gtfsId: string; saniye: number }[]> {
+  type Cevap = {
+    trip: { stoptimesForDate: ({ stop: { gtfsId: string } | null; scheduledArrival: number | null; scheduledDeparture: number | null } | null)[] | null } | null;
+  };
+  const veri = await sorgula<Cevap>(SEFER_SAATLERI, { sefer: seferId, gun }, sinyal);
+  return (veri.trip?.stoptimesForDate ?? [])
+    .map((s) => ({ gtfsId: s?.stop?.gtfsId ?? '', saniye: s?.scheduledArrival ?? s?.scheduledDeparture ?? -1 }))
+    .filter((s) => s.gtfsId && s.saniye >= 0);
+}
+
+/** Bir seferin kimliği ve durak deseni: bindiği hat değişince bacağın seferi bununla değişir. */
+export async function seferDeseniGetir(seferId: string, sinyal?: AbortSignal): Promise<NonNullable<Bacak['trip']> | null> {
+  type Cevap = { trip: { gtfsId: string; pattern: { code: string; stops: DurakNoktasi[] | null } | null } | null };
+  const veri = await sorgula<Cevap>(SEFER_DESENI, { sefer: seferId }, sinyal);
+  return veri.trip ?? null;
 }
 
 /**

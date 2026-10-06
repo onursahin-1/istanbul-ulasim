@@ -50,6 +50,7 @@ import {
   type YolculukDurumu,
 } from '@/lib/yolculuk';
 import type { YuruyusAdimi } from '@/lib/yuruyus';
+import { durakSaatleri, type BeklemeSecenegi } from '@/lib/bekleme';
 import { durakVarisMetni, istanbulSaatiYaz, mesafeYaz, saatEkli, saatYaz, saniyedenSaat, sureYaz } from '@/lib/zaman';
 
 export type YolTarifiVerisi = {
@@ -73,8 +74,16 @@ export type YolTarifiVerisi = {
   simdi: number;
   /** Bacak sırasına göre aynı duraklar arasında giden öbür hatlar ("141M"). */
   esdegerHatlar?: Record<number, string[]>;
-  /** "Bindim": araç konumdan anlaşılmadan geldiyse (yeraltı, kötü GPS) elle binildi. */
-  bindim?: () => void;
+  /** "Bindim": araç konumdan anlaşılmadan geldiyse (yeraltı, kötü GPS) elle binildi; birden çok hat varsa hangisi. */
+  bindim?: (kisaAd?: string) => void;
+  /** Araçtayken bindiği hattı düzeltir ("Değiştir"). */
+  hatSec?: (bacak: number, kisaAd: string) => void;
+  /** Bacak sırasına göre bekleme kartının satırları: aynı yoldaki her hat, sıradaki kalkışlar. */
+  secenekler?: Record<number, BeklemeSecenegi[]>;
+  /** Bacak sırasına göre durakların biniş ile iniş arasındaki oranı (durak saatleri için). */
+  oranlar?: Record<number, number[]>;
+  /** Varış saatini paylaş. */
+  paylas?: () => void;
 };
 
 const iso = (b: Bacak, uc: 'start' | 'end') => b[uc].estimated?.time ?? b[uc].scheduledTime;
@@ -376,6 +385,16 @@ export function AdimKartlari({
           <Ikon ad="list" boyut={16} renkKodu={tema.yazi} />
           <Text style={s.dugmeYazi}>Tüm adımlar</Text>
         </Pressable>
+        {!!v.paylas && (
+          <Pressable
+            style={[s.dugme, s.zil]}
+            onPress={v.paylas}
+            accessibilityRole="button"
+            accessibilityLabel="Varış saatini paylaş"
+          >
+            <Ikon ad="share-outline" boyut={17} renkKodu={tema.yazi} />
+          </Pressable>
+        )}
         {zilBacagi >= 0 && (
           <Pressable
             style={[s.dugme, s.zil, zilAcik && { backgroundColor: hatRengi(v.bacaklar[zilBacagi]?.route, tema) }]}
@@ -482,6 +501,18 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
   const ilerleme =
     kalan != null ? (v.durum.ilerleme ?? liste.length - 1 - kalan) : duraktaBekliyor ? 0 : null;
 
+  // Her durağın tahmini saati: oranlar seferin tarifesinden (yoksa mesafeden); araçtayken
+  // geride kalınırsa sıradaki duraklar ve iniş kayar.
+  const oranlar = v.oranlar?.[a.bacak];
+  const saatler =
+    oranlar && oranlar.length === liste.length
+      ? durakSaatleri(oranlar, an(b, 'start'), an(b, 'end'), icinde ? ilerleme : null, v.simdi)
+      : null;
+  const inisAni = saatler ? saatler[saatler.length - 1] : an(b, 'end');
+  const inisSaati = Number.isNaN(inisAni) ? saatYaz(iso(b, 'end')) : istanbulSaatiYaz(Math.round(inisAni / 1000));
+  const secenekler = v.secenekler?.[a.bacak] ?? [];
+  const obur = v.esdegerHatlar?.[a.bacak] ?? [];
+
   const cizelge = (
     <DurakCizelgesi
       duraklar={liste}
@@ -490,13 +521,14 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
       bitti={bitti}
       beklerken={duraktaBekliyor}
       binisSaati={saatYaz(iso(b, 'start'))}
-      inisSaati={saatYaz(iso(b, 'end'))}
+      inisSaati={inisSaati}
+      saatler={saatler}
       odak={setOdakY}
     />
   );
 
   if (icinde && kalan != null) {
-    const inisDk = Math.max(0, Math.round((an(b, 'end') - v.simdi) / 60_000));
+    const inisDk = Math.max(0, Math.round((inisAni - v.simdi) / 60_000));
     return sar(
       <>
         {etiketler}
@@ -515,9 +547,11 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
           </Text>
           <Text style={[s.detay, { textAlign: 'right' }]}>
             <Text style={s.kalin}>{`~${inisDk} dk`}</Text>
-            {`\niniş ${saatYaz(iso(b, 'end'))}`}
+            {`\niniş ${inisSaati}`}
           </Text>
         </View>
+        {/* Aynı yoldan birden çok hat varsa hangisinde olduğu; yanlışsa düzeltilir. */}
+        {obur.length > 0 && !!v.hatSec && <HatSecimi v={v} bacak={a.bacak} obur={obur} />}
         {cizelge}
       </>,
     );
@@ -525,6 +559,56 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
 
   const kalkis = an(b, 'start');
   const dk = Math.max(0, Math.round((kalkis - v.simdi) / 60_000));
+  // Aynı yolu giden birden çok hat: Moovit'teki gibi her biri ayrı satırda, ilk gelene binilir.
+  if (secenekler.length >= 2 && !bitti && !icinde) {
+    const bindimGorunur =
+      !!v.bindim &&
+      ((v.durum.adim === sira && v.durum.faz === 'bekle') || (v.durum.adim === sira - 1 && v.durum.faz === 'yuru'));
+    return sar(
+      <>
+        {etiketler}
+        <Text style={s.komut}>{`Bu ${aracCogulu(b)} ilk gelene bin`}</Text>
+        <Text style={s.detay} numberOfLines={2}>
+          {[
+            baslikYap(b.from.name),
+            b.headsign ? `${baslikYap(b.headsign)} yönü` : '',
+            `${Math.max(liste.length - 1, 1)} durak`,
+            sureYaz(b.duration),
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </Text>
+        <View style={s.secenekler}>
+          {secenekler.map((x, k) => (
+            <SecenekSatiri key={x.kisaAd} v={v} bacak={a.bacak} secenek={x} ilk={k === 0} />
+          ))}
+        </View>
+        {bindimGorunur && (
+          <>
+            <Text style={s.secenekBaslik}>Hangisi geldi? Bindiğine dokun:</Text>
+            <View style={s.secimSatiri}>
+              {secenekler.map((x) => (
+                <Pressable
+                  key={x.kisaAd}
+                  style={s.secimDugmesi}
+                  onPress={() => {
+                    Haptics.selectionAsync().catch(() => {});
+                    v.bindim?.(x.kisaAd);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${x.kisaAd} geldi, bindim`}
+                >
+                  <HatRozeti hat={x.hat} kucuk />
+                  <Text style={s.secimYazi}>bindim</Text>
+                </Pressable>
+              ))}
+            </View>
+          </>
+        )}
+        {cizelge}
+      </>,
+    );
+  }
   // Düğme bu araç sıradaysa: beklerken ya da hemen önceki yürüyüşteyken (varış anlaşılmadıysa).
   const bindimGoster =
     !!v.bindim &&
@@ -536,10 +620,19 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
   // Sayacın altı: saat ve kaynağı, kaçırılırsa sonraki sefer. Canlıysa durağa varış saati
   // (yakındaki duraklardaki gibi), değilse tarife saati.
   const sonrakiSefer = v.seferler[a.bacak]?.sonrakiSaniye;
+  // Sonraki iki sefer dakika olarak ("sonra 5, 17 dk"); liste yoksa kaçırılırsa sonrakinin saati.
+  const sonrakiDk = (secenekler[0]?.kalkislar ?? [])
+    .filter((k) => k.an > kalkis + 30_000)
+    .slice(0, 2)
+    .map((k) => Math.max(0, Math.round((k.an - v.simdi) / 60_000)));
   const kalkisYazisi = [
     canli ? `Canlı · ${durakVarisMetni(kalkis / 1000)}` : uzak ? `${kalanSureYaz(dk)} sonra` : saatYaz(iso(b, 'start')),
     canli ? '' : 'tarifeye göre',
-    sonrakiSefer != null ? `kaçırırsan sonraki ${saniyedenSaat(sonrakiSefer)}` : '',
+    sonrakiDk.length && !uzak
+      ? `sonra ${sonrakiDk.join(', ')} dk`
+      : sonrakiSefer != null
+        ? `kaçırırsan sonraki ${saniyedenSaat(sonrakiSefer)}`
+        : '',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -606,6 +699,92 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
   );
 }
 
+/** "Bu otobüslerden", "Bu minibüslerden", "Bu hatlardan". */
+function aracCogulu(b: Bacak): string {
+  const i = (b.route?.agency?.name ?? '').toLocaleLowerCase('tr-TR');
+  if (i.includes('minib') || i.includes('dolmu')) return 'minibüslerden';
+  return ['BUS', 'TROLLEYBUS', 'COACH'].includes((b.route?.mode ?? b.mode ?? '').toUpperCase()) ? 'otobüslerden' : 'hatlardan';
+}
+
+/** Bekleme kartında bir hat: rozet ve adı, sıradaki kalkışa kalan, sonraki iki sefer, canlı mı. */
+function SecenekSatiri({ v, bacak, secenek, ilk }: { v: YolTarifiVerisi; bacak: number; secenek: BeklemeSecenegi; ilk: boolean }) {
+  const tema = useTema();
+  const s = useStiller(stiller);
+  const [birinci, ...sonrakiler] = secenek.kalkislar;
+  const dk = (anMs: number) => Math.max(0, Math.round((anMs - v.simdi) / 60_000));
+  const otobus = v.binisOtobusleri[bacak];
+  // Canlı otobüs yalnız planlanan seferinki biliniyor: bu satırın ilk kalkışıysa yazılır.
+  const otobusBurada = !!birinci && !!otobus && otobus.otobus.sefer === birinci.seferId;
+  const kaynak = birinci?.canli || otobusBurada ? `Canlı${otobusBurada ? ` · otobüs ${kalanYaz(otobus.kalan)}` : ''}` : 'tarifeye göre';
+  const ilkDk = birinci ? dk(birinci.an) : null;
+  return (
+    <View style={[s.secenek, !ilk && s.secenekAyrac]}>
+      <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+        <View style={s.komutSatir}>
+          <HatRozeti hat={secenek.hat} kucuk />
+          <Text style={s.secenekAd} numberOfLines={2}>
+            {baslikYap(secenek.ad)}
+          </Text>
+        </View>
+        <Text style={[s.secenekKaynak, (birinci?.canli || otobusBurada) && { color: tema.vurgu, fontWeight: '600' }]}>
+          {birinci ? kaynak : 'kalkış bilgisi yok'}
+        </Text>
+      </View>
+      <View style={{ alignItems: 'flex-end' }}>
+        <View style={s.sayacSatir}>
+          {(birinci?.canli || otobusBurada) && <NabizNoktasi renk={tema.vurgu} />}
+          <Text style={[s.secenekDk, (birinci?.canli || otobusBurada) && { color: tema.vurgu }]}>
+            {ilkDk == null ? '–' : ilkDk >= 60 ? istanbulSaatiYaz(Math.round(birinci!.an / 1000)) : ilkDk === 0 ? 'şimdi' : ilkDk}
+            {ilkDk != null && ilkDk > 0 && ilkDk < 60 && <Text style={s.sayacBirim}> dk</Text>}
+          </Text>
+        </View>
+        {sonrakiler.length > 0 && (
+          <Text style={s.secenekKaynak}>{`sonra ${sonrakiler.slice(0, 2).map((k) => dk(k.an)).join(', ')} dk`}</Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
+/** Araçtayken: hangi hatta olunduğu ve "Değiştir" ile öbür hatlar. */
+function HatSecimi({ v, bacak, obur }: { v: YolTarifiVerisi; bacak: number; obur: string[] }) {
+  const tema = useTema();
+  const s = useStiller(stiller);
+  const [acik, setAcik] = useState(false);
+  const b = v.bacaklar[bacak];
+  return (
+    <View style={s.hatSecimi}>
+      <View style={s.komutSatir}>
+        <HatRozeti hat={b.route} kucuk />
+        <Text style={[s.detay, { flex: 1 }]}>{`${b.route?.shortName ?? ''} ile gidiyorsun`}</Text>
+        <Pressable onPress={() => setAcik((x) => !x)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Bindiğin hattı değiştir">
+          <Text style={[s.dugmeYazi, { color: tema.vurgu }]}>{acik ? 'Vazgeç' : 'Değiştir'}</Text>
+        </Pressable>
+      </View>
+      {acik && (
+        <View style={s.secimSatiri}>
+          {obur.map((h) => (
+            <Pressable
+              key={h}
+              style={s.secimDugmesi}
+              onPress={() => {
+                Haptics.selectionAsync().catch(() => {});
+                v.hatSec?.(bacak, h);
+                setAcik(false);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`${h} hattındayım`}
+            >
+              <HatRozeti hat={{ shortName: h, mode: b.route?.mode, agency: b.route?.agency }} kucuk />
+              <Text style={s.secimYazi}>bunun içindeyim</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
 const CIZELGE_SATIR = 30;
 const KONUM_NOKTASI = 16;
 
@@ -623,9 +802,12 @@ function DurakCizelgesi({
   beklerken,
   binisSaati,
   inisSaati,
+  saatler,
   odak,
 }: {
   duraklar: { ad: string }[];
+  /** Her durağın tahmini saati (ms); bilinmiyorsa null. */
+  saatler?: number[] | null;
   renk: string;
   /** Duraklar arası kesirli konum; bilinmiyorsa null. */
   ilerleme: number | null;
@@ -679,11 +861,14 @@ function DurakCizelgesi({
         const uc = j === 0 || j === son;
         const burada = j === durakta;
         let etiket: { yazi: string; renk?: string } | null = null;
+        // Durağın saati (biliniyorsa); bulunulan ve sıradaki durak konum renginde.
+        const saat = saatler?.[j] != null && !Number.isNaN(saatler[j]) ? istanbulSaatiYaz(Math.round(saatler[j] / 1000)) : null;
         if (j === son) etiket = { yazi: `in · ${inisSaati}`, renk: tema.yazi };
         else if (burada && j === 0 && beklerken) etiket = { yazi: `buradasın · bin ${binisSaati}`, renk: tema.konum };
-        else if (burada) etiket = { yazi: 'şu an', renk: tema.konum };
-        else if (j === gidilen) etiket = { yazi: 'sıradaki', renk: tema.konum };
+        else if (burada) etiket = { yazi: saat ?? 'şu an', renk: tema.konum };
+        else if (j === gidilen) etiket = { yazi: saat ?? 'sıradaki', renk: tema.konum };
         else if (j === 0) etiket = { yazi: `bin · ${binisSaati}` };
+        else if (saat) etiket = { yazi: saat, renk: gecildi ? tema.soluk : undefined };
         return (
           <View key={j} style={[s.cizelgeSatir, { height: CIZELGE_SATIR }]}>
             <View style={s.cizelgeSutun}>
@@ -1069,6 +1254,27 @@ const stiller = (t: Tema) =>
     durakKutusuSaat: { fontSize: 12.5, fontWeight: '600', color: t.soluk, fontVariant: ['tabular-nums'] },
     adimNo: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, color: t.soluk },
     komutSatir: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    secenekler: { marginTop: 8 },
+    secenek: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9 },
+    secenekAyrac: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.cizgi },
+    secenekAd: { flex: 1, fontSize: 13, color: t.yazi, lineHeight: 17 },
+    secenekKaynak: { fontSize: 12, color: t.soluk },
+    secenekDk: { fontSize: 22, fontWeight: '800', color: t.yazi, fontVariant: ['tabular-nums'] },
+    secenekBaslik: { fontSize: 12.5, fontWeight: '700', color: t.soluk, marginTop: 10 },
+    secimSatiri: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+    secimDugmesi: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      borderWidth: 1,
+      borderColor: t.cizgi,
+      borderRadius: 11,
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+      backgroundColor: t.yuzey,
+    },
+    secimYazi: { fontSize: 13, fontWeight: '700', color: t.yazi },
+    hatSecimi: { marginTop: 10, padding: 9, borderRadius: 10, backgroundColor: t.yuzeyIkincil, gap: 6 },
     komut: { fontSize: 21, fontWeight: '800', letterSpacing: -0.3, color: t.yazi, lineHeight: 26 },
     detay: { fontSize: 13, color: t.soluk, lineHeight: 18 },
     kalin: { fontWeight: '700', color: t.yazi },
