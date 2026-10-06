@@ -26,6 +26,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { Pressable } from '@/components/dokun';
+import { KayanMetin } from '@/components/kayan-metin';
 import { canliRenk, DONUS_SIMGELERI, HatRozeti, Ikon, NabizNoktasi, useStiller } from '@/components/ulasim';
 import type { YerlesikArac } from '@/lib/arac-konum';
 import { kalanYaz, yasYaz } from '@/lib/arac-konum';
@@ -71,17 +72,26 @@ export function RotaOzeti({
   return (
     <View style={s.ozet}>
       <View style={s.ozetUst}>
-        <Text style={s.ozetSure}>
-          {dk >= 60 ? `${Math.floor(dk / 60)} sa ` : ''}
-          {dk % 60 || dk < 60 ? (
+        <View style={s.tabanSatir} accessible accessibilityLabel={`${dk} dakika`}>
+          {dk >= 60 && (
             <>
-              {dk % 60}
+              <KayanMetin metin={String(Math.floor(dk / 60))} style={s.ozetSure} />
+              <Text style={s.ozetBirim}>{' sa '}</Text>
+            </>
+          )}
+          {(dk % 60 > 0 || dk < 60) && (
+            <>
+              <KayanMetin metin={String(dk % 60)} style={s.ozetSure} />
               <Text style={s.ozetBirim}> dk</Text>
             </>
-          ) : null}
-        </Text>
+          )}
+        </View>
         <View style={{ alignItems: 'flex-end', flexShrink: 1 }}>
-          <Text style={s.ozetAralik}>{`${saatYaz(bas)} → ${saatYaz(bitis)}`}</Text>
+          <View style={s.tabanSatir}>
+            <KayanMetin metin={saatYaz(bas)} style={s.ozetAralik} />
+            <Text style={s.ozetAralik}>{' → '}</Text>
+            <KayanMetin metin={saatYaz(bitis)} style={s.ozetAralik} />
+          </View>
           {!!varisAdi && (
             <Text style={s.ozetVaris} numberOfLines={1}>
               {`varış ${varisAdi}`}
@@ -443,9 +453,11 @@ function AracKarti({
           {otobus ? (
             <>
               <NabizNoktasi renk={otobus.otobus.sinif === 'eski' ? tema.soluk : tema.vurgu} boyut={6} />
-              <Text style={[s.kartCanli, otobus.otobus.sinif === 'eski' && { color: tema.soluk }]} numberOfLines={1}>
-                {`${kalanYaz(otobus.kalan)}${binisDk > 0 ? ` · ~${binisDk} dk` : ''}`}
-              </Text>
+              <KayanMetin
+                metin={`${kalanYaz(otobus.kalan)}${binisDk > 0 ? ` · ~${binisDk} dk` : ''}`}
+                style={[s.kartCanli, otobus.otobus.sinif === 'eski' && { color: tema.soluk }]}
+                kapStili={{ flexShrink: 1, overflow: 'hidden' }}
+              />
             </>
           ) : sefer?.aralikDk != null ? (
             <Text style={s.kartBilgi} numberOfLines={1}>
@@ -593,6 +605,7 @@ const stiller = (t: Tema) =>
     ozetUst: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10 },
     ozetSure: { fontSize: 30, fontWeight: '800', color: t.yazi, letterSpacing: -0.5, lineHeight: 34 },
     ozetBirim: { fontSize: 16, fontWeight: '700', color: t.soluk },
+    tabanSatir: { flexDirection: 'row', alignItems: 'baseline' },
     ozetAralik: { fontSize: 15, fontWeight: '700', color: t.yazi, fontVariant: ['tabular-nums'] },
     ozetVaris: { fontSize: 12, color: t.soluk, marginTop: 1 },
     ciplar: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },

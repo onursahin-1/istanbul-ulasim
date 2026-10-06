@@ -328,7 +328,7 @@ export default function AnaEkran() {
                         <TarifeEtiketi />
                       ) : null}
                     </View>
-                    <Dakika an={an} canli={canli} />
+                    <Dakika an={an} canli={canli} kimlik={k.trip?.gtfsId} />
                   </View>
                 ));
               })()}

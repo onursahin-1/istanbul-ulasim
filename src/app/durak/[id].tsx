@@ -165,6 +165,7 @@ export default function DurakEkrani() {
             saniye: k.realtimeDeparture ?? k.scheduledDeparture ?? 0,
             an: (k.serviceDay ?? 0) + (k.realtimeDeparture ?? k.scheduledDeparture ?? 0),
             canli: kalkisCanli(k),
+            kimlik: k.trip?.gtfsId ?? null,
             dakika: kacDakikaSonra(k.serviceDay ?? 0, k.realtimeDeparture ?? k.scheduledDeparture ?? 0),
           }))
           .filter((k) => k.dakika >= 0)
@@ -191,6 +192,7 @@ export default function DurakEkrani() {
               an: Math.round(v.varis / 1000),
               // Araç tabanlı: tarifeden sapma yok, "canlı" olduğu yeter.
               canli: canliBilgi(0),
+              kimlik: `arac:${v.kapiNo}` as string | null,
               dakika: Math.max(0, Math.round((v.varis - simdi) / 60_000)),
             })),
             ...kalkislar.filter((k) => k.an * 1000 > son + 3 * 60_000),
@@ -453,7 +455,7 @@ export default function DurakEkrani() {
                       </Text>
                     )}
                   </View>
-                  <Dakika an={y.kalkislar[0].an} canli={y.kalkislar[0].canli} />
+                  <Dakika an={y.kalkislar[0].an} canli={y.kalkislar[0].canli} kimlik={y.kalkislar[0].kimlik} />
                 </Pressable>
               ))}
               {siklikliHatlar.map(({ hat: h, metin }) => (

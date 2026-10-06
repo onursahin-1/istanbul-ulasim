@@ -10,7 +10,24 @@
 
 import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, {
+  Easing,
+  FadeIn,
+  FadeInDown,
+  FadeInUp,
+  FadeOutDown,
+  FadeOutUp,
+  LayoutAnimationConfig,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withSpring,
+  withTiming,
+  ZoomIn,
+} from 'react-native-reanimated';
 import {
   ScrollView,
   StyleSheet,
@@ -21,6 +38,7 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native';
 import { Pressable } from '@/components/dokun';
+import { KayanMetin } from '@/components/kayan-metin';
 import { ModalSayfa } from '@/components/modal-sayfa';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -34,7 +52,7 @@ import { konus, sus } from '@/lib/konusma';
 import type { SeferBilgisi } from '@/lib/sefer';
 import type { SesCinsiyeti } from '@/lib/ses-secimi';
 import { sesliDuyurular, type SesGirdisi } from '@/lib/sesli-tarif';
-import { baslikYap, hatRengi, useTema, type Tema } from '@/lib/tema';
+import { aracAdi, baslikYap, hatRengi, useTema, type Tema } from '@/lib/tema';
 import {
   aktarmaPayi,
   binmeIfadesi,
@@ -89,6 +107,8 @@ export type YolTarifiVerisi = {
   /** İzlenen sefer ve otobüsün durumu. */
   izlenen?: { bacak: number; seferId: string } | null;
   izlenenDurum?: { kalan: number; yasSn: number } | 'yok' | 'yukleniyor' | null;
+  /** Yolculuğun başladığı an ve o anki planın varışı (ms): varış kartındaki özet için. */
+  yolculukOzeti?: { baslangic: number; planliVaris: number | null };
 };
 
 const iso = (b: Bacak, uc: 'start' | 'end') => b[uc].estimated?.time ?? b[uc].scheduledTime;
@@ -113,23 +133,77 @@ function adimEtiketi(v: YolTarifiVerisi, a: Adim): string {
 
 // ---------------------------------------------------------------- sekmeler
 
-/** Üstteki adım sekmeleri: biten soluk ve işaretli, bakılan vurgulu. */
+/**
+ * Üstteki adım sekmeleri: biten soluk ve işaretli, bakılan vurgulu. Bakılanın çerçevesi
+ * tek bir parça: sekmeden sekmeye yaylı kayar. Adım bitince yanına tik "pıt" diye çıkar.
+ */
 export function AdimSekmeleri({ v, gorunen, sec }: { v: YolTarifiVerisi; gorunen: number; sec: (i: number) => void }) {
   const tema = useTema();
   const s = useStiller(stiller);
+  const azalt = useReducedMotion();
+  const kaydirma = useRef<ScrollView>(null);
+  // Her sekmenin içerikteki yeri ve genişliği: çerçeve oraya kayar.
+  const [yerler, setYerler] = useState<Record<number, { x: number; w: number }>>({});
+  const sol = useSharedValue(0);
+  const genislik = useSharedValue(0);
+  const ilk = useRef(true);
+  const yer = yerler[gorunen];
+  const yerX = yer?.x;
+  const yerW = yer?.w;
+  useEffect(() => {
+    if (yerX == null || yerW == null) return;
+    if (ilk.current || azalt) {
+      sol.value = yerX;
+      genislik.value = yerW;
+      ilk.current = false;
+    } else {
+      const yay = { damping: 16, stiffness: 190, mass: 0.8 };
+      sol.value = withSpring(yerX, yay);
+      genislik.value = withSpring(yerW, yay);
+    }
+    // Bakılan sekme görünür kalsın (çok adımlı yolculukta sekmeler taşabiliyor).
+    kaydirma.current?.scrollTo({ x: Math.max(0, yerX - 40), animated: !azalt });
+  }, [yerX, yerW, azalt, sol, genislik]);
+  const cerceve = useAnimatedStyle(() => ({ transform: [{ translateX: sol.value }], width: genislik.value }));
+
+  const bakilanAdim = v.adimlar[gorunen];
+  const cerceveRengi =
+    bakilanAdim?.tur === 'arac' ? hatRengi(v.bacaklar[bakilanAdim.bacak]?.route, tema) : tema.vurgu;
+
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.sekmeler} contentContainerStyle={s.sekmeIc}>
-      {v.adimlar.map((a, i) => {
-        const bitti = i < v.durum.adim || (v.durum.faz === 'vardi' && i === v.durum.adim);
-        const bakilan = i === gorunen;
-        const b = v.bacaklar[a.bacak];
-        const renk = a.tur === 'arac' ? hatRengi(b?.route, tema) : tema.yazi;
-        return (
-          <View key={i} style={s.sekmeSarici}>
-            {i > 0 && <Text style={s.ayrac}>›</Text>}
+    <ScrollView
+      ref={kaydirma}
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={s.sekmeler}
+      contentContainerStyle={s.sekmeIc}
+    >
+      <LayoutAnimationConfig skipEntering>
+        {yer && (
+          <Animated.View
+            pointerEvents="none"
+            style={[s.sekmeCerceve, { borderColor: cerceveRengi, backgroundColor: tema.vurguAcik }, cerceve]}
+          />
+        )}
+        {v.adimlar.map((a, i) => {
+          const bitti = i < v.durum.adim || (v.durum.faz === 'vardi' && i === v.durum.adim);
+          const bakilan = i === gorunen;
+          const b = v.bacaklar[a.bacak];
+          const renk = a.tur === 'arac' ? hatRengi(b?.route, tema) : tema.yazi;
+          return [
+            i > 0 && (
+              <Text key={`a${i}`} style={s.ayrac}>
+                ›
+              </Text>
+            ),
             <Pressable
+              key={`s${i}`}
               onPress={() => sec(i)}
-              style={[s.sekme, bakilan && { borderColor: renk, backgroundColor: tema.vurguAcik }, bitti && s.sekmeBitti]}
+              onLayout={(e) => {
+                const { x, width } = e.nativeEvent.layout;
+                setYerler((o) => (o[i]?.x === x && o[i]?.w === width ? o : { ...o, [i]: { x, w: width } }));
+              }}
+              style={[s.sekme, bitti && s.sekmeBitti]}
               accessibilityRole="tab"
               accessibilityState={{ selected: bakilan }}
               accessibilityLabel={`Adım ${i + 1}: ${adimEtiketi(v, a)}${bitti ? ', tamamlandı' : ''}`}
@@ -140,11 +214,15 @@ export function AdimSekmeleri({ v, gorunen, sec }: { v: YolTarifiVerisi; gorunen
               ) : (
                 <Text style={[s.sekmeYazi, { color: renk }]}>{b?.route?.shortName ?? '•'}</Text>
               )}
-              {bitti && <Ikon ad="checkmark" boyut={11} renkKodu={tema.soluk} />}
-            </Pressable>
-          </View>
-        );
-      })}
+              {bitti && (
+                <Animated.View entering={azalt ? undefined : ZoomIn.springify().damping(9).stiffness(260)}>
+                  <Ikon ad="checkmark" boyut={11} renkKodu={tema.soluk} />
+                </Animated.View>
+              )}
+            </Pressable>,
+          ];
+        })}
+      </LayoutAnimationConfig>
     </ScrollView>
   );
 }
@@ -220,7 +298,11 @@ export function KonumSeridi({
 
   return (
     <View style={s.konumSeridi}>
-      <View
+      <Animated.View
+        // Sayılar dışında metin değişince (yürü → bekle → otobüste) satır yumuşakça yenilenir;
+        // her metre değişiminde değil.
+        key={`${ikon}-${ana.replace(/[\d.,]+/g, '#')}`}
+        entering={FadeIn.duration(260)}
         style={s.konumMetin}
         accessibilityLiveRegion="polite"
         accessible
@@ -231,7 +313,7 @@ export function KonumSeridi({
           {ana}
           {!!yan && <Text style={s.konumYan}>{`  ·  ${yan}`}</Text>}
         </Text>
-      </View>
+      </Animated.View>
       {ses && (
         <Pressable
           onPress={ses.degistir}
@@ -344,6 +426,8 @@ export function AdimKartlari({
     if (i !== gorunen) sec(i);
   };
 
+  const bildirim = useAsamaAnlari(v);
+
   const simdiki = v.durum.adim;
   const gorunenAdim = v.adimlar[gorunen];
   const zilBacagi = gorunenAdim?.tur === 'arac' && v.binisOtobusleri[gorunenAdim.bacak] ? gorunenAdim.bacak : -1;
@@ -352,15 +436,23 @@ export function AdimKartlari({
 
   return (
     <View style={[s.kart, { paddingBottom: kenar.bottom + 10 }]} onLayout={(e) => onBoy(e.nativeEvent.layout.height)}>
-      {gorunen !== simdiki && (
-        <Pressable style={s.donDugmesi} onPress={() => sec(simdiki)} accessibilityRole="button">
-          <Ikon ad="locate" boyut={14} renkKodu={tema.vurguYazi} />
-          <Text style={s.donYazi}>Şu anki adıma dön</Text>
-        </Pressable>
+      {bildirim && <BinisBildirimi key={bildirim.n} baslik={bildirim.baslik} alt={bildirim.alt} />}
+      {gorunen !== simdiki && !bildirim && (
+        <Animated.View
+          entering={FadeInDown.duration(220)}
+          exiting={FadeOutDown.duration(160)}
+          style={s.donSarici}
+          pointerEvents="box-none"
+        >
+          <Pressable style={s.donDugmesi} onPress={() => sec(simdiki)} accessibilityRole="button">
+            <Ikon ad="locate" boyut={14} renkKodu={tema.vurguYazi} />
+            <Text style={s.donYazi}>Şu anki adıma dön</Text>
+          </Pressable>
+        </Animated.View>
       )}
       <View style={s.noktalar}>
         {v.adimlar.map((_, i) => (
-          <View key={i} style={[s.nokta, i === gorunen && s.noktaAktif]} />
+          <SayfaNoktasi key={i} aktif={i === gorunen} />
         ))}
       </View>
       <ScrollView
@@ -416,11 +508,204 @@ export function AdimKartlari({
   );
 }
 
+/**
+ * Yolculuğun önemli anları: titreşim ve biniş bildirimi. Adım bitince hafif, binince ve
+ * varınca "başarı", inmeye bir durak kala "uyarı", inme anında güçlü titreşim. Telefon
+ * cepteyken ekrana bakmadan anlaşılsın diye; daha sık titreşirse anlamını yitirir.
+ */
+function useAsamaAnlari(v: YolTarifiVerisi): { baslik: string; alt: string; n: number } | null {
+  const [bildirim, setBildirim] = useState<{ baslik: string; alt: string; n: number } | null>(null);
+  const onceki = useRef<{ adim: number; faz: string; kalan: number | null } | null>(null);
+  const { durum } = v;
+  useEffect(() => {
+    const o = onceki.current;
+    onceki.current = { adim: durum.adim, faz: durum.faz, kalan: durum.kalanDurak };
+    if (!o) return;
+    const hata = () => {};
+    if (durum.faz === 'vardi' && o.faz !== 'vardi') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(hata);
+    } else if (durum.faz === 'icinde' && (o.faz !== 'icinde' || o.adim !== durum.adim)) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(hata);
+      const a = v.adimlar[durum.adim];
+      const b = a ? v.bacaklar[a.bacak] : undefined;
+      if (b) {
+        const sozcuk = durakSozcugu(b.route?.mode ?? b.mode);
+        const binis = durum.binisAn != null ? ` ${saatEkli(Math.round(durum.binisAn / 1000))}` : '';
+        setBildirim((x) => ({
+          baslik: `Bindin · ${b.route?.shortName ?? aracAdiKisa(b)}`,
+          alt: `${baslikYap(b.from.name)} ${sozcuk.de}${binis} · iniş ${saatYaz(iso(b, 'end'))}`,
+          n: (x?.n ?? 0) + 1,
+        }));
+      }
+    } else if (durum.adim > o.adim) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(hata);
+    } else if (durum.faz === 'icinde' && o.faz === 'icinde' && durum.kalanDurak !== o.kalan) {
+      if (durum.kalanDurak === 1) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(hata);
+      else if (durum.kalanDurak === 0) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(hata);
+    }
+    // Yalnız durum değişince; adımlar ve bacaklar o sırada okunuyor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [durum]);
+  // Bildirim üç saniye durup çekilir.
+  const n = bildirim?.n;
+  useEffect(() => {
+    if (n == null) return;
+    const t = setTimeout(() => setBildirim((x) => (x?.n === n ? null : x)), 3200);
+    return () => clearTimeout(t);
+  }, [n]);
+  return bildirim;
+}
+
+function aracAdiKisa(b: Bacak): string {
+  return aracAdi(b.route?.mode ?? b.mode);
+}
+
+/** "SIRADAKİ DURAKTA İN", metroda "İSTASYONDA", vapurda "İSKELEDE". */
+function siradakindeIn(mode?: string | null): string {
+  const ad = durakSozcugu(mode).ad;
+  const yer = ad.startsWith('istasyon') ? 'İSTASYONDA' : ad.startsWith('iskele') ? 'İSKELEDE' : 'DURAKTA';
+  return `SIRADAKİ ${yer} İN`;
+}
+
+/** Kartın üstünden yaylı inen yeşil "Bindin" bildirimi. */
+function BinisBildirimi({ baslik, alt }: { baslik: string; alt: string }) {
+  const s = useStiller(stiller);
+  const tema = useTema();
+  const azalt = useReducedMotion();
+  return (
+    <Animated.View
+      entering={azalt ? FadeIn.duration(200) : FadeInUp.springify().damping(15).stiffness(170)}
+      exiting={FadeOutUp.duration(220)}
+      style={s.bildirim}
+      pointerEvents="none"
+      accessibilityLiveRegion="polite"
+      accessible
+      accessibilityLabel={`${baslik}. ${alt}`}
+    >
+      <Ikon ad="checkmark-circle" boyut={26} renkKodu={tema.vurguYazi} />
+      <View style={{ flex: 1 }}>
+        <Text style={s.bildirimBaslik}>{baslik}</Text>
+        <Text style={s.bildirimAlt} numberOfLines={1}>
+          {alt}
+        </Text>
+      </View>
+    </Animated.View>
+  );
+}
+
+/** Kartların altındaki sayfa noktası: bakılan uzar (yaylı). */
+function SayfaNoktasi({ aktif }: { aktif: boolean }) {
+  const s = useStiller(stiller);
+  const tema = useTema();
+  const azalt = useReducedMotion();
+  const g = useSharedValue(aktif ? 16 : 6);
+  useEffect(() => {
+    g.value = azalt ? (aktif ? 16 : 6) : withSpring(aktif ? 16 : 6, { damping: 14, stiffness: 220 });
+  }, [aktif, azalt, g]);
+  const stil = useAnimatedStyle(() => ({ width: g.value }));
+  return <Animated.View style={[s.nokta, aktif && { backgroundColor: tema.vurgu }, stil]} />;
+}
+
+/** İnmeye bir durak kala sayacın kutusu: açık yeşil zemin ve atan bir çerçeve. */
+function SonDurakKutusu({ aktif, children }: { aktif: boolean; children: ReactNode }) {
+  const s = useStiller(stiller);
+  const azalt = useReducedMotion();
+  const p = useSharedValue(0);
+  useEffect(() => {
+    if (aktif && !azalt) p.value = withRepeat(withTiming(1, { duration: 1300, easing: Easing.out(Easing.quad) }), -1, false);
+    else p.value = 0;
+  }, [aktif, azalt, p]);
+  const halka = useAnimatedStyle(() => ({ opacity: 0.55 * (1 - p.value), transform: [{ scale: 1 + 0.07 * p.value }] }));
+  return (
+    <View style={aktif ? s.sonDurak : undefined}>
+      {aktif && !azalt && <Animated.View pointerEvents="none" style={[s.sonDurakHalka, halka]} />}
+      {children}
+    </View>
+  );
+}
+
+/** İnme anı: kartta yeşil "Şimdi in" bandı, açılınca kısaca sallanır. */
+function InBandi({ metin }: { metin: string }) {
+  const s = useStiller(stiller);
+  const tema = useTema();
+  const azalt = useReducedMotion();
+  const x = useSharedValue(0);
+  useEffect(() => {
+    if (azalt) return;
+    const t = (d: number, sure: number) => withTiming(d, { duration: sure });
+    x.value = withDelay(350, withSequence(t(-6, 60), t(6, 90), t(-4, 80), t(3, 70), t(0, 60)));
+  }, [azalt, x]);
+  const stil = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
+  return (
+    <Animated.View entering={FadeIn.duration(250)} style={[s.inBandi, stil]} accessibilityLiveRegion="assertive">
+      <Ikon ad="arrow-down-circle" boyut={24} renkKodu={tema.vurguYazi} />
+      <Text style={s.inBandiYazi} numberOfLines={2}>
+        {metin}
+      </Text>
+    </Animated.View>
+  );
+}
+
+/**
+ * Varış kartı: yeşil daire yaylı açılır, içine tik oturur, etrafında bir halka yayılıp
+ * söner; ardından sırayla başlık, saat ve özet (süre, plana göre fark).
+ */
+function VarisKarti({ v }: { v: YolTarifiVerisi }) {
+  const s = useStiller(stiller);
+  const tema = useTema();
+  const azalt = useReducedMotion();
+  const [an] = useState(() => Date.now());
+  const ozet = v.yolculukOzeti;
+  const sureDk = ozet ? Math.max(1, Math.round((an - ozet.baslangic) / 60_000)) : null;
+  const fark = ozet?.planliVaris != null ? Math.round((ozet.planliVaris - an) / 60_000) : null;
+  const patlama = useSharedValue(0);
+  useEffect(() => {
+    if (!azalt) patlama.value = withDelay(380, withTiming(1, { duration: 850, easing: Easing.out(Easing.cubic) }));
+  }, [azalt, patlama]);
+  const halka = useAnimatedStyle(() => ({
+    opacity: patlama.value === 0 ? 0 : 0.6 * (1 - patlama.value),
+    transform: [{ scale: 1 + 0.75 * patlama.value }],
+  }));
+  const gir = (gecikme: number) => (azalt ? undefined : FadeInDown.delay(gecikme).duration(380));
+  return (
+    <View style={s.varis}>
+      <View style={s.varisDaireYeri}>
+        <Animated.View pointerEvents="none" style={[s.varisHalka, { borderColor: tema.vurgu }, halka]} />
+        <Animated.View
+          entering={azalt ? undefined : ZoomIn.springify().damping(12).stiffness(180)}
+          style={[s.varisDaire, { borderColor: tema.vurgu }]}
+        >
+          <Animated.View entering={azalt ? undefined : ZoomIn.delay(250).springify().damping(9).stiffness(240)}>
+            <Ikon ad="checkmark" boyut={40} renkKodu={tema.vurgu} />
+          </Animated.View>
+        </Animated.View>
+      </View>
+      <Animated.Text entering={gir(420)} style={s.komut}>
+        Vardın
+      </Animated.Text>
+      <Animated.Text entering={gir(500)} style={s.detay}>
+        {[v.hedef ? baslikYap(v.hedef) : '', istanbulSaatiYaz(Math.round(an / 1000))].filter(Boolean).join(' · ')}
+      </Animated.Text>
+      {(sureDk != null || fark != null) && (
+        <Animated.View entering={gir(620)} style={s.varisCipler}>
+          {sureDk != null && <Text style={s.varisCip}>{`${sureDk} dk yolculuk`}</Text>}
+          {fark != null && (
+            <Text style={[s.varisCip, fark >= 0 && s.varisCipIyi]}>
+              {fark > 0 ? `plandan ${fark} dk erken` : fark < 0 ? `plandan ${-fark} dk geç` : 'tam planlandığı gibi'}
+            </Text>
+          )}
+        </Animated.View>
+      )}
+    </View>
+  );
+}
+
 /** Tek bir adımın kartı. İçerik adımın türüne ve (şimdiki adımsa) evresine göre; uzunsa kayar. */
 function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: number }) {
   const tema = useTema();
   const s = useStiller(stiller);
   const kaydirma = useRef<ScrollView>(null);
+  const azalt = useReducedMotion();
   const a = v.adimlar[sira];
   const b = v.bacaklar[a.bacak];
   const simdiki = sira === v.durum.adim;
@@ -433,6 +718,16 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
     if (odakY != null) kaydirma.current?.scrollTo({ y: Math.max(0, odakY - 70), animated: true });
   }, [odakY]);
 
+  // Kartın görünümü: değişince (bekle → otobüste → vardın) eski içerik yukarı süzülüp
+  // kaybolur, yenisi aşağıdan gelir. Kart ilk açılırken animasyon yok.
+  const gorunum =
+    simdiki && v.durum.faz === 'vardi'
+      ? 'vardi'
+      : a.tur === 'yuru'
+        ? 'yuru'
+        : simdiki && v.durum.faz === 'icinde'
+          ? 'icinde'
+          : 'bekle';
   const sar = (icerik: ReactNode) => (
     <ScrollView
       ref={kaydirma}
@@ -441,25 +736,20 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
       nestedScrollEnabled
       showsVerticalScrollIndicator={false}
     >
-      {icerik}
+      <LayoutAnimationConfig skipEntering>
+        <Animated.View
+          key={gorunum}
+          entering={azalt ? FadeIn.duration(200) : FadeInDown.duration(380).easing(Easing.out(Easing.cubic))}
+          exiting={azalt ? undefined : FadeOutUp.duration(200)}
+        >
+          {icerik}
+        </Animated.View>
+      </LayoutAnimationConfig>
     </ScrollView>
   );
 
   if (simdiki && v.durum.faz === 'vardi') {
-    return sar(
-      <>
-        <Text style={s.adimNo}>{`${ust} · VARIŞ`}</Text>
-        <Text style={s.komut}>Vardın</Text>
-        <Text style={s.detay}>
-          {v.hedef ? `${baslikYap(v.hedef)} · ` : ''}
-          {saatYaz(iso(v.bacaklar[v.bacaklar.length - 1], 'end'))}
-        </Text>
-        <View style={[s.kutu, s.kutuIyi]}>
-          <Ikon ad="checkmark-circle" boyut={17} renkKodu={tema.vurgu} />
-          <Text style={s.kutuYazi}>Yolculuk tamamlandı. İyi günler!</Text>
-        </View>
-      </>,
-    );
+    return sar(<VarisKarti v={v} />);
   }
 
   const etiketler = <Text style={s.adimNo}>{`${ust} · ${adimTuruYazisi(v, sira)}${bitti ? ' · TAMAMLANDI' : ''}`}</Text>;
@@ -537,24 +827,31 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
     return sar(
       <>
         {etiketler}
-        <Text style={s.komut}>
-          {kalan === 0
-            ? `Şimdi in: ${baslikYap(b.to.name)}`
-            : `${baslikYap(b.to.name)} ${durakSozcugu(b.route?.mode ?? b.mode).de} in`}
-        </Text>
+        <Text style={s.komut}>{`${baslikYap(b.to.name)} ${durakSozcugu(b.route?.mode ?? b.mode).de} in`}</Text>
         {v.durum.binisAn != null && (
           <Text style={s.detay}>{`${baslikYap(b.from.name)} ${durakSozcugu(b.route?.mode ?? b.mode).de} ${saatEkli(Math.round(v.durum.binisAn / 1000))} bindin`}</Text>
         )}
-        <View style={s.buyukSatir}>
-          <Text style={s.sayac}>
-            {kalan === 0 ? '' : kalan}
-            <Text style={s.sayacBirim}>{kalan === 0 ? 'Bu durakta in' : ' durak kaldı'}</Text>
-          </Text>
-          <Text style={[s.detay, { textAlign: 'right' }]}>
-            <Text style={s.kalin}>{`~${inisDk} dk`}</Text>
-            {`\niniş ${inisSaati}`}
-          </Text>
-        </View>
+        {kalan === 0 ? (
+          <InBandi metin={`Şimdi in: ${baslikYap(b.to.name)}`} />
+        ) : (
+          <View style={s.buyukSatir}>
+            <SonDurakKutusu aktif={kalan === 1}>
+              <View style={s.tabanSatir}>
+                <KayanMetin metin={String(kalan)} style={[s.sayac, kalan === 1 && { color: tema.vurgu }]} />
+                <Text style={s.sayacBirim}> durak kaldı</Text>
+              </View>
+              {kalan === 1 && (
+                <Animated.Text entering={FadeIn.duration(300)} style={s.sonDurakYazi}>
+                  {siradakindeIn(b.route?.mode ?? b.mode)}
+                </Animated.Text>
+              )}
+            </SonDurakKutusu>
+            <Text style={[s.detay, { textAlign: 'right' }]}>
+              <Text style={s.kalin}>{`~${inisDk} dk`}</Text>
+              {`\niniş ${inisSaati}`}
+            </Text>
+          </View>
+        )}
         {/* Aynı yoldan birden çok hat varsa hangisinde olduğu; yanlışsa düzeltilir. */}
         {obur.length > 0 && !!v.hatSec && <HatSecimi v={v} bacak={a.bacak} obur={obur} />}
         {cizelge}
@@ -776,10 +1073,15 @@ function SecenekSatiri({ v, bacak, secenek, ilk }: { v: YolTarifiVerisi; bacak: 
       <View style={{ alignItems: 'flex-end' }}>
         <View style={s.sayacSatir}>
           {(birinci?.canli || otobusBurada) && <NabizNoktasi renk={tema.vurgu} />}
-          <Text style={[s.secenekDk, (birinci?.canli || otobusBurada) && { color: tema.vurgu }]}>
-            {ilkDk == null ? '–' : ilkDk >= 60 ? istanbulSaatiYaz(Math.round(birinci!.an / 1000)) : ilkDk === 0 ? 'şimdi' : ilkDk}
+          <View style={s.tabanSatir}>
+            <KayanMetin
+              metin={
+                ilkDk == null ? '–' : ilkDk >= 60 ? istanbulSaatiYaz(Math.round(birinci!.an / 1000)) : ilkDk === 0 ? 'şimdi' : String(ilkDk)
+              }
+              style={[s.secenekDk, (birinci?.canli || otobusBurada) && { color: tema.vurgu }]}
+            />
             {ilkDk != null && ilkDk > 0 && ilkDk < 60 && <Text style={s.sayacBirim}> dk</Text>}
-          </Text>
+          </View>
         </View>
         {sonrakiler.length > 0 && (
           <Text style={s.secenekKaynak}>{`sonra ${sonrakiler.slice(0, 2).map((k) => dk(k.an)).join(', ')} dk`}</Text>
@@ -1197,7 +1499,6 @@ const stiller = (t: Tema) =>
       shadowOffset: { width: 0, height: 3 },
     },
     sekmeIc: { paddingHorizontal: 6, paddingVertical: 5, alignItems: 'center' },
-    sekmeSarici: { flexDirection: 'row', alignItems: 'center' },
     ayrac: { color: t.soluk, fontSize: 12, marginHorizontal: 2, opacity: 0.7 },
     sekme: {
       flexDirection: 'row',
@@ -1210,6 +1511,7 @@ const stiller = (t: Tema) =>
       borderColor: 'transparent',
     },
     sekmeBitti: { opacity: 0.55 },
+    sekmeCerceve: { position: 'absolute', left: 0, top: 5, height: 28, borderRadius: 8, borderWidth: 1.5 },
     sekmeYazi: { fontSize: 12.5, fontWeight: '800' },
 
     kart: {
@@ -1226,10 +1528,8 @@ const stiller = (t: Tema) =>
       shadowRadius: 14,
       shadowOffset: { width: 0, height: -4 },
     },
+    donSarici: { position: 'absolute', top: -46, left: 0, right: 0, alignItems: 'center' },
     donDugmesi: {
-      position: 'absolute',
-      top: -46,
-      alignSelf: 'center',
       flexDirection: 'row',
       alignItems: 'center',
       gap: 6,
@@ -1240,6 +1540,65 @@ const stiller = (t: Tema) =>
     },
     donYazi: { color: t.vurguYazi, fontWeight: '700', fontSize: 13 },
     noktalar: { flexDirection: 'row', justifyContent: 'center', gap: 5, marginBottom: 8 },
+    bildirim: {
+      position: 'absolute',
+      top: -74,
+      left: 14,
+      right: 14,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      backgroundColor: t.vurgu,
+      borderRadius: 16,
+      paddingHorizontal: 14,
+      paddingVertical: 11,
+      shadowColor: '#000',
+      shadowOpacity: 0.2,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 6 },
+      elevation: 6,
+    },
+    bildirimBaslik: { color: t.vurguYazi, fontWeight: '800', fontSize: 15 },
+    bildirimAlt: { color: t.vurguYazi, opacity: 0.85, fontWeight: '600', fontSize: 12 },
+    sonDurak: {
+      backgroundColor: t.vurguAcik,
+      borderRadius: 14,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      marginHorizontal: -10,
+      marginVertical: -6,
+    },
+    sonDurakHalka: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, borderRadius: 14, borderWidth: 2, borderColor: t.vurgu },
+    sonDurakYazi: { fontSize: 11.5, fontWeight: '800', color: t.vurgu, letterSpacing: 0.3, marginTop: 1 },
+    inBandi: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      backgroundColor: t.vurgu,
+      borderRadius: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      marginVertical: 8,
+    },
+    inBandiYazi: { flex: 1, color: t.vurguYazi, fontSize: 17, fontWeight: '800' },
+    varis: { alignItems: 'center', paddingTop: 12, gap: 2 },
+    varisDaireYeri: { width: 78, height: 78, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+    varisDaire: { width: 78, height: 78, borderRadius: 39, borderWidth: 4, alignItems: 'center', justifyContent: 'center' },
+    varisHalka: { position: 'absolute', width: 78, height: 78, borderRadius: 39, borderWidth: 3 },
+    varisCipler: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, marginTop: 12 },
+    varisCip: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: t.yazi,
+      backgroundColor: t.yuzeyIkincil,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: t.cizgi,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      overflow: 'hidden',
+    },
+    varisCipIyi: { color: t.vurgu, backgroundColor: t.vurguAcik, borderColor: t.vurguAcik },
     nokta: { width: 6, height: 6, borderRadius: 3, backgroundColor: t.cizgi },
     noktaAktif: { width: 16, backgroundColor: t.vurgu },
     icerik: { gap: 4, paddingBottom: 10 },
@@ -1326,6 +1685,7 @@ const stiller = (t: Tema) =>
     kalin: { fontWeight: '700', color: t.yazi },
     buyukSatir: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginVertical: 6 },
     sayacSatir: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    tabanSatir: { flexDirection: 'row', alignItems: 'baseline' },
     sayac: { fontSize: 34, fontWeight: '800', color: t.yazi, fontVariant: ['tabular-nums'] },
     sayacBirim: { fontSize: 14, fontWeight: '600', color: t.soluk },
     kutu: { flexDirection: 'row', alignItems: 'center', gap: 9, borderRadius: 12, padding: 10, marginTop: 8 },

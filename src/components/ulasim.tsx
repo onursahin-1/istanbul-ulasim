@@ -8,6 +8,7 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   Animated,
+  Easing,
   Image,
   type ImageSourcePropType,
   StyleSheet,
@@ -19,6 +20,7 @@ import {
 } from 'react-native';
 
 import { Pressable } from '@/components/dokun';
+import { KayanMetin } from '@/components/kayan-metin';
 import type { CanliBilgi, CanliSinif } from '@/lib/canli';
 import { tazelikYaz } from '@/lib/onbellek';
 import type { Duyuru } from '@/lib/duyuru';
@@ -504,12 +506,42 @@ export function NabizNoktasi({ renk, boyut = 7 }: { renk: string; boyut?: number
  *
  * Canlıysa önünde nabız noktası durur ve rakam gecikmenin rengini alır.
  *
+ * Rakam değişince kayar. Aynı seferin canlı tahmini değişince (`kimlik` aynı, an en az
+ * 45 sn kaydı) rakamın arkası bir an renklenir: geç kalıyorsa turuncu, erkene çektiyse
+ * yeşil. Sıradaki sefere geçişte (kimlik değişti) ve her dakika azalmasında renklenmez.
+ *
  * @param an kalkışın mutlak anı, Unix saniyesi (serviceDay + saniye). Dakika değil
  *           an alınıyor: saat yuvarlanmış dakikadan geri hesaplanırsa bir dakika kayıyor.
+ * @param kimlik kalkışın seferi (ya da aracı); verilmezse renklenme olmaz.
  */
-export function Dakika({ an, canli, style }: { an: number; canli?: CanliBilgi | null; style?: StyleProp<ViewStyle> }) {
+export function Dakika({
+  an,
+  canli,
+  kimlik,
+  style,
+}: {
+  an: number;
+  canli?: CanliBilgi | null;
+  kimlik?: string | null;
+  style?: StyleProp<ViewStyle>;
+}) {
   const tema = useTema();
   const g = kalkisGosterimi(an);
+  const [onceki, setOnceki] = useState({ an, kimlik, canli: !!canli, flas: 0, gec: true });
+  if (onceki.an !== an || onceki.kimlik !== kimlik || onceki.canli !== !!canli) {
+    const fark = an - onceki.an;
+    const flas =
+      !!kimlik && kimlik === onceki.kimlik && !!canli && onceki.canli && Math.abs(fark) >= 45 && Math.abs(fark) <= 1800;
+    setOnceki({ an, kimlik, canli: !!canli, flas: flas ? onceki.flas + 1 : onceki.flas, gec: flas ? fark > 0 : onceki.gec });
+  }
+  const parlama = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (onceki.flas === 0) return;
+    parlama.setValue(1);
+    const a = Animated.timing(parlama, { toValue: 0, duration: 1400, delay: 450, useNativeDriver: true });
+    a.start();
+    return () => a.stop();
+  }, [onceki.flas, parlama]);
   // Renk yalnız canlı veriye ait: tarifeli saat, ne kadar yakın olursa olsun, düz yazı rengi.
   // Canlı kalkış gecikmeli de erken de olsa aynı yeşil: gösterilen dakika zaten tahmini
   // varış; tarifeden sapmanın rengi yolcuya bir şey söylemiyordu.
@@ -519,7 +551,11 @@ export function Dakika({ an, canli, style }: { an: number; canli?: CanliBilgi | 
     <View style={[stil.dakika, style]} accessible accessibilityLabel={etiket}>
       {canli && <NabizNoktasi renk={renk} />}
       <View style={stil.dakikaMetin}>
-        <Text style={[stil.dakikaSayi, { color: renk }]}>{g.metin}</Text>
+        <Animated.View
+          pointerEvents="none"
+          style={[stil.dakikaParlama, { backgroundColor: onceki.gec ? tema.uyariAcik : tema.vurguAcik, opacity: parlama }]}
+        />
+        <KayanMetin metin={g.metin} style={[stil.dakikaSayi, { color: renk }]} />
         {g.birim && <Text style={[stil.dakikaBirim, { color: tema.soluk }]}>{g.birim}</Text>}
       </View>
     </View>
@@ -599,21 +635,61 @@ const SERIT_DURAK = 4;
  */
 export function YaklasmaSeridi({ kalan, renk, soluk = false }: { kalan: number; renk: string; soluk?: boolean }) {
   const tema = useTema();
+  const azalt = useHareketAzalt();
   const aralik = 12;
   const yer = SERIT_DURAK - Math.min(Math.max(kalan, 0), SERIT_DURAK);
   const otobusRengi = soluk ? tema.soluk : renk;
+  // Otobüs bir sonraki durağa kayarak ilerler (zıplamadan); ilk çizimde yerinde.
+  const x = useRef(new Animated.Value(yer * aralik)).current;
+  useEffect(() => {
+    if (azalt) {
+      x.setValue(yer * aralik);
+      return;
+    }
+    const a = Animated.timing(x, { toValue: yer * aralik, duration: 900, easing: Easing.out(Easing.cubic), useNativeDriver: true });
+    a.start();
+    return () => a.stop();
+  }, [yer, azalt, x]);
+  // Otobüs bir önceki durakta (ya da durakta): yolcunun durağının halkası atar.
+  const geliyor = kalan <= 1 && !soluk && !azalt;
+  const nabiz = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!geliyor) return;
+    nabiz.setValue(0);
+    const d = Animated.loop(Animated.timing(nabiz, { toValue: 1, duration: 1100, useNativeDriver: true }));
+    d.start();
+    return () => d.stop();
+  }, [geliyor, nabiz]);
   return (
     <View style={{ width: aralik * SERIT_DURAK + 14, height: 16, justifyContent: 'center' }} accessible={false}>
       <View style={[stil.seritCizgi, { backgroundColor: tema.cizgi, left: 7, width: aralik * SERIT_DURAK }]} />
       {Array.from({ length: SERIT_DURAK }, (_, i) => (
         <View key={i} style={[stil.seritNokta, { left: 7 + i * aralik - 2, backgroundColor: tema.cizgi }]} />
       ))}
+      {geliyor && (
+        <Animated.View
+          style={[
+            stil.seritNabiz,
+            {
+              left: 7 + SERIT_DURAK * aralik - 9,
+              borderColor: renk,
+              opacity: nabiz.interpolate({ inputRange: [0, 1], outputRange: [0.7, 0] }),
+              transform: [{ scale: nabiz.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1.25] }) }],
+            },
+          ]}
+        />
+      )}
       <View
         style={[stil.seritHalka, { left: 7 + SERIT_DURAK * aralik - 5, borderColor: renk, backgroundColor: tema.yuzey }]}
       />
-      <View style={[stil.seritOtobus, { left: yer * aralik, backgroundColor: otobusRengi, borderColor: tema.yuzey }]}>
+      <Animated.View
+        style={[
+          stil.seritOtobus,
+          { left: 0, backgroundColor: otobusRengi, borderColor: tema.yuzey, transform: [{ translateX: x }] },
+        ]}
+      >
         <Ionicons name="bus" size={8} color="#fff" />
-      </View>
+      </Animated.View>
     </View>
   );
 }
@@ -654,6 +730,7 @@ const stil = StyleSheet.create({
   seritCizgi: { position: 'absolute', height: 2, borderRadius: 1 },
   seritNokta: { position: 'absolute', width: 4, height: 4, borderRadius: 2 },
   seritHalka: { position: 'absolute', width: 10, height: 10, borderRadius: 5, borderWidth: 2.5 },
+  seritNabiz: { position: 'absolute', width: 18, height: 18, borderRadius: 9, borderWidth: 2 },
   seritOtobus: {
     position: 'absolute',
     width: 14,
@@ -713,4 +790,5 @@ const stil = StyleSheet.create({
   tarifeEtiketi: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   dakikaSayi: { fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
   dakikaBirim: { fontSize: 11, fontWeight: '500' },
+  dakikaParlama: { position: 'absolute', top: -2, bottom: -2, left: -5, right: -5, borderRadius: 7 },
 });
