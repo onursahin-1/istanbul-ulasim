@@ -27,8 +27,13 @@
 //   POST /yolculuk-kaydi   geliştirme: yolculuk takibinin konum ve adım kaydı → kayit/yolculuklar/
 //                          (köprünün o yolculuktaki hatlar için araç eşlemesi de her nabızda eklenir)
 //   /araclar?hat=141M      bir hattın şu an eşlenen araçları: kapı no, sefer, gecikme (tanı için)
-//   /durak-varislari?durak=ID[,ID]&hat=141M,97M
+//   /durak-varislari?durak=ID[,ID]&hat=141M,97M[&sonra=NABIZ]
 //                          araç tabanlı varış: durağa gelen her otobüs kaç dakikada (varis.mjs)
+//   /hat-araclari?rota=ROUTE_ID[,ROUTE_ID][&sonra=NABIZ]
+//                          hat ekranı: güzergâhlardaki otobüsler (OTP'yi beklemeden, durak
+//                          ekranıyla aynı liste)
+//   `sonra` verilirse (son alınan cevabın `nabiz` değeri) istek yeni nabız gelene kadar
+//   bekler (en çok 50 sn, uzun-bekleme.mjs): uygulama yeni konumu gelir gelmez alır.
 //   /teshis?durak=ID       tanı: bu duraktan geçen hatların her aracı sayıldı mı, sayılmadıysa
 //                          neden; hatların taranma durumu; yakındaki hattı başka sanılan araçlar
 //   /durum                 insan için JSON özet (varış doğruluğu ölçümü `kalite`de)
@@ -49,6 +54,7 @@ import { ArizaHatasi, duyurular as duyurulariIste, filoKonumlari, hatlar as hatl
 import { araclariEslestir, gecikmeAkisi, konumAkisi, SeferHafizasi, zamaniCoz } from './kopru.mjs';
 import { oku, yaz } from './ogrenilen.mjs';
 import { Tarayici, yogunlukTahmini } from './tarama.mjs';
+import { NabizBeklemesi } from './uzun-bekleme.mjs';
 import { seferDuraklari, tarifeyiKur } from './tarife.mjs';
 import { AracVarislari, tarifedenKalkisBul, tarifedenYolBul } from './varis.mjs';
 import { KonumIzi } from './yon.mjs';
@@ -288,6 +294,7 @@ async function nabiz() {
     durum.sayac = sayac;
     durum.eslesenSefer = new Set(eslesenler.map((e) => e.seferId)).size;
     durum.hata = null;
+    bekleme.nabiz(sonNabizAn);
 
     const t = tarayici.ozet();
     console.log(
@@ -452,6 +459,14 @@ function hatAraclari(kisaAd) {
     }));
 }
 
+/** Uzun bekleyen istekler (uzun-bekleme.mjs): yeni nabız gelince cevaplanır. */
+const bekleme = new NabizBeklemesi();
+function nabizdanSonra(sorgu, cevap, is) {
+  const birak = bekleme.bekle(sorgu.get('sonra'), is);
+  // Uygulama ekrandan çıkıp isteği iptal ederse.
+  cevap.on('close', birak);
+}
+
 /** Yolculuk kaydı başına: hangi hatlar izleniyor, en son hangi nabız yazıldı. */
 const yolculukHatlari = new Map();
 
@@ -513,15 +528,39 @@ createServer((istek, cevap) => {
       .split(',')
       .map((h) => h.trim().toUpperCase())
       .filter(Boolean);
-    const simdiMs = Date.now();
-    const bayatMi = !sonBasari || simdiMs - sonBasari > BAYAT_MS;
-    const duraklar = {};
-    for (const id of (sorgu.get('durak') ?? '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 12)) {
-      const sira = durakSirasi.get(id.includes(':') ? id.slice(id.lastIndexOf(':') + 1) : id);
-      duraklar[id] = sira == null || bayatMi ? {} : varislar.durakVarislari(sira, simdiMs, hatlar.length ? new Set(hatlar) : null);
-    }
-    const govde = { nabiz: sonNabizAn ? new Date(sonNabizAn).toISOString() : null, bayat: bayatMi, duraklar };
-    return yanitla(cevap, Buffer.from(JSON.stringify(govde)), 'application/json; charset=utf-8');
+    return nabizdanSonra(sorgu, cevap, () => {
+      const simdiMs = Date.now();
+      const bayatMi = !sonBasari || simdiMs - sonBasari > BAYAT_MS;
+      const duraklar = {};
+      for (const id of (sorgu.get('durak') ?? '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 12)) {
+        const sira = durakSirasi.get(id.includes(':') ? id.slice(id.lastIndexOf(':') + 1) : id);
+        duraklar[id] = sira == null || bayatMi ? {} : varislar.durakVarislari(sira, simdiMs, hatlar.length ? new Set(hatlar) : null);
+      }
+      const govde = { nabiz: sonNabizAn ? new Date(sonNabizAn).toISOString() : null, bayat: bayatMi, duraklar };
+      yanitla(cevap, Buffer.from(JSON.stringify(govde)), 'application/json; charset=utf-8');
+    });
+  }
+  if (yol === '/hat-araclari') {
+    const sorgu = new URL(istek.url ?? '/', 'http://x').searchParams;
+    // Uygulama "1:23813" gibi besleme önekiyle sorabilir.
+    const rotalar = new Set(
+      (sorgu.get('rota') ?? '')
+        .split(',')
+        .map((x) => x.trim())
+        .filter(Boolean)
+        .slice(0, 12)
+        .map((x) => (x.includes(':') ? x.slice(x.lastIndexOf(':') + 1) : x)),
+    );
+    return nabizdanSonra(sorgu, cevap, () => {
+      const simdiMs = Date.now();
+      const bayatMi = !sonBasari || simdiMs - sonBasari > BAYAT_MS;
+      const govde = {
+        nabiz: sonNabizAn ? new Date(sonNabizAn).toISOString() : null,
+        bayat: bayatMi,
+        rotalar: bayatMi ? {} : varislar.rotaAraclari(rotalar, simdiMs),
+      };
+      yanitla(cevap, Buffer.from(JSON.stringify(govde)), 'application/json; charset=utf-8');
+    });
   }
   if (yol === '/teshis') {
     const id = new URL(istek.url ?? '/', 'http://x').searchParams.get('durak') ?? '';
@@ -542,7 +581,7 @@ createServer((istek, cevap) => {
     return yanitla(cevap, Buffer.from(JSON.stringify(durum, null, 2)), 'application/json; charset=utf-8');
   }
   cevap.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-  cevap.end('Bilinmeyen adres. /durum, /araclar?hat=141M, /durak-varislari?durak=ID, /arac-konumlari, /sefer-guncellemeleri, /duyurular\n');
+  cevap.end('Bilinmeyen adres. /durum, /araclar?hat=141M, /durak-varislari?durak=ID, /hat-araclari?rota=ID, /arac-konumlari, /sefer-guncellemeleri, /duyurular\n');
 }).listen(PORT, () => {
   console.log(`köprü http://localhost:${PORT} · nabız ${NABIZ / 1000} sn`);
 });

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { aracSayisiGuncelle, geceMi, ILGI_OMRU_MS, istanbulSaati, Tarayici } from '../tarama.mjs';
+import { aracSayisiGuncelle, geceMi, ILGI_OMRU_MS, istanbulSaati, konumAni, Tarayici } from '../tarama.mjs';
 
 const istanbul = (saat) => Date.UTC(2026, 8, 26, saat - 3, 0, 0);
 
@@ -70,5 +70,24 @@ describe('ilgi', () => {
     const u = new Tarayici(null);
     u.yukle(t.disaAktar(), simdi);
     assert.equal(u.kalici.has('15F'), true);
+  });
+});
+
+describe('İETT en yakın durak', () => {
+  it('konum zamanı İstanbul saatinden; okunamaz ya da çok uzaksa null', () => {
+    const sorgu = Date.UTC(2026, 9, 7, 16, 6, 0); // 19:06 İstanbul
+    assert.equal(konumAni('2026-10-07 19:05:12', sorgu), Date.UTC(2026, 9, 7, 16, 5, 12));
+    assert.equal(konumAni('2026-10-07T19:05:12', sorgu), Date.UTC(2026, 9, 7, 16, 5, 12));
+    assert.equal(konumAni('2026-10-07 17:05:12', sorgu), null);
+    assert.equal(konumAni('', sorgu), null);
+  });
+
+  it('taramada en yakın durak ve konumun anı araçla birlikte saklanır', () => {
+    const t = new Tarayici(null);
+    const an = Date.UTC(2026, 9, 7, 16, 6, 0);
+    t.isle('141M', [{ kapiNo: 'A-1', hat: '141M', guzergah: '141M_G_D0', yakinDurak: '125181', zaman: '2026-10-07 19:05:12' }], an);
+    assert.deepEqual(t.bilgi('A-1'), { hat: '141M', guzergah: '141M_G_D0', an, yakinDurak: '125181', konumAn: Date.UTC(2026, 9, 7, 16, 5, 12) });
+    t.isle('141M', [{ kapiNo: 'A-2', hat: '141M', guzergah: '141M_G_D0', yakinDurak: '', zaman: '' }], an);
+    assert.deepEqual(t.bilgi('A-2'), { hat: '141M', guzergah: '141M_G_D0', an });
   });
 });

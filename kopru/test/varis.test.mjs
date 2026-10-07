@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { AracVarislari, ilerleyenVaryantlar, yoldakiYer } from '../varis.mjs';
+import { AracVarislari, capaPenceresi, ilerleyenVaryantlar, yoldakiYer } from '../varis.mjs';
 
 // Doğu-batı cadde, 6 durak ~500 m arayla. Rota 0 batıdan doğuya, rota 1 karşı yakadan geri.
 const ENLEM = 41.0;
@@ -199,6 +199,51 @@ describe('halka hat: gidiş ve dönüş aynı caddenin iki yakasında', () => {
     for (let i = 18; i < 24; i++) t.durakEnlem[i] = ENLEM + 0.0027;
     const yer = yoldakiYer(t, yb(), ENLEM + 0.00005, boylam(2.5), 400, { dx: -0.001, dy: 0 });
     assert.ok(yer.yer < 5, `gidişte bekleniyordu: ${yer.yer}`);
+  });
+
+  describe('İETT çapası (en yakın durak)', () => {
+    // Taramada İETT otobüsün en yakın durağını dönüş yakasındaki x = 3 (HD[8]) diye verdi.
+    const capaKodu = 'K8';
+    const capali = () => {
+      const t = halka().t;
+      t.kodtanDurak = new Map([[capaKodu, HD[8].durak]]);
+      return t;
+    };
+    const bilgiC = (konumAn) => () => ({ ...bilgiH(), yakinDurak: capaKodu, konumAn });
+
+    it('yön bilinmese de otobüs çapanın penceresine (dönüş yakasına) yerleşir', () => {
+      const t = capali();
+      const v = new AracVarislari(t, yb, () => null);
+      // Tek konum: iki konumdan yön çıkmıyor, en yakın parça gidiş yakası olurdu.
+      v.guncelle([konum(2.5, SIMDI.getTime())], [], bilgiC(SIMDI.getTime() - 30_000), SIMDI);
+      const r = v.durakVarislari(hedef, SIMDI.getTime())['91E'];
+      assert.equal(r?.[0].kalanDurak, 2);
+      assert.equal(v.teshis(hedef, SIMDI.getTime()).araclar[0].iettYakinDurak, `d${HD[8].durak}`);
+    });
+
+    it('çapasız yerleştirme İETT ile uyuşmazsa ölçülür (/durum capa)', () => {
+      const v = new AracVarislari(capali(), yb, () => null);
+      v.guncelle([konum(2.5, SIMDI.getTime())], [], bilgiC(SIMDI.getTime() - 30_000), SIMDI);
+      // Aynı tarama ikinci nabızda yeniden sayılmaz.
+      v.guncelle([konum(2.5, SIMDI.getTime() + 75_000)], [], bilgiC(SIMDI.getTime() - 30_000), new Date(SIMDI.getTime() + 75_000));
+      const c = v.ozet().capa;
+      assert.equal(c.uyumsuz, 1);
+      assert.equal(c.uyumlu, 0);
+      assert.equal(c.sonUyumsuzlar[0].iettDurak, `d${HD[8].durak}`);
+    });
+
+    it('güzergâh kodu aracın varyantını göstermiyorsa ya da eskiyse çapa yok', () => {
+      const v = new AracVarislari(capali(), yb, () => null);
+      v.guncelle([konum(2.5, SIMDI.getTime())], [], bilgiC(SIMDI.getTime() - 25 * 60_000), SIMDI);
+      assert.equal(v.ozet().capa.kullanan, 0);
+    });
+
+    it('pencere: bir durak geriden, geçen sürenin iki katı + 5 dk planlanan süre ilerisine', () => {
+      // Aralık 120 sn: 0 sn geçtiyse +300 sn → 2 durak ileri; 300 sn geçtiyse +900 sn → 7 durak.
+      assert.deepEqual(capaPenceresi(yb(), HD[8].durak, 0), [[7, 10]]);
+      assert.deepEqual(capaPenceresi(yb(), HD[2].durak, 300), [[1, 9]]);
+      assert.equal(capaPenceresi(yb(), 999, 0), null);
+    });
   });
 
   it('yerinde sayan otobüs son yönünü korur', () => {
@@ -408,5 +453,26 @@ describe('konumun yaşı kadar ilerletme', () => {
     assert.equal(k.T, 3);
     // 140 sn: 1,5 → 2 (60 sn) → 2,67 (80 sn): 3, 4 → 2 durak.
     assert.equal(k.Y, 2);
+  });
+});
+
+describe('hat ekranı araçları (rotaAraclari)', () => {
+  it('güzergâh kimliğine göre son nabzın otobüsleri; gidiş yönü var, uzun duran yok', () => {
+    const t = { ...sahteTarife(), rotaAd: ['R0', 'R1'] };
+    const yb0 = (rota) => t.rotaDuraklari.get(rota).map((d, i) => ({ durak: d.durak, saniye: 36000 + i * 120 }));
+    const v = new AracVarislari(t, yb0, () => null);
+    const bilgiK = (k) => ({ hat: '141M', guzergah: k === 'D' ? '141M_D_D0' : '141M_G_D0', an: SIMDI.getTime() - 60_000 });
+    const an = SIMDI.getTime();
+    const konumK = (kapiNo, x, ms, kuzey = 0) => ({ kapiNo, enlem: ENLEM + kuzey, boylam: boylam(x), tarih: new Date(ms) });
+    const once = an - 25 * 60_000;
+    // A doğuya, D dönüş yakasında batıya ilerliyor; P 25 dakikadır yolun ortasında duruyor (servis dışı).
+    v.guncelle([konumK('A', 1, once), konumK('P', 2.5, once), konumK('D', 3, once, 0.00018)], [], bilgiK, new Date(once));
+    v.guncelle([konumK('A', 1.2, an - 75_000), konumK('P', 2.5, an - 75_000), konumK('D', 2.8, an - 75_000, 0.00018)], [], bilgiK, new Date(an - 75_000));
+    v.guncelle([konumK('A', 1.5, an), konumK('P', 2.5, an), konumK('D', 2.5, an, 0.00018)], [], bilgiK, SIMDI);
+    const r = v.rotaAraclari(new Set(['R0', 'R1']), an);
+    assert.deepEqual(r.R0.map((x) => [x.kapiNo, x.yon, x.duruyorSn]), [['A', 90, null]]);
+    assert.deepEqual(r.R1.map((x) => [x.kapiNo, x.yon]), [['D', 270]]);
+    assert.equal(r.R0[0].an, an);
+    assert.deepEqual(Object.keys(v.rotaAraclari(new Set(['R1']), an)), ['R1']);
   });
 });

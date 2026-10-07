@@ -116,6 +116,22 @@ export const YEREL_ORAN_SINIR = [0.75, 2.5];
 export const CANLI_EN_AZ = 2;
 /** Duruyor demek için konum en çok bu kadar eski olabilir (eski konumla bilinemez). */
 export const DURGUN_TAZE_MS = 3 * 60_000;
+/**
+ * İETT çapası. Hat taraması her otobüs için İETT'nin hesapladığı en yakın durağı da
+ * veriyor (yakinDurakKodu); "Otobüsüm Nerede?"nin "kaç durak" bilgisi büyük ihtimalle
+ * bundan. Eskiden atılıyordu. Şimdi otobüs güzergâhta yalnız bir pencerede aranıyor: o
+ * duraktan bir durak geride ile o andan beri geçen sürenin CAPA_HIZ_PAYI katı (+CAPA_EK_SN)
+ * planlanan süre ilerisi arası. Halka hatlarda aynı caddenin iki yakası ya da aynı
+ * duraktan iki kez geçen güzergâhta otobüs yanlış tura yerleşmiyor. Pencerede yer
+ * bulunamazsa (çapa yanlış ya da otobüs güzergâh dışında) eskisi gibi bütün yolda aranır.
+ * Çapa ancak taramanın güzergâh kodu aracın şimdiki varyantıyla aynıysa ve CAPA_OMRU_MS
+ * içindeyse geçerli.
+ */
+export const CAPA_OMRU_MS = 20 * 60_000;
+export const CAPA_HIZ_PAYI = 2;
+export const CAPA_EK_SN = 300;
+/** Çapa ile kendi yerleştirmemizi karşılaştırırken iki konumun anı en çok bu kadar farklı olabilir. */
+export const CAPA_KARSILASTIRMA_MS = 60_000;
 
 /** Noktanın a→b doğru parçasına izdüşümü: oran (0–1) ve uzaklık (metre). */
 function izdusum(tarife, a, b, enlem, boylam) {
@@ -154,6 +170,30 @@ export function ilerleyenVaryantlar(tarife, rotalar, onceki, simdiki, hareket = 
 }
 
 /**
+ * Yolda uzun süredir (DURGUN_SN) kımıldamayan ve konumu taze otobüs. Hat başında kalkışını
+ * bekleyen otobüs ayrıca ayıklanmalı (orada tarifedeki kalkış biliniyor).
+ */
+export function duruyorMu(v, simdiMs) {
+  return v.durgunBas != null && v.damga - v.durgunBas >= DURGUN_SN * 1000 && simdiMs - v.damga <= DURGUN_TAZE_MS;
+}
+
+/**
+ * Çapanın yol üstündeki penceresi: durağın yoldaki her uğrayışı için [bir önceki durak,
+ * geçen sürede en çok varılabilecek durak] (yol parçası sırası). Durak yolda yoksa null.
+ */
+export function capaPenceresi(yol, durak, gecenSn) {
+  const pencereler = [];
+  for (let k = 0; k < yol.length; k++) {
+    if (yol[k].durak !== durak) continue;
+    const sinir = yol[k].saniye + Math.max(0, gecenSn) * CAPA_HIZ_PAYI + CAPA_EK_SN;
+    let son = k;
+    while (son + 1 < yol.length && yol[son + 1].saniye <= sinir) son++;
+    pencereler.push([Math.max(0, k - 1), son]);
+  }
+  return pencereler.length ? pencereler : null;
+}
+
+/**
  * Yol üstündeki kesirli yeri `saniye` kadar planlanan durak arası sürelerle ileri alır
  * (en çok TAHMIN_ILERI_SN; aralık en az 30 sn sayılır).
  */
@@ -181,12 +221,16 @@ export function ilerlet(yol, yer, saniye) {
  * dönüşteki otobüs gidişe yerleşiyor, durağa 50 durak uzakta sanılıyordu (89C, 91E,
  * Göztepe Meydanı). Yönü tutan parça yoksa ya da en yakından YONLU_PAY_M'den uzaksa en
  * yakın parça.
+ *
+ * `pencereler` ([[ilk, son]] yol parçası sırası) verilirse yalnız o parçalarda aranır.
  */
-export function yoldakiYer(tarife, yol, enlem, boylam, esik, hareket = null) {
+export function yoldakiYer(tarife, yol, enlem, boylam, esik, hareket = null, pencereler = null) {
   let enIyi = null;
   let yonlu = null;
   const olcek = Math.cos((enlem * Math.PI) / 180);
   for (let i = 0; i + 1 < yol.length; i++) {
+    // Çapa penceresi (capaPenceresi) verildiyse yalnız onun içindeki parçalar.
+    if (pencereler && !pencereler.some(([bas, son]) => i >= bas && i <= son)) continue;
     const a = yol[i].durak;
     const b = yol[i + 1].durak;
     const p = izdusum(tarife, a, b, enlem, boylam);
@@ -246,6 +290,10 @@ export class AracVarislari {
     this.an = 0;
     this.yolOnbellegi = new Map();
     this.atlanan = new Map();
+    /** kapıNo → son karşılaştırılan çapanın anı (aynı tarama iki kez sayılmasın) */
+    this.capaGorulen = new Map();
+    /** İETT'nin en yakın durağı ile bizim yerleştirmemiz: kaç kez uyuştu, son uyuşmayanlar. */
+    this.capaOlcum = { uyumlu: 0, uyumsuz: 0, ornekler: [] };
   }
 
   /**
@@ -315,6 +363,7 @@ export class AracVarislari {
       if (rota == null) continue;
       this.yon.set(a.kapiNo, { rota, an });
       const h = this.hareket.get(a.kapiNo);
+      const capa = this.capaBul(bilgi, rota, an);
       const v = {
         kapiNo: a.kapiNo,
         hat,
@@ -325,7 +374,9 @@ export class AracVarislari {
         hareket: h && an - h.an <= HAREKET_OMRU_MS ? h : null,
         durgunBas,
         rotaNasil,
+        capa,
       };
+      if (capa) this.capaKarsilastir(v);
       liste.push(v);
       this.olc(v);
     }
@@ -333,10 +384,71 @@ export class AracVarislari {
     for (const [k, y] of this.yon) if (an - y.an > 2 * YON_OMRU_MS) this.yon.delete(k);
     for (const [k, h] of this.hareket) if (an - h.an > 2 * HAREKET_OMRU_MS) this.hareket.delete(k);
     for (const [k, d] of this.durgunluk) if (an - d.son > 30 * 60_000) this.durgunluk.delete(k);
+    for (const [k, t] of this.capaGorulen) if (an - t > 2 * CAPA_OMRU_MS) this.capaGorulen.delete(k);
     for (const [k, l] of this.canli) if (!l.length || an - l[l.length - 1].an > CANLI_PENCERE_MS) this.canli.delete(k);
     this.iz.temizle(an);
     this.araclar = liste;
     this.an = an;
+  }
+
+  /**
+   * Hat taramasının İETT en yakın durağı: { durak (sıra), an (konumun anı, ms) } ya da null.
+   * Yalnız taramanın güzergâh kodu aracın şimdiki varyantını gösteriyorsa ve tazeyse.
+   */
+  capaBul(bilgi, rota, an) {
+    const T = this.tarife;
+    if (!bilgi?.yakinDurak || !Number.isFinite(bilgi.konumAn) || an - bilgi.konumAn > CAPA_OMRU_MS) return null;
+    if (!bilgi.guzergah || T.guzergahtanRota.get(String(bilgi.guzergah).toUpperCase()) !== rota) return null;
+    const durak = T.kodtanDurak?.get(String(bilgi.yakinDurak).trim());
+    return durak == null ? null : { durak, an: bilgi.konumAn };
+  }
+
+  /**
+   * Yeni bir taramanın çapası geldiğinde: aynı ana yakın konumla (CAPA_KARSILASTIRMA_MS)
+   * bizim çapasız yerleştirmemiz İETT'nin en yakın durağının en çok bir durak yanında mı?
+   * /durum'da `capa` — yanlış yerleştirmenin ne kadar sık olduğunu ölçmek için.
+   */
+  capaKarsilastir(v) {
+    const { capa } = v;
+    if (this.capaGorulen.get(v.kapiNo) === capa.an) return;
+    if (Math.abs(v.damga - capa.an) > CAPA_KARSILASTIRMA_MS) return;
+    this.capaGorulen.set(v.kapiNo, capa.an);
+    const T = this.tarife;
+    const yol = T.rotaDuraklari.get(v.rota);
+    if (!yol || yol.length < 2) return;
+    const yer = yoldakiYer(T, yol, v.enlem, v.boylam, T.rotaEsik?.get(v.rota) ?? 400, v.hareket);
+    const sira = [];
+    yol.forEach((d, i) => d.durak === capa.durak && sira.push(i));
+    if (!sira.length) return;
+    const fark = yer ? Math.min(...sira.map((i) => Math.abs(Math.round(yer.yer) - i))) : null;
+    if (fark != null && fark <= 1) {
+      this.capaOlcum.uyumlu++;
+      return;
+    }
+    this.capaOlcum.uyumsuz++;
+    this.capaOlcum.ornekler = [
+      ...this.capaOlcum.ornekler,
+      {
+        an: new Date(v.damga).toISOString(),
+        kapiNo: v.kapiNo,
+        hat: v.hat,
+        rota: T.rotaAd?.[v.rota] ?? null,
+        iettDurak: T.durakAd?.[capa.durak] ?? null,
+        bizimDurak: yer ? (T.durakAd?.[yol[Math.round(yer.yer)]?.durak] ?? null) : null,
+        durakFarki: fark,
+      },
+    ].slice(-10);
+  }
+
+  /** Aracın verilen yol üstündeki yeri; çapası varsa önce onun penceresinde. */
+  yerBul(v, yol) {
+    const T = this.tarife;
+    const esik = T.rotaEsik?.get(v.rota) ?? 400;
+    const pencere = v.capa ? capaPenceresi(yol, v.capa.durak, (v.damga - v.capa.an) / 1000) : null;
+    return (
+      (pencere && yoldakiYer(T, yol, v.enlem, v.boylam, esik, v.hareket, pencere)) ||
+      yoldakiYer(T, yol, v.enlem, v.boylam, esik, v.hareket)
+    );
   }
 
   /**
@@ -404,7 +516,7 @@ export class AracVarislari {
     const yol = this.yol(v.rota, durak, anSn);
     if (!yol || yol.length < 2) return { neden: 'aracın güzergâhı bu duraktan geçmiyor' };
     const esik = T.rotaEsik?.get(v.rota) ?? 400;
-    const yer = yoldakiYer(T, yol, v.enlem, v.boylam, esik, v.hareket);
+    const yer = this.yerBul(v, yol);
     if (!yer) return { neden: `araç güzergâhın ${esik} m dışında` };
     // Hedef: aracın önündeki ilk uğrayışı (halka hatlarda durak iki kez geçebilir).
     let hedef = -1;
@@ -426,11 +538,7 @@ export class AracVarislari {
       if (kalkis != null && kalkis > cikis) cikis = kalkis;
     }
     // Yolda uzun süredir duran otobüs: en erken şimdi kalkar.
-    const duruyor =
-      !hatBasi &&
-      v.durgunBas != null &&
-      v.damga - v.durgunBas >= DURGUN_SN * 1000 &&
-      simdiMs - v.damga <= DURGUN_TAZE_MS;
+    const duruyor = !hatBasi && duruyorMu(v, simdiMs);
     if (duruyor && simdiMs - v.durgunBas >= SERVIS_DISI_SN * 1000) {
       return { neden: `${Math.round((simdiMs - v.durgunBas) / 60_000)} dk'dır duruyor (servis dışı sayıldı)` };
     }
@@ -478,6 +586,43 @@ export class AracVarislari {
   }
 
   /**
+   * Hat ekranı için: verilen güzergâhlardaki (GTFS route_id) son nabzın otobüsleri. OTP'nin
+   * araç konumları yalnız bir tarife seferine bağlanabilenleri içeriyor ve köprüden 45 sn'de
+   * bir çekiliyor; burada yönü güzergâh kodundan ya da hareketinden bilinen her otobüs var,
+   * durak ekranıyla aynı liste. Yolda 20 dk'dan uzun duran (servis dışı) otobüs yok; hat
+   * başında kalkışını bekleyen var.
+   * @returns {Record<string, {kapiNo:string, enlem:number, boylam:number, an:number,
+   *   yon:number|null, duruyorSn:number|null}[]>}
+   */
+  rotaAraclari(rotaIdler, simdiMs = Date.now()) {
+    const T = this.tarife;
+    const sonuc = {};
+    for (const v of this.araclar) {
+      const id = T.rotaAd?.[v.rota];
+      if (id == null || !rotaIdler.has(String(id))) continue;
+      let duruyor = duruyorMu(v, simdiMs);
+      if (duruyor) {
+        const yol = T.rotaDuraklari.get(v.rota);
+        const yer = yol && yol.length > 1 ? this.yerBul(v, yol) : null;
+        const hatBasi = yer != null && yer.yer < DURAKTA_PAYI;
+        if (hatBasi) duruyor = false;
+        else if (simdiMs - v.durgunBas >= SERVIS_DISI_SN * 1000) continue;
+      }
+      const h = v.hareket;
+      (sonuc[id] ??= []).push({
+        kapiNo: v.kapiNo,
+        enlem: v.enlem,
+        boylam: v.boylam,
+        an: v.damga,
+        // Gidiş yönü, kuzeyden saat yönünde derece (son iki konumdan).
+        yon: h ? Math.round(((Math.atan2(h.dx, h.dy) * 180) / Math.PI + 360) % 360) : null,
+        duruyorSn: duruyor ? Math.round((simdiMs - v.durgunBas) / 1000) : null,
+      });
+    }
+    return sonuc;
+  }
+
+  /**
    * Teşhis: bu duraktan geçen hatların son nabızdaki bütün araçları, sayıldıysa varışı,
    * sayılmadıysa nedeni. Hattı başka sanılan ya da hiç bilinmeyen yakındaki araçlar
    * sunucuda ayrıca ekleniyor (tarama bilgisi orada).
@@ -495,6 +640,9 @@ export class AracVarislari {
         rota: T.rotaAd?.[v.rota] ?? null,
         rotaNasil: v.rotaNasil ?? null,
         yonVar: !!v.hareket,
+        // İETT'nin en yakın durağı (hat taramasından) ve kaç dakika önceki konum için.
+        iettYakinDurak: v.capa ? (T.durakAd?.[v.capa.durak] ?? null) : null,
+        capaDkOnce: v.capa ? Math.round((simdiMs - v.capa.an) / 6000) / 10 : null,
         konumYasSn: Math.round((simdiMs - v.damga) / 1000),
         ...(kayit
           ? { varisDk: Math.round((kayit.varis - simdiMs) / 6000) / 10, kalanDurak: kayit.kalanDurak, duruyorSn: kayit.duruyorSn }
@@ -650,7 +798,7 @@ export class AracVarislari {
       k = { rota: v.rota, yol, yer: null, damga: v.damga, hedefler: [] };
       this.izleme.set(v.kapiNo, k);
     }
-    const yer = yoldakiYer(T, k.yol, v.enlem, v.boylam, T.rotaEsik?.get(v.rota) ?? 400, v.hareket);
+    const yer = this.yerBul(v, k.yol);
     if (!yer) {
       this.izleme.delete(v.kapiNo);
       return;
@@ -757,6 +905,14 @@ export class AracVarislari {
       carpan: { ogrenilen: Math.round(a * 100) / 100, tarife: Math.round(b * 100) / 100 },
       izlenenArac: this.izleme.size,
       canliDurakCifti: this.canli.size,
+      // İETT'nin en yakın durağı: kaç otobüs bu nabızda ona dayandı; taramalarda bizim
+      // yerleştirmemiz onunla uyuştu mu (en çok bir durak fark), son uyuşmayanlar.
+      capa: {
+        kullanan: this.araclar.filter((v) => v.capa).length,
+        uyumlu: this.capaOlcum.uyumlu,
+        uyumsuz: this.capaOlcum.uyumsuz,
+        sonUyumsuzlar: this.capaOlcum.ornekler,
+      },
       hata,
     };
   }

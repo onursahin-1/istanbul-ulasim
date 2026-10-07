@@ -46,6 +46,18 @@ export function istanbulSaati(an = Date.now()) {
   return new Date(an + 3 * 3_600_000).getUTCHours();
 }
 
+/**
+ * Hat sorgusundaki `son_konum_zamani` ("2026-10-07 19:05:12", İstanbul saati) → ms.
+ * Okunamazsa ya da sorgu anından 15 dk'dan eski/ileriyse null.
+ */
+export function konumAni(metin, sorguAni = Date.now()) {
+  const m = /(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(String(metin ?? ''));
+  if (!m) return null;
+  const [, y, ay, g, s, dk, sn] = m.map(Number);
+  const an = Date.UTC(y, ay - 1, g, s - 3, dk, sn);
+  return Math.abs(sorguAni - an) <= 15 * 60_000 ? an : null;
+}
+
 /** Taramanın durduğu saatler: araçların çoğu garajda, sayım yanıltıcı. */
 export function geceMi(an = Date.now()) {
   const s = istanbulSaati(an);
@@ -172,7 +184,13 @@ export class Tarayici {
     durum.soruldu = true;
     this.hatDurumu.set(hat, durum);
     for (const a of araclar) {
-      if (a.kapiNo) this.atama.set(a.kapiNo, { hat: a.hat || hat, guzergah: a.guzergah || null, an });
+      if (!a.kapiNo) continue;
+      const kayit = { hat: a.hat || hat, guzergah: a.guzergah || null, an };
+      // İETT'nin o konum için hesapladığı en yakın durak (stop_code) ve konumun anı:
+      // varis.mjs otobüsü güzergâhta yerleştirirken buna dayanıyor (çapa).
+      const konumAn = konumAni(a.zaman, an);
+      if (a.yakinDurak && konumAn != null) Object.assign(kayit, { yakinDurak: a.yakinDurak, konumAn });
+      this.atama.set(a.kapiNo, kayit);
     }
   }
 

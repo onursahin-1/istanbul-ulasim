@@ -249,6 +249,31 @@ Meydanı, 41 tahmin: ortanca fark +0,5 dk). `ogrenilen` öğrenilen süreleri, c
 otobüsün kendi hızını kullanıyor. 20 dakikadan uzun süredir yolda duran otobüs servis dışı
 sayılıp gösterilmiyor.
 
+**İETT'nin en yakın durağı (çapa).** Hat taraması her otobüs için İETT'nin hesapladığı en
+yakın durağı da veriyor (`yakinDurakKodu`). Taramanın güzergâh kodu otobüsün şimdiki
+varyantıysa ve 20 dakikadan taze ise otobüs güzergâhta yalnız o durağın çevresinde (bir durak
+geriden, geçen sürenin iki katı + 5 dk planlanan süre ilerisine kadar) aranıyor: halka
+hatlarda yön henüz bilinmezken otobüs caddenin öbür yakasına yerleşmiyor. Pencerede yer
+bulunamazsa bütün yol. `/durum` → `varis.capa`: kaç otobüs çapaya dayanıyor, taramalarda
+çapasız yerleştirmemiz İETT ile kaç kez uyuştu (en çok bir durak fark) ve son uyuşmayanlar;
+`/teshis`'te her otobüsün `iettYakinDurak`'ı.
+
+### Hat ekranı ve uzun bekleme (`/hat-araclari`, `sonra`)
+
+Hat ekranı otobüsleri OTP'den değil doğrudan köprüden alıyor. OTP'nin araç konumları yalnız
+bir tarife seferine bağlanabilen otobüsleri içeriyor ve köprüden 45 saniyede bir çekiliyor;
+`/hat-araclari` durak ekranıyla aynı listeyi (yönü bilinen her otobüs) nabız biter bitmez
+veriyor.
+
+```
+GET /hat-araclari?rota=1:23813,1:23814
+→ { nabiz, bayat, rotalar: { "23813": [{ kapiNo, enlem, boylam, an, yon, duruyorSn }] } }
+```
+
+İki uç da `sonra=<son cevabın nabiz değeri>` alıyor: o nabızdan yenisi yoksa istek yeni nabız
+gelene kadar (en çok 50 sn) bekletilir. Uygulama cevabı alınca hemen yeniden soruyor; yeni
+konum 30 saniyelik yoklama aralığını beklemeden telefona düşüyor.
+
 ### Durak izleme ("Otobüsüm Nerede?" ile karşılaştırma)
 
 Bir durağa gelen otobüsler için iki kaynağı 30 saniyede bir kayda alır: araç tabanlı varış
