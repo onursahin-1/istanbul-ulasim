@@ -7,13 +7,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import { Marker } from 'react-native-maps';
-import { useReducedMotion } from 'react-native-reanimated';
+import Reanimated, { useAnimatedStyle, useReducedMotion, type SharedValue } from 'react-native-reanimated';
+
+import { Pressable } from '@/components/dokun';
 
 import { Ikon } from '@/components/ulasim';
 import { tahminiKonum, type YerlesikArac } from '@/lib/arac-konum';
 import { useCanliAralik } from '@/lib/canli-aralik';
 import type { Nokta } from '@/lib/cografya';
-import { bayatlik, enKisaAci, renkKaristir } from '@/lib/hareket';
+import { bayatlik, enKisaAci, koniOlcusu, renkKaristir } from '@/lib/hareket';
 import { useTema } from '@/lib/tema';
 
 /**
@@ -153,6 +155,90 @@ export function DurakIsareti({ renk, isaretli = false }: { renk: string; isaretl
     <View style={[stil.durakBuyuk, { backgroundColor: renk, borderColor: tema.yuzey }]} />
   ) : (
     <View style={[stil.durak, { borderColor: renk, backgroundColor: tema.yuzey }]} />
+  );
+}
+
+/** Yön konisinin katmanları: tepeye yakın üst üste binip koyulaşır, uca doğru söner. */
+const KONI_KATMANLARI = [1, 0.72, 0.45];
+const KONI_RENGI = 'rgba(74,155,255,0.2)';
+
+/**
+ * Yön konisi: konum noktasının üstünde, telefonun baktığı yöne açılan yarı saydam üçgen
+ * (Moovit, Google Haritalar). Tepesi noktada; genişliği pusulanın ne kadar emin olduğunu
+ * söyler (koniOlcusu). Dönüş arayüz iş parçacığında: `yon` telefonun yönü, `haritaYonu`
+ * haritanın döndüğü açı (kuzey yukarıdaysa 0); ikisi de derece, sarılmamış olabilir.
+ */
+export function YonKonisi({
+  yon,
+  haritaYonu,
+  seviye,
+}: {
+  yon: SharedValue<number>;
+  haritaYonu: SharedValue<number>;
+  seviye: number;
+}) {
+  const olcu = koniOlcusu(seviye);
+  const R = olcu?.boy ?? 0;
+  const donus = useAnimatedStyle(() => ({ transform: [{ rotate: `${yon.value - haritaYonu.value}deg` }] }));
+  if (!olcu) return null;
+  const yariAci = (olcu.aci / 2) * (Math.PI / 180);
+  return (
+    <Reanimated.View pointerEvents="none" style={[{ width: 2 * R, height: 2 * R }, donus]}>
+      {KONI_KATMANLARI.map((k, i) => {
+        const h = R * k;
+        const yari = Math.tan(yariAci) * h;
+        return (
+          <View
+            key={i}
+            style={{
+              position: 'absolute',
+              left: R - yari,
+              top: R - h,
+              width: 0,
+              height: 0,
+              borderLeftWidth: yari,
+              borderRightWidth: yari,
+              borderTopWidth: h,
+              borderLeftColor: 'transparent',
+              borderRightColor: 'transparent',
+              borderTopColor: KONI_RENGI,
+            }}
+          />
+        );
+      })}
+    </Reanimated.View>
+  );
+}
+
+/**
+ * Pusula düğmesi: içindeki ibre kuzeyi gösterir (harita döndükçe döner). Basınca harita
+ * telefonun baktığı yöne döner (yön yukarıda); bir daha basınca kuzey yukarı.
+ */
+export function PusulaDugmesi({
+  aktif,
+  haritaYonu,
+  onPress,
+}: {
+  aktif: boolean;
+  haritaYonu: SharedValue<number>;
+  onPress: () => void;
+}) {
+  const tema = useTema();
+  const ibre = useAnimatedStyle(() => ({ transform: [{ rotate: `${-haritaYonu.value}deg` }] }));
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[stil.pusula, { backgroundColor: aktif ? tema.vurgu : tema.yuzey }]}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: aktif }}
+      accessibilityLabel={aktif ? 'Harita baktığın yöne dönük. Kuzeyi yukarı almak için dokun' : 'Haritayı baktığın yöne çevir'}
+    >
+      <Reanimated.View style={[stil.ibre, ibre]}>
+        <View style={[stil.ibreUc, { borderBottomColor: '#e5484d' }]} />
+        <View style={[stil.ibreUc, stil.ibreAlt, { borderBottomColor: aktif ? tema.vurguYazi : tema.soluk }]} />
+      </Reanimated.View>
+      <Text style={[stil.pusulaN, { color: aktif ? tema.vurguYazi : tema.yazi }]}>N</Text>
+    </Pressable>
   );
 }
 
@@ -311,6 +397,30 @@ const stil = StyleSheet.create({
     paddingHorizontal: 5,
   },
   yasYazi: { fontSize: 10, fontWeight: '800' },
+  pusula: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
+  },
+  ibre: { position: 'absolute', width: 10, height: 30, alignItems: 'center' },
+  ibreUc: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 5,
+    borderRightWidth: 5,
+    borderBottomWidth: 11,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+  },
+  ibreAlt: { position: 'absolute', bottom: 0, transform: [{ rotate: '180deg' }] },
+  pusulaN: { position: 'absolute', bottom: 3, fontSize: 8.5, fontWeight: '800' },
   durak: { width: 10, height: 10, borderRadius: 5, borderWidth: 2.5 },
   durakBuyuk: { width: 18, height: 18, borderRadius: 9, borderWidth: 3 },
 });

@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { basiliOlcek, bayatlik, cizgileriKes, degisimYonu, enKisaAci, hucreler, renkKaristir } from '../hareket.ts';
+import { basiliOlcek, bayatlik, cizgileriKes, degisimYonu, enKisaAci, hucreler, koniOlcusu, pusulaYonu, renkKaristir } from '../hareket.ts';
 
 describe('basiliOlcek', () => {
   it('küçük öğe en fazla %6 küçülür', () => {
@@ -143,5 +143,22 @@ describe('cizgileriKes', () => {
     const k = cizgileriKes(cizgiler, 0.75);
     assert.equal(k[1].length, 2);
     assert.ok(Math.abs(k[1][1].latitude - 41.0015) < 1e-6);
+  });
+});
+
+describe('yön konisi', () => {
+  it('pusula emin oldukça koni daralır ve uzar; bilinmiyorsa yok', () => {
+    const iyi = koniOlcusu(3)!;
+    const orta = koniOlcusu(2)!;
+    const zayif = koniOlcusu(1)!;
+    assert.ok(iyi.aci < orta.aci && orta.aci < zayif.aci);
+    assert.ok(iyi.boy > orta.boy && orta.boy > zayif.boy);
+    assert.equal(koniOlcusu(0), null);
+  });
+  it('yön: coğrafi, yoksa manyetik, o da yoksa null', () => {
+    assert.equal(pusulaYonu(90, 85), 90);
+    assert.equal(pusulaYonu(-1, 85), 85);
+    assert.equal(pusulaYonu(-1, -1), null);
+    assert.equal(pusulaYonu(360, 0), 0);
   });
 });

@@ -152,3 +152,26 @@ export function cizgileriKes(cizgiler: Nokta[][], oran: number): Nokta[][] {
     return sonuc;
   });
 }
+
+// ---------------------------------------------------------------- yön konisi (pusula)
+
+/** Pusulanın doğruluğu (expo-location): 3 iyi (±20°'den iyi), 2 orta, 1 zayıf, 0 yok. */
+export type PusulaSeviyesi = 0 | 1 | 2 | 3;
+
+/**
+ * Yön konisinin açısı (derece, tam açıklık) ve boyu (pt). Pusula emin olunca dar ve uzun,
+ * emin değilken geniş ve kısa; bilinmiyorsa koni yok (null).
+ */
+export function koniOlcusu(seviye: number): { aci: number; boy: number } | null {
+  if (seviye >= 3) return { aci: 50, boy: 90 };
+  if (seviye === 2) return { aci: 76, boy: 72 };
+  if (seviye === 1) return { aci: 106, boy: 58 };
+  return null;
+}
+
+/** Telefonun baktığı yön: coğrafi kuzeye göre; bilinmiyorsa manyetik; o da yoksa null. */
+export function pusulaYonu(gercek: number | null | undefined, manyetik: number | null | undefined): number | null {
+  if (gercek != null && gercek >= 0) return gercek % 360;
+  if (manyetik != null && manyetik >= 0) return manyetik % 360;
+  return null;
+}

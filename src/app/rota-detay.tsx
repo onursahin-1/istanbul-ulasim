@@ -12,7 +12,7 @@ import { Pressable } from '@/components/dokun';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useReducedMotion } from 'react-native-reanimated';
+import { useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { AltYaprak } from '@/components/alt-yaprak';
 import { RotaCizelgesi, RotaOzeti } from '@/components/rota-cizelgesi';
@@ -24,7 +24,7 @@ import {
   useSesliTarif,
   type YolTarifiVerisi,
 } from '@/components/canli-yol-tarifi';
-import { HareketliOtobus } from '@/components/harita-isaretleri';
+import { HareketliOtobus, PusulaDugmesi, YonKonisi } from '@/components/harita-isaretleri';
 import { HatirlatmaSayfasi, type InisBilgisi } from '@/components/hatirlatma';
 import { GeriCubugu, Ikon, useStiller } from '@/components/ulasim';
 import { hemenBildir, izinIste, useHatirlaticilar } from '@/lib/bildirim';
@@ -53,7 +53,7 @@ import {
   type Bacak,
 } from '@/lib/otp';
 import { oncekiDurak } from '@/lib/bacak';
-import { cizgileriKes } from '@/lib/hareket';
+import { cizgileriKes, enKisaAci, pusulaYonu } from '@/lib/hareket';
 import { guzergahGetir } from '@/lib/secim';
 import {
   aracKalkisiMi,
@@ -167,6 +167,17 @@ export default function RotaDetayEkrani() {
   const sonIslenen = useRef<{ an: number; konum: Nokta } | null>(null);
   const sonSinyalKaydi = useRef(0);
   const [konum, setKonum] = useState<Nokta | null>(null);
+  // Yön konisi ve pusula kipi. Açılar derece ve sarılmamış (359 → 1 kısa yoldan, +2 döner):
+  // koni `yon - haritaYonu` kadar döner, pusula ibresi `-haritaYonu` kadar.
+  const yonSV = useSharedValue(0);
+  const haritaYonuSV = useSharedValue(0);
+  const sonYon = useRef<number | null>(null);
+  const [pusulaSeviyesi, setPusulaSeviyesi] = useState(0);
+  /** Pusula kipi: harita telefonun baktığı yöne döner ve konumu ortada tutar. */
+  const [yonModu, setYonModu] = useState(false);
+  const yonModuRef = useRef(false);
+  yonModuRef.current = yonModu;
+  const sonKameraDonusu = useRef({ an: 0, yon: 0 });
   const [acikBacaklar, setAcikBacaklar] = useState<Record<number, boolean>>({});
   // Yolculuğun başladığı an ve o anki planın varışı: varış kartında "plandan 4 dk erken".
   const [yolculukOzeti, setYolculukOzeti] = useState<{ baslangic: number; planliVaris: number | null } | null>(null);
@@ -584,6 +595,10 @@ export default function RotaDetayEkrani() {
     setTakipAcik(false);
     setDurum(null);
     setKonum(null);
+    if (yonModuRef.current) harita.current?.animateCamera({ heading: 0 }, { duration: 300 });
+    setYonModu(false);
+    yonModuRef.current = false;
+    haritaYonuSV.set(0);
     sonKonum.current = null;
     sonGps.current = null;
     iz.current = [];
@@ -833,7 +848,7 @@ export default function RotaDetayEkrani() {
     setIzlenenOtobus('yukleniyor');
     const odakla = (lat: number, lon: number) => {
       const b = guncel.current.bacaklar[izlenen.bacak];
-      if (haritaElle.current || !b) return;
+      if (haritaElle.current || yonModuRef.current || !b) return;
       harita.current?.fitToCoordinates(
         [{ latitude: lat, longitude: lon }, { latitude: b.from.lat, longitude: b.from.lon }, ...(sonKonum.current ? [sonKonum.current] : [])],
         { edgePadding: { top: kenar.top + 90, right: 60, bottom: kartBoyuRef.current + 40, left: 60 }, animated: true },
@@ -983,6 +998,84 @@ export default function RotaDetayEkrani() {
     }, 1500);
   };
 
+  // Harita döndürülürken (pusula kipi ya da iki parmakla) haritanın yönü; koni de ibre de
+  // buna göre döner. Önceki değerden kısa yoldan: 359'dan 1'e geçerken tur atmasın.
+  const haritaYonunuAyarla = useCallback(
+    (yon: number, sure = 0) => {
+      const hedef = enKisaAci(haritaYonuSV.get(), yon);
+      haritaYonuSV.set(sure > 0 ? withTiming(hedef, { duration: sure }) : hedef);
+    },
+    [haritaYonuSV],
+  );
+
+  /** Pusula kipinde kamerayı telefonun yönüne ve konuma çevirir; çok sık değil (çeyrek saniye, 3°). */
+  const kamerayiYoneCevir = useCallback(
+    (zorla = false) => {
+      const yon = sonYon.current;
+      if (!yonModuRef.current || yon == null) return;
+      const an = Date.now();
+      const son = sonKameraDonusu.current;
+      const fark = Math.abs(enKisaAci(son.yon, yon) - son.yon);
+      if (!zorla && (an - son.an < 250 || fark < 3)) return;
+      sonKameraDonusu.current = { an, yon };
+      const k = sonKonum.current;
+      harita.current?.animateCamera({ heading: ((yon % 360) + 360) % 360, ...(k ? { center: k } : {}) }, { duration: 250 });
+      haritaYonunuAyarla(yon, 250);
+    },
+    [haritaYonunuAyarla],
+  );
+
+  // Yolculuk sürerken pusula dinlenir: konumdaki noktanın üstünde baktığın yöne açılan koni.
+  // Koninin genişliği pusulanın ne kadar emin olduğunu söyler (dar = emin); pusula hiç
+  // emin değilse ya da yön yoksa koni çizilmez.
+  useEffect(() => {
+    if (!takipAcik) return;
+    let acik = true;
+    let abonelik: Location.LocationSubscription | null = null;
+    Location.watchHeadingAsync((h) => {
+      const yon = pusulaYonu(h.trueHeading, h.magHeading);
+      setPusulaSeviyesi(yon == null ? 0 : h.accuracy);
+      if (yon == null) return;
+      const onceki = sonYon.current;
+      const hedef = onceki == null ? yon : enKisaAci(onceki, yon);
+      sonYon.current = hedef;
+      yonSV.set(onceki == null ? hedef : withTiming(hedef, { duration: 160 }));
+      kamerayiYoneCevir();
+    })
+      .then((a) => {
+        if (acik) abonelik = a;
+        else a.remove();
+      })
+      .catch(() => setPusulaSeviyesi(0));
+    return () => {
+      acik = false;
+      abonelik?.remove();
+      sonYon.current = null;
+      setPusulaSeviyesi(0);
+    };
+  }, [takipAcik, yonSV, kamerayiYoneCevir]);
+
+  // Pusula kipinde konum değişince harita da kayar: nokta ortada kalsın.
+  useEffect(() => {
+    if (!yonModu || !konum) return;
+    harita.current?.animateCamera({ center: konum }, { duration: 400 });
+  }, [yonModu, konum]);
+
+  const pusulayaBas = () => {
+    const yeni = !yonModuRef.current;
+    yonModuRef.current = yeni;
+    setYonModu(yeni);
+    Haptics.selectionAsync().catch(() => {});
+    kayitEkle('pusula', { acik: yeni });
+    if (yeni) {
+      haritaElle.current = false;
+      kamerayiYoneCevir(true);
+    } else {
+      harita.current?.animateCamera({ heading: 0 }, { duration: 400 });
+      haritaYonunuAyarla(0, 400);
+    }
+  };
+
   // Yolculuk sürerken: ekran kararmasın (Ayarlar'dan kapatılabilir) ve saat yazıları tazelensin.
   useEffect(() => {
     if (!takipAcik) return;
@@ -1009,7 +1102,8 @@ export default function RotaDetayEkrani() {
   // Harita bakılan adıma odaklanır: yürürken yol, beklerken durak ve gelen otobüs,
   // otobüsteyken kalan güzergâh. Konum her geldiğinde değil, adım/evre değişince.
   useEffect(() => {
-    if (!durum || !kartBoyu) return;
+    // Pusula kipinde harita konumu ortada tutuyor; adım değişince uzaklaşmasın.
+    if (!durum || !kartBoyu || yonModuRef.current) return;
     const a = adimlar[gorunen];
     if (!a) return;
     const i = a.bacak;
@@ -1156,10 +1250,34 @@ export default function RotaDetayEkrani() {
           cizimiBaslat();
         }}
         showsUserLocation={takipAcik}
+        // Yolculukta haritanın kendi pusulası yerine bizim pusula düğmemiz.
+        showsCompass={!takipAcik}
         showsPointsOfInterests={false}
         toolbarEnabled={false}
-        onPanDrag={() => (haritaElle.current = true)}
+        onPanDrag={() => {
+          haritaElle.current = true;
+          // Haritayı elle kaydırınca pusula kipi biter; harita olduğu yönde kalır.
+          if (yonModuRef.current) {
+            yonModuRef.current = false;
+            setYonModu(false);
+          }
+        }}
+        onRegionChangeComplete={() => {
+          // Pusula kipinde haritanın yönünü biz veriyoruz; geç gelen "bitti" olayı koniyi geri çekmesin.
+          if (!takipAcik || yonModuRef.current) return;
+          harita.current
+            ?.getCamera()
+            .then((c) => haritaYonunuAyarla(c.heading ?? 0))
+            .catch(() => {});
+        }}
       >
+        {/* Baktığın yön: konum noktasından açılan koni. Araçtayken değil (telefonun yönü
+            aracın yönü değil, yanıltır). */}
+        {takipAcik && konum && pusulaSeviyesi > 0 && durum?.faz !== 'icinde' && (
+          <Marker coordinate={konum} anchor={{ x: 0.5, y: 0.5 }} tappable={false} zIndex={0}>
+            <YonKonisi yon={yonSV} haritaYonu={haritaYonuSV} seviye={pusulaSeviyesi} />
+          </Marker>
+        )}
         {bacaklar.map((b, i) =>
           (gorunenCizgiler[i]?.length ?? 0) < 2 ? null : (
             <Polyline
@@ -1320,6 +1438,11 @@ export default function RotaDetayEkrani() {
             onBoy={setKartBoyu}
           />
           <TumAdimlar v={yolTarifi} acik={tumAdimlarAcik} kapat={() => setTumAdimlarAcik(false)} sec={setGorunen} />
+          {kartBoyu > 0 && !tumAdimlarAcik && (
+            <View style={[s.pusulaKonumu, { bottom: kartBoyu + 12 }]} pointerEvents="box-none">
+              <PusulaDugmesi aktif={yonModu} haritaYonu={haritaYonuSV} onPress={pusulayaBas} />
+            </View>
+          )}
         </>
       ) : (
         <View
@@ -1405,6 +1528,7 @@ const stiller = (t: Tema) =>
   kok: { flex: 1, backgroundColor: t.zemin },
   bos: { color: t.soluk, padding: 20, textAlign: 'center' },
   geri: { position: 'absolute', left: 14 },
+  pusulaKonumu: { position: 'absolute', right: 12 },
   sekmeKonumu: { position: 'absolute', left: 64, right: 12, alignItems: 'flex-start' },
   yuvarlak: {
     width: 40,
