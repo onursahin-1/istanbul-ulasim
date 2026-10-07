@@ -88,6 +88,30 @@ function izdusum(tarife, a, b, enlem, boylam) {
 }
 
 /**
+ * Aracın hangi varyantlarda ilerlediği, iki konumun yol üstündeki kesirli yerinden
+ * (yoldakiYer). yon.mjs'teki yonluAdaylar en yakın durağa bakıyor: duraklar 300–500 m
+ * arayla olduğundan iki konum çoğu zaman aynı durağa düşüyor, yön çıkmıyordu (köprü yeniden
+ * başlayınca Göztepe Meydanı'ndaki 87 otobüsün 48'i "yönü belirlenemedi", 2026-10-07).
+ * Burada 40 m ilerleme yetiyor. Dönüş: [{ rota, metre }] iki konumun yola toplam uzaklığına göre.
+ */
+export function ilerleyenVaryantlar(tarife, rotalar, onceki, simdiki, hareket = null) {
+  const sonuc = [];
+  for (const rota of rotalar ?? []) {
+    const yol = tarife.rotaDuraklari.get(rota);
+    if (!yol || yol.length < 2) continue;
+    const esik = tarife.rotaEsik?.get(rota) ?? 400;
+    const a = yoldakiYer(tarife, yol, onceki.enlem, onceki.boylam, esik, hareket);
+    const b = yoldakiYer(tarife, yol, simdiki.enlem, simdiki.boylam, esik, hareket);
+    if (!a || !b) continue;
+    const ilerleme = b.yer - a.yer;
+    // Geri gidiyorsa ters yön; çok ileri sıçradıysa (halkanın öbür yakası) güvenilmez.
+    if (ilerleme <= 0.02 || ilerleme > 15) continue;
+    sonuc.push({ rota, metre: a.metre + b.metre });
+  }
+  return sonuc.sort((x, y) => x.metre - y.metre);
+}
+
+/**
  * Aracın yol (durak listesi) üstündeki kesirli yeri: 3.4 = dördüncü durağı geçmiş, beşinciye
  * %40 gelmiş. Yola `esik` metreden uzaksa null.
  *
@@ -185,7 +209,14 @@ export class AracVarislari {
       const y = sonYon && an - sonYon.an <= YON_OMRU_MS && rotalar.includes(sonYon.rota) ? sonYon : null;
       if (rota == null) {
         const onceki = this.iz.onceki(a.kapiNo, an);
-        const adaylar = onceki ? yonluAdaylar(T, rotalar, onceki, a) : [];
+        let adaylar = [];
+        if (onceki && metreArasi(onceki, a) >= YON_ICIN_EN_AZ_M) {
+          const olcek = Math.cos((a.enlem * Math.PI) / 180);
+          const vektor = { dx: (a.boylam - onceki.boylam) * olcek, dy: a.enlem - onceki.enlem };
+          adaylar = ilerleyenVaryantlar(T, rotalar, onceki, a, vektor);
+          // Yol üstünde yer bulunamazsa (güzergâh dışı kısa sapma) eski yöntem.
+          if (!adaylar.length) adaylar = yonluAdaylar(T, rotalar, onceki, a);
+        }
         if (adaylar.length) {
           // Aynı yöndeki varyantlar (garaj çıkışı, kısa dönüş, ring) çoğu durağı paylaşıyor:
           // en yakın aday çoğu zaman başka bir varyant çıkıyor, o varyant da bu duraktan
@@ -540,12 +571,43 @@ export class AracVarislari {
     };
   }
 
+  /**
+   * Diske: ölçüm ve araç hafızası (yön, gidiş vektörü, kımıldamama, önceki konum). Hafıza
+   * olmadan köprü her açılışta otobüslerin yönünü sıfırdan öğreniyor, ilk 10–20 dakika
+   * duraktaki otobüslerin yarısı "yönü belirlenemedi" diye görünmüyordu. Rota GTFS
+   * route_id'siyle yazılır (tarife değişince sıra kayabilir).
+   */
   disaAktar() {
-    return { surum: 1, olcum: this.olcum };
+    const T = this.tarife;
+    const yon = {};
+    for (const [k, y] of this.yon) {
+      const id = T.rotaAd?.[y.rota];
+      if (id != null) yon[k] = { rota: id, an: y.an };
+    }
+    return {
+      surum: 1,
+      olcum: this.olcum,
+      hafiza: {
+        yon,
+        hareket: Object.fromEntries(this.hareket),
+        durgunluk: Object.fromEntries(this.durgunluk),
+        iz: Object.fromEntries(this.iz.kayit),
+      },
+    };
   }
 
-  yukle(veri) {
+  yukle(veri, simdi = Date.now()) {
     if (veri?.surum === 1 && veri.olcum) this.olcum = { ...this.olcum, ...veri.olcum, hata: veri.olcum.hata ?? {} };
+    const h = veri?.hafiza;
+    if (!h) return;
+    const rotaNo = new Map((this.tarife.rotaAd ?? []).map((id, i) => [id, i]));
+    for (const [k, y] of Object.entries(h.yon ?? {})) {
+      const rota = rotaNo.get(y?.rota);
+      if (rota != null && simdi - y.an <= YON_OMRU_MS) this.yon.set(k, { rota, an: y.an });
+    }
+    for (const [k, x] of Object.entries(h.hareket ?? {})) if (x && simdi - x.an <= HAREKET_OMRU_MS) this.hareket.set(k, x);
+    for (const [k, x] of Object.entries(h.durgunluk ?? {})) if (x && simdi - x.son <= 10 * 60_000) this.durgunluk.set(k, x);
+    for (const [k, x] of Object.entries(h.iz ?? {})) if (x && simdi - x.an <= 8 * 60_000) this.iz.kayit.set(k, x);
   }
 }
 

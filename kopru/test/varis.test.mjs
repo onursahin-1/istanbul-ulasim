@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { AracVarislari, yoldakiYer } from '../varis.mjs';
+import { AracVarislari, ilerleyenVaryantlar, yoldakiYer } from '../varis.mjs';
 
 // Doğu-batı cadde, 6 durak ~500 m arayla. Rota 0 batıdan doğuya, rota 1 karşı yakadan geri.
 const ENLEM = 41.0;
@@ -280,5 +280,31 @@ describe('aynı yönde birkaç varyant', () => {
     const son = t0 + 25 * 60_000;
     const r = v.durakVarislari(t.rotaDuraklari.get(0)[4].durak, son)['141M'];
     assert.equal(r?.[0].kapiNo, 'A-1857');
+  });
+});
+
+describe('az hareketle yön', () => {
+  it('iki durak arasında 80 m ilerleyen otobüsün varyantı bulunur (en yakın durak değişmeden)', () => {
+    // x = 1,40 → 1,55: ikisi de 1. ile 2. durak arasında, en yakın durak aynı kalıyor.
+    const r = ilerleyenVaryantlar(T, [0, 1], { enlem: ENLEM, boylam: boylam(1.4) }, { enlem: ENLEM, boylam: boylam(1.55) });
+    assert.deepEqual(r.map((x) => x.rota), [0]);
+  });
+
+  it('köprü yeniden başlayınca yön hafızadan: yerinde sayan otobüs hemen sayılır', () => {
+    const TR = { ...T, rotaAd: ['714', '716'] };
+    const v = new AracVarislari(TR, yolBul, () => null);
+    const bayat = () => ({ hat: '141M', guzergah: '141M_D_D0', an: 0 });
+    v.guncelle([arac('E', 0.2, 0, 0)], [], bayat, new Date(SIMDI.getTime() - 150_000));
+    v.guncelle([arac('E', 1.2, 0, 0)], [], bayat, new Date(SIMDI.getTime() - 75_000));
+    // Diske yazılıp okunuyor (JSON), yeni köprü boş başlıyor.
+    const yeni = new AracVarislari(TR, yolBul, () => null);
+    yeni.yukle(JSON.parse(JSON.stringify(v.disaAktar())), SIMDI.getTime());
+    // Yeniden başladıktan sonraki ilk nabız: otobüs yerinde sayıyor, yön ancak hafızadan.
+    yeni.guncelle([arac('E', 1.21, 0, 0)], [], bayat, SIMDI);
+    assert.equal(yeni.durakVarislari(T.rotaDuraklari.get(0)[4].durak, SIMDI.getTime())['141M']?.[0].kapiNo, 'E');
+    // Hafızasız köprü bu otobüsü sayamaz.
+    const bos = new AracVarislari(TR, yolBul, () => null);
+    bos.guncelle([arac('E', 1.21, 0, 0)], [], bayat, SIMDI);
+    assert.equal(bos.durakVarislari(T.rotaDuraklari.get(0)[4].durak, SIMDI.getTime())['141M'], undefined);
   });
 });
