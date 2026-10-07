@@ -1061,8 +1061,12 @@ export default function RotaDetayEkrani() {
     harita.current?.animateCamera({ center: konum }, { duration: 400 });
   }, [yonModu, konum]);
 
+  // Pusula düğmesi (Google Haritalar gibi): pusula kipindeyken ya da harita elle
+  // döndürülmüşken (kip kaydırınca biter, harita olduğu yönde kalır) kuzeyi yukarı alır;
+  // harita zaten kuzey yukarıdayken pusula kipini açar.
   const pusulayaBas = () => {
-    const yeni = !yonModuRef.current;
+    const sapma = Math.abs(enKisaAci(0, haritaYonuSV.get()));
+    const yeni = !yonModuRef.current && sapma < 2;
     yonModuRef.current = yeni;
     setYonModu(yeni);
     Haptics.selectionAsync().catch(() => {});

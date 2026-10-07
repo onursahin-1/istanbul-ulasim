@@ -161,12 +161,23 @@ export function DurakIsareti({ renk, isaretli = false }: { renk: string; isaretl
 /** Yön konisinin katmanları: tepeye yakın üst üste binip koyulaşır, uca doğru söner. */
 const KONI_KATMANLARI = [1, 0.72, 0.45];
 const KONI_RENGI = 'rgba(74,155,255,0.2)';
+/**
+ * Koninin kutusunun yarı genişliği; her pusula seviyesinde aynı. Koninin en uzak köşesi
+ * tepeden boy / cos(açı/2) uzakta: en çok 99 pt (dar ve uzun koni). Kutu buna yetecek
+ * kadar büyük ve sabit: koni hangi yöne dönerse dönsün kutudan taşmaz, seviye değişince
+ * işaretin boyu da değişmez (iOS'ta boyu değişen işaret kayabiliyor).
+ */
+const KONI_YARI = 100;
 
 /**
  * Yön konisi: konum noktasının üstünde, telefonun baktığı yöne açılan yarı saydam üçgen
  * (Moovit, Google Haritalar). Tepesi noktada; genişliği pusulanın ne kadar emin olduğunu
  * söyler (koniOlcusu). Dönüş arayüz iş parçacığında: `yon` telefonun yönü, `haritaYonu`
  * haritanın döndüğü açı (kuzey yukarıdaysa 0); ikisi de derece, sarılmamış olabilir.
+ *
+ * Dönen görünüm işaretin kök görünümü değil, sabit bir kutunun içinde: iOS işaretin
+ * boyunu ve yerini kökün çerçevesinden alıyor, dönen bir görünümün çerçevesi ise dönüşle
+ * büyüyüp kayıyor. Koni kök dönünce noktadan kopup yana kayıyor ve kırpılıyordu.
  */
 export function YonKonisi({
   yon,
@@ -178,41 +189,44 @@ export function YonKonisi({
   seviye: number;
 }) {
   const olcu = koniOlcusu(seviye);
-  const R = olcu?.boy ?? 0;
   const donus = useAnimatedStyle(() => ({ transform: [{ rotate: `${yon.value - haritaYonu.value}deg` }] }));
-  if (!olcu) return null;
-  const yariAci = (olcu.aci / 2) * (Math.PI / 180);
+  const D = KONI_YARI;
+  const yariAci = ((olcu?.aci ?? 0) / 2) * (Math.PI / 180);
   return (
-    <Reanimated.View pointerEvents="none" style={[{ width: 2 * R, height: 2 * R }, donus]}>
-      {KONI_KATMANLARI.map((k, i) => {
-        const h = R * k;
-        const yari = Math.tan(yariAci) * h;
-        return (
-          <View
-            key={i}
-            style={{
-              position: 'absolute',
-              left: R - yari,
-              top: R - h,
-              width: 0,
-              height: 0,
-              borderLeftWidth: yari,
-              borderRightWidth: yari,
-              borderTopWidth: h,
-              borderLeftColor: 'transparent',
-              borderRightColor: 'transparent',
-              borderTopColor: KONI_RENGI,
-            }}
-          />
-        );
-      })}
-    </Reanimated.View>
+    <View pointerEvents="none" style={stil.koniKutusu}>
+      {olcu && (
+        <Reanimated.View style={[stil.koniKutusu, stil.koniDonen, donus]}>
+          {KONI_KATMANLARI.map((k, i) => {
+            const h = olcu.boy * k;
+            const yari = Math.tan(yariAci) * h;
+            return (
+              <View
+                key={i}
+                style={{
+                  position: 'absolute',
+                  left: D - yari,
+                  top: D - h,
+                  width: 0,
+                  height: 0,
+                  borderLeftWidth: yari,
+                  borderRightWidth: yari,
+                  borderTopWidth: h,
+                  borderLeftColor: 'transparent',
+                  borderRightColor: 'transparent',
+                  borderTopColor: KONI_RENGI,
+                }}
+              />
+            );
+          })}
+        </Reanimated.View>
+      )}
+    </View>
   );
 }
 
 /**
- * Pusula düğmesi: içindeki ibre kuzeyi gösterir (harita döndükçe döner). Basınca harita
- * telefonun baktığı yöne döner (yön yukarıda); bir daha basınca kuzey yukarı.
+ * Pusula düğmesi (taslaktaki gibi): kırmızı nokta ve "N" birlikte döner, hep kuzeyi
+ * gösterir. Harita kuzey yukarıdayken düğme düz durur; harita döndükçe N de döner.
  */
 export function PusulaDugmesi({
   aktif,
@@ -224,20 +238,21 @@ export function PusulaDugmesi({
   onPress: () => void;
 }) {
   const tema = useTema();
-  const ibre = useAnimatedStyle(() => ({ transform: [{ rotate: `${-haritaYonu.value}deg` }] }));
+  const kadran = useAnimatedStyle(() => ({ transform: [{ rotate: `${-haritaYonu.value}deg` }] }));
   return (
     <Pressable
       onPress={onPress}
       style={[stil.pusula, { backgroundColor: aktif ? tema.vurgu : tema.yuzey }]}
-      accessibilityRole="switch"
-      accessibilityState={{ checked: aktif }}
-      accessibilityLabel={aktif ? 'Harita baktığın yöne dönük. Kuzeyi yukarı almak için dokun' : 'Haritayı baktığın yöne çevir'}
+      accessibilityRole="button"
+      accessibilityState={{ selected: aktif }}
+      accessibilityLabel={
+        aktif ? 'Pusula: harita baktığın yöne dönük. Kuzeyi yukarı almak için dokun' : 'Pusula. Haritayı baktığın yöne çevirmek için dokun'
+      }
     >
-      <Reanimated.View style={[stil.ibre, ibre]}>
-        <View style={[stil.ibreUc, { borderBottomColor: '#e5484d' }]} />
-        <View style={[stil.ibreUc, stil.ibreAlt, { borderBottomColor: aktif ? tema.vurguYazi : tema.soluk }]} />
+      <Reanimated.View style={[stil.kadran, kadran]}>
+        <View style={stil.kuzeyNoktasi} />
+        <Text style={[stil.pusulaN, { color: aktif ? tema.vurguYazi : tema.yazi }]}>N</Text>
       </Reanimated.View>
-      <Text style={[stil.pusulaN, { color: aktif ? tema.vurguYazi : tema.yazi }]}>N</Text>
     </Pressable>
   );
 }
@@ -409,18 +424,11 @@ const stil = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 4,
   },
-  ibre: { position: 'absolute', width: 10, height: 30, alignItems: 'center' },
-  ibreUc: {
-    width: 0,
-    height: 0,
-    borderLeftWidth: 5,
-    borderRightWidth: 5,
-    borderBottomWidth: 11,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-  },
-  ibreAlt: { position: 'absolute', bottom: 0, transform: [{ rotate: '180deg' }] },
-  pusulaN: { position: 'absolute', bottom: 3, fontSize: 8.5, fontWeight: '800' },
+  kadran: { position: 'absolute', left: 0, top: 0, width: 46, height: 46, alignItems: 'center', justifyContent: 'center' },
+  kuzeyNoktasi: { position: 'absolute', top: 4, width: 6, height: 6, borderRadius: 3, backgroundColor: '#e74c3c' },
+  pusulaN: { fontSize: 15, fontWeight: '800' },
+  koniKutusu: { width: 2 * KONI_YARI, height: 2 * KONI_YARI },
+  koniDonen: { position: 'absolute', left: 0, top: 0 },
   durak: { width: 10, height: 10, borderRadius: 5, borderWidth: 2.5 },
   durakBuyuk: { width: 18, height: 18, borderRadius: 9, borderWidth: 3 },
 });
