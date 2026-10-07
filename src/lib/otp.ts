@@ -372,23 +372,97 @@ export async function durakVarislariGetir(
   durakIdler: string[],
   hatlar: string[] = [],
 ): Promise<Record<string, Record<string, AracVarisi[]>>> {
-  const idler = [...new Set(durakIdler.filter(Boolean))];
-  if (!idler.length) return {};
+  return (await durakVarislariAkisi(durakIdler, hatlar, null))?.veri ?? {};
+}
+
+/**
+ * Köprüye uzun bekleyen istek (useNabizAkisi): `sonra` son alınan nabız ise köprü yeni nabız
+ * gelene kadar (en çok 50 sn) cevabı tutar. Köprüye ulaşılamazsa, uç nokta yoksa ya da istek
+ * iptal edildiyse null.
+ */
+async function kopruAkisi<T>(
+  yol: string,
+  sonra: string | null,
+  sinyal?: AbortSignal,
+): Promise<{ nabiz: string | null; bayat: boolean; govde: T } | null> {
   const iptal = new AbortController();
-  const sure = setTimeout(() => iptal.abort(), 5_000);
+  const birak = () => iptal.abort();
+  sinyal?.addEventListener('abort', birak);
+  // Bekletilen istek köprüde en çok 50 sn tutuluyor; ötesi bağlantı sorunu.
+  const sure = setTimeout(birak, sonra ? 65_000 : 5_000);
   try {
-    const adres =
-      `${KOPRU_ADRESI}/durak-varislari?durak=${encodeURIComponent(idler.join(','))}` +
-      (hatlar.length ? `&hat=${encodeURIComponent(hatlar.filter(Boolean).join(','))}` : '');
+    const adres = `${KOPRU_ADRESI}${yol}${sonra ? `&sonra=${encodeURIComponent(sonra)}` : ''}`;
     const yanit = await fetch(adres, { signal: iptal.signal });
-    if (!yanit.ok) return {};
-    const govde = (await yanit.json()) as { bayat?: boolean; duraklar?: Record<string, Record<string, AracVarisi[]>> };
-    return govde.bayat ? {} : (govde.duraklar ?? {});
+    if (!yanit.ok) return null;
+    const govde = (await yanit.json()) as T & { nabiz?: string | null; bayat?: boolean };
+    return { nabiz: govde.nabiz ?? null, bayat: !!govde.bayat, govde };
   } catch {
-    return {};
+    return null;
   } finally {
     clearTimeout(sure);
+    sinyal?.removeEventListener('abort', birak);
   }
+}
+
+/** durakVarislariGetir'in uzun bekleyen hâli: { nabiz, veri } ya da köprüye ulaşılamazsa null. */
+export async function durakVarislariAkisi(
+  durakIdler: string[],
+  hatlar: string[],
+  sonra: string | null,
+  sinyal?: AbortSignal,
+): Promise<{ nabiz: string | null; veri: Record<string, Record<string, AracVarisi[]>> } | null> {
+  const idler = [...new Set(durakIdler.filter(Boolean))];
+  if (!idler.length) return { nabiz: null, veri: {} };
+  const s = await kopruAkisi<{ duraklar?: Record<string, Record<string, AracVarisi[]>> }>(
+    `/durak-varislari?durak=${encodeURIComponent(idler.join(','))}` +
+      (hatlar.length ? `&hat=${encodeURIComponent(hatlar.filter(Boolean).join(','))}` : ''),
+    sonra,
+    sinyal,
+  );
+  if (!s) return null;
+  return { nabiz: s.nabiz, veri: s.bayat ? {} : (s.govde.duraklar ?? {}) };
+}
+
+/** Köprünün hat ekranı için bir otobüsü. */
+type KopruAraci = { kapiNo: string; enlem: number; boylam: number; an: number; duruyorSn?: number | null };
+
+/** OTP desen kodundan ("1:23813:0:01") güzergâhın route_id'si ("23813"). */
+export function desenRotasi(kod: string | null | undefined): string {
+  return (kod ?? '').split(':')[1] ?? '';
+}
+
+/**
+ * Hat ekranının otobüsleri köprüden: güzergâh (route_id, besleme öneki yok) başına, OTP'nin
+ * biçiminde. OTP yalnız bir tarife seferine bağlanan otobüsleri biliyor ve köprüden 45 sn'de
+ * bir çekiyor; köprü durak ekranıyla aynı listeyi nabız biter bitmez veriyor. Köprüye
+ * ulaşılamazsa null.
+ */
+export async function kopruHatAraclari(
+  rotaIdler: string[],
+  sonra: string | null,
+  sinyal?: AbortSignal,
+): Promise<{ nabiz: string | null; veri: Record<string, HamArac[]> } | null> {
+  // Köprü "1:23813" gibi besleme önekini kendisi atıyor; cevap öneksiz route_id ile.
+  const idler = [...new Set(rotaIdler.filter(Boolean))];
+  if (!idler.length) return { nabiz: null, veri: {} };
+  const s = await kopruAkisi<{ rotalar?: Record<string, KopruAraci[]> }>(
+    `/hat-araclari?rota=${encodeURIComponent(idler.join(','))}`,
+    sonra,
+    sinyal,
+  );
+  if (!s) return null;
+  const veri: Record<string, HamArac[]> = {};
+  for (const [rota, liste] of Object.entries(s.bayat ? {} : (s.govde.rotalar ?? {}))) {
+    veri[rota] = (liste ?? []).map((a) => ({
+      vehicleId: a.kapiNo,
+      label: a.kapiNo,
+      lat: a.enlem,
+      lon: a.boylam,
+      heading: null,
+      lastUpdate: new Date(a.an).toISOString(),
+    }));
+  }
+  return { nabiz: s.nabiz, veri };
 }
 
 /**

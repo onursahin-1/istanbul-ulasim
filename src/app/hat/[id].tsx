@@ -58,10 +58,20 @@ import {
 } from '@/lib/arac-konum';
 import { polylineCoz, type Nokta } from '@/lib/cografya';
 import { metrobusMu, trKucuk } from '@/lib/metin';
-import { duyurulariGetir, hatAraclariGetir, hatDetayiKardesleriyle, OtpHatasi, saatsizHatMi, type HatDetayi } from '@/lib/otp';
+import {
+  desenRotasi,
+  duyurulariGetir,
+  hatAraclariGetir,
+  hatDetayiKardesleriyle,
+  kopruHatAraclari,
+  kopruyeIlgiBildir,
+  OtpHatasi,
+  saatsizHatMi,
+  type HatDetayi,
+} from '@/lib/otp';
 import { aracAdi, baslikYap, haritaRengi, hatRengi, useTema, yaziRengi, type Tema } from '@/lib/tema';
 import { secimTiki, vurus } from '@/lib/dokunsal';
-import { useCanliAralik } from '@/lib/canli-aralik';
+import { useCanliAralik, useNabizAkisi } from '@/lib/canli-aralik';
 import { ekranAc, geriDon } from '@/lib/gezinti';
 
 export default function HatEkrani() {
@@ -79,7 +89,11 @@ export default function HatEkrani() {
   const [hat, setHat] = useState<(HatDetayi & { kardesler?: string[] }) | null>(null);
   const [hata, setHata] = useState<string | null>(null);
   const [yon, setYon] = useState<number | null>(null);
-  const [araclar, setAraclar] = useState<Record<string, HamArac[]>>({});
+  // Köprüden güzergâh (route_id) başına; OTP'den (köprü kapalıyken) desen kodu başına.
+  const [araclar, setAraclar] = useState<{ kaynak: 'kopru' | 'otp'; araclar: Record<string, HamArac[]> }>({
+    kaynak: 'otp',
+    araclar: {},
+  });
   const [simdi, setSimdi] = useState(() => Date.now());
   const [tumDuyurular, setTumDuyurular] = useState<Duyuru[]>([]);
   useEffect(() => {
@@ -115,29 +129,32 @@ export default function HatEkrani() {
     yukle();
   }, [yukle]);
 
-  // Otobüs konumları yarım dakikada bir; yaşları 15 saniyede bir yeniden yazılır.
-  // Konum alınamazsa sessizce geçilir: canlı konum süs, hat ekranı onsuz da çalışır.
+  // Otobüs konumları köprüden, nabız biter bitmez (useNabizAkisi); yaşları 15 saniyede bir
+  // yeniden yazılır. Köprüye ulaşılamazsa OTP'den yarım dakikada bir. Konum alınamazsa
+  // sessizce geçilir: canlı konum süs, hat ekranı onsuz da çalışır.
+  // Ekran başka ekranın altındayken (durak, yolculuk) ikisi de durur, dönünce tazelenir.
   const kimlikler = useMemo(() => (hat?.kardesler?.length ? hat.kardesler : id ? [id] : []), [hat, id]);
   const kimlikAnahtari = kimlikler.join(',');
-  const sonHat = useRef(kimlikAnahtari);
-  const araclariYukle = useCallback(() => {
-    if (!kimlikAnahtari) return;
-    const istenen = kimlikAnahtari;
-    hatAraclariGetir(istenen.split(','))
-      .then((sonuc) => {
-        // Bu sırada başka bir hatta geçildiyse eski hattın cevabı yazılmaz.
-        if (istenen !== sonHat.current) return;
-        setAraclar(sonuc);
-        setSimdi(Date.now());
-      })
-      .catch(() => {});
-  }, [kimlikAnahtari]);
+  const araclariGetir = useCallback(
+    async (sonra: string | null, sinyal: AbortSignal) => {
+      const istenen = kimlikAnahtari.split(',');
+      const kopru = await kopruHatAraclari(istenen, sonra, sinyal);
+      if (kopru) return { nabiz: kopru.nabiz, veri: { kaynak: 'kopru' as const, araclar: kopru.veri } };
+      if (sinyal.aborted) return null;
+      return { nabiz: null, veri: { kaynak: 'otp' as const, araclar: await hatAraclariGetir(istenen, sinyal) } };
+    },
+    [kimlikAnahtari],
+  );
+  const araclariYaz = useCallback((v: { kaynak: 'kopru' | 'otp'; araclar: Record<string, HamArac[]> }) => {
+    setAraclar(v);
+    setSimdi(Date.now());
+  }, []);
+  useNabizAkisi(araclariGetir, araclariYaz, kimlikAnahtari);
+  // Köprü bu hattı taramada öne alsın: hattı bilinmeyen otobüsleri birkaç dakikada tanır.
+  const kisaAd = hat?.shortName;
   useEffect(() => {
-    sonHat.current = kimlikAnahtari;
-    araclariYukle();
-  }, [kimlikAnahtari, araclariYukle]);
-  // Ekran başka ekranın altındayken (durak, yolculuk) ikisi de durur, dönünce tazelenir.
-  useCanliAralik(araclariYukle, 30_000, !!kimlikAnahtari);
+    if (kisaAd) kopruyeIlgiBildir([kisaAd]);
+  }, [kisaAd]);
   useCanliAralik(() => setSimdi(Date.now()), 15_000);
 
   // Duraksız desenler listeye girmez; en çok durağı olan desen varsayılan yön olur.
@@ -206,7 +223,7 @@ export default function HatEkrani() {
       secili
         ? araclariYerlestir(
             duraklar,
-            araclar[secili.code],
+            araclar.araclar[araclar.kaynak === 'kopru' ? desenRotasi(secili.code) : secili.code],
             simdi,
             // Liste haritadaki işaretle aynı tahmini yeri göstersin (konumun yaşı kadar ileri).
             metrobusMu(hat?.shortName) ? METROBUS_HIZI_MS : OTOBUS_HIZI_MS,

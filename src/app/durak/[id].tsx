@@ -47,7 +47,7 @@ import { hatlarinDuyurulari, type Duyuru } from '@/lib/duyuru';
 import {
   duyurulariGetir,
   durakSaatleriYedekli,
-  durakVarislariGetir,
+  durakVarislariAkisi,
   type AracVarisi,
   type DurakDeseni,
   OtpHatasi,
@@ -60,7 +60,7 @@ import {
 import { baslikYap, hatEtiketi, hatRengi, useTema, yonYaz, type Tema } from '@/lib/tema';
 import { durakVarisMetni, istanbulSaatiYaz, kacDakikaSonra, kalkisGosterimi, saniyedenSaat } from '@/lib/zaman';
 import { basari, secimTiki } from '@/lib/dokunsal';
-import { useCanliAralik } from '@/lib/canli-aralik';
+import { useCanliAralik, useNabizAkisi } from '@/lib/canli-aralik';
 import { ekranAc, geriDon } from '@/lib/gezinti';
 
 const YENILEME_ARALIGI = 30_000;
@@ -150,17 +150,19 @@ export default function DurakEkrani() {
   }, [durakKimligi]);
 
   // Köprünün araç tabanlı varışları ("Otobüsüm Nerede?" gibi): durağa gelen her otobüs,
-  // sefer eşleştirmesinden bağımsız. Durak her tazelendiğinde (ve peronları için) sorulur.
+  // sefer eşleştirmesinden bağımsız. Durak ve peronları için; köprünün her nabzında,
+  // nabız biter bitmez (useNabizAkisi).
   const [aracVarislari, setAracVarislari] = useState<Record<string, Record<string, AracVarisi[]>>>({});
-  useEffect(() => {
-    if (!durak?.gtfsId) return;
-    let gecerli = true;
+  const varisDuraklari = useMemo(() => {
+    if (!durak?.gtfsId) return '';
     const peronlar = (durak.desenler ?? []).flatMap((d) => (d.stoptimes ?? []).map((k) => k?.stop?.gtfsId ?? ''));
-    durakVarislariGetir([durak.gtfsId, ...peronlar]).then((v) => gecerli && setAracVarislari(v));
-    return () => {
-      gecerli = false;
-    };
+    return [...new Set([durak.gtfsId, ...peronlar].filter(Boolean))].join(',');
   }, [durak]);
+  const varislariGetir = useCallback(
+    (sonra: string | null, sinyal: AbortSignal) => durakVarislariAkisi(varisDuraklari.split(','), [], sonra, sinyal),
+    [varisDuraklari],
+  );
+  useNabizAkisi(varislariGetir, setAracVarislari, varisDuraklari);
 
   const ad = baslikYap(durak?.name);
 

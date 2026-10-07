@@ -48,3 +48,78 @@ export function useCanliAralik(is: () => void, aralik: number, etkin = true): vo
     return () => clearInterval(t);
   }, [etkin, calisir, aralik]);
 }
+
+/** Yeni nabız gelmediyse iki istek arasında en az bu kadar (eski köprü `sonra`yı bilmiyor). */
+export const AKIS_EN_AZ_ARALIK_MS = 30_000;
+/** Köprüye ulaşılamadığında yeniden deneme. */
+export const AKIS_HATA_BEKLEMESI_MS = 15_000;
+
+/**
+ * Köprünün nabzını izleyen canlı bilgi: yoklama yerine uzun bekleyen istek. Her istek son
+ * alınan nabzı (`sonra`) gönderir; köprü yeni nabız gelene kadar cevabı tutar, uygulama
+ * cevabı alınca hemen yeniden sorar. Yeni otobüs konumu 30 saniyelik aralığı beklemeden,
+ * nabız biter bitmez ekranda.
+ *
+ * useCanliAralik gibi yalnız ekran odaktayken ve uygulama öndeyken çalışır; `anahtar`
+ * değişince (başka hat, başka durak) eski istek iptal edilip baştan başlar.
+ *
+ * @param getir  `sonra` (ilk istekte null) ve iptal sinyaliyle sorar; köprüye ulaşılamazsa null
+ * @param uygula yeni veri geldiğinde
+ */
+export function useNabizAkisi<T>(
+  getir: (sonra: string | null, sinyal: AbortSignal) => Promise<{ nabiz: string | null; veri: T } | null>,
+  uygula: (veri: T) => void,
+  anahtar: string,
+  etkin = true,
+): void {
+  const getirRef = useRef(getir);
+  const uygulaRef = useRef(uygula);
+  useEffect(() => {
+    getirRef.current = getir;
+    uygulaRef.current = uygula;
+  }, [getir, uygula]);
+  const odakli = useIsFocused();
+  const [onde, setOnde] = useState(AppState.currentState === 'active');
+  useEffect(() => {
+    const abone = AppState.addEventListener('change', (d) => setOnde(d === 'active'));
+    return () => abone.remove();
+  }, []);
+
+  const calisir = etkin && odakli && onde && !!anahtar;
+  useEffect(() => {
+    if (!calisir) return;
+    const iptal = new AbortController();
+    const bekle = (ms: number) =>
+      new Promise<void>((coz) => {
+        const t = setTimeout(coz, ms);
+        iptal.signal.addEventListener('abort', () => {
+          clearTimeout(t);
+          coz();
+        });
+      });
+    (async () => {
+      let sonra: string | null = null;
+      while (!iptal.signal.aborted) {
+        const bas = Date.now();
+        let sonuc: { nabiz: string | null; veri: T } | null = null;
+        try {
+          sonuc = await getirRef.current(sonra, iptal.signal);
+        } catch {
+          sonuc = null;
+        }
+        if (iptal.signal.aborted) return;
+        if (!sonuc) {
+          await bekle(AKIS_HATA_BEKLEMESI_MS);
+          continue;
+        }
+        const yeni = sonuc.nabiz == null || sonuc.nabiz !== sonra;
+        if (yeni) uygulaRef.current(sonuc.veri);
+        // Yeni nabız yoksa (köprü bekletip aynısını döndü, ya da eski köprü hemen döndü)
+        // aralık dolmadan yeniden sorma.
+        if (!yeni || sonuc.nabiz == null) await bekle(Math.max(0, AKIS_EN_AZ_ARALIK_MS - (Date.now() - bas)));
+        sonra = sonuc.nabiz;
+      }
+    })();
+    return () => iptal.abort();
+  }, [calisir, anahtar]);
+}
