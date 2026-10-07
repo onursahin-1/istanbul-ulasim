@@ -36,7 +36,7 @@ import {
   yaklasanOtobus,
   yasYaz,
 } from '@/lib/arac-konum';
-import { duruyorMu, duruyorYaz, gosterilecekAraclar } from '@/lib/bekleme';
+import { duruyorMu, duruyorYaz, gosterilecekAraclar, satirsizAraclar, uzakSatirlariAyikla } from '@/lib/bekleme';
 import { canliBilgi, kalkisCanli } from '@/lib/canli';
 import { metrobusMu, trKucuk } from '@/lib/metin';
 import { siklikYaz } from '@/lib/siklik';
@@ -91,11 +91,18 @@ export default function DurakEkrani() {
       acik = false;
     };
   }, []);
+  // Köprü duyuruları 15 dakikada bir İETT'den yeniliyor (biten duyuru listeden düşüyor);
+  // ekran açık kaldıkça uygulama da 5 dakikada bir sorar (duyurulariGetir 5 dk önbellekli).
+  useCanliAralik(() => {
+    duyurulariGetir().then(setTumDuyurular);
+  }, 5 * 60_000);
 
   const yukle = useCallback(async () => {
     if (!id) return;
     try {
-      const { durak: sonuc, cevrimdisi: kayitZamani } = await durakSaatleriYedekli(id);
+      // 24 saatlik kalkış (yakındaki duraklar listesi gibi): gece sabahki ilk sefer de
+      // görünsün; uzak satırlar uzakSatirlariAyikla ile ayıklanıyor.
+      const { durak: sonuc, cevrimdisi: kayitZamani } = await durakSaatleriYedekli(id, 3, 24 * 3600);
       if (!sonuc) setHata('Bu durak bulunamadı.');
       else {
         setDurak(sonuc);
@@ -213,6 +220,19 @@ export default function DurakEkrani() {
       if (!adaylar.length) return -1;
       return adaylar.find((i) => !!v.sonrakiDurak && yerler[i].sonraki === v.sonrakiDurak) ?? adaylar[0];
     };
+    // Köprünün otobüsü kalkış satırı olarak (araç tabanlı varış).
+    const aracKalkisi = (v: AracVarisi) => ({
+      saniye: Math.round((v.varis / 1000 + 3 * 3600) % 86_400),
+      an: Math.round(v.varis / 1000),
+      // Araç tabanlı: tarifeden sapma yok, "canlı" olduğu yeter. Duran otobüsün
+      // saati yalnız "en erken": canlı varış sayılmaz.
+      canli: duruyorMu(v) ? null : canliBilgi(0),
+      kimlik: `arac:${v.kapiNo}` as string | null,
+      dakika: Math.max(0, Math.round((v.varis - simdi) / 60_000)),
+      duruyorSn: v.duruyorSn ?? null,
+    });
+    // Bir satıra giren otobüsler; girmeyenler aşağıda kendi satırlarına (satirsizAraclar).
+    const atanan = new Set<string>();
     const liste = desenler
       .map((d, satirNo) => {
         const { desenDuraklari, peron, sira } = yerler[satirNo];
@@ -255,6 +275,7 @@ export default function DurakEkrani() {
               : sahipsizSatiri(hatKodu, durakId, v) === satirNo,
           )
           .sort((a, b) => a.varis - b.varis);
+        for (const v of araclar) atanan.add(v.kapiNo);
         let yaklasanArac: typeof yaklasan = null;
         // Duran otobüs (mola, park): arkasından hareket eden varken kalkış olmaz, not olarak
         // yazılır; tek otobüs oysa "Duruyor" ve en erken varışı (gosterilecekAraclar).
@@ -262,19 +283,7 @@ export default function DurakEkrani() {
         if (araclar.length) {
           const son = araclar[araclar.length - 1].varis;
           const { ana, duran } = gosterilecekAraclar(araclar);
-          kalkislar = [
-            ...ana.map((v) => ({
-              saniye: Math.round((v.varis / 1000 + 3 * 3600) % 86_400),
-              an: Math.round(v.varis / 1000),
-              // Araç tabanlı: tarifeden sapma yok, "canlı" olduğu yeter. Duran otobüsün
-              // saati yalnız "en erken": canlı varış sayılmaz.
-              canli: duruyorMu(v) ? null : canliBilgi(0),
-              kimlik: `arac:${v.kapiNo}` as string | null,
-              dakika: Math.max(0, Math.round((v.varis - simdi) / 60_000)),
-              duruyorSn: v.duruyorSn ?? null,
-            })),
-            ...kalkislar.filter((k) => k.an * 1000 > son + 3 * 60_000),
-          ];
+          kalkislar = [...ana.map(aracKalkisi), ...kalkislar.filter((k) => k.an * 1000 > son + 3 * 60_000)];
           yaklasanArac = { otobus: aracVarisindanOtobus(ana[0]), kalan: ana[0].kalanDurak };
           if (duran && !duruyorMu(ana[0])) duranNot = { kalan: duran.kalanDurak, sn: duran.duruyorSn ?? 0 };
         }
@@ -293,6 +302,25 @@ export default function DurakEkrani() {
         };
       })
       .filter((x) => x.hat && x.kalkislar.length > 0);
+    // Satırı olmayan hattın otobüsleri (gece gecikmeli son sefer gibi): köprü görüyorsa
+    // yakındaki duraklar listesi gösteriyor, durak ekranı da göstersin. Yön güzergâhın
+    // adının son parçasından ("EMİNÖNÜ - 15 TEMMUZ MAHALLESİ" → 15 Temmuz Mahallesi).
+    for (const { hat, araclar } of satirsizAraclar(aracVarislari, atanan, durak?.routes ?? [], simdi)) {
+      const { ana, duran } = gosterilecekAraclar(araclar);
+      if (!ana.length) continue;
+      const adParcalari = (hat.longName ?? '').split(' - ');
+      liste.push({
+        anahtar: `arac|${hat.gtfsId}`,
+        desen: '',
+        sonrakiDurak: '',
+        hat,
+        yon: baslikYap(adParcalari[adParcalari.length - 1]),
+        guzergah: hatEtiketi(hat.shortName, hat.mode, hat.agency?.name).ayrinti,
+        kalkislar: ana.map(aracKalkisi),
+        yaklasan: { otobus: aracVarisindanOtobus(ana[0]), kalan: ana[0].kalanDurak },
+        duranNot: duran && !duruyorMu(ana[0]) ? { kalan: duran.kalanDurak, sn: duran.duruyorSn ?? 0 } : null,
+      });
+    }
     // Aynı desen iki perondan geçiyorsa (ring) iki satır aynı adı taşır; hangisinin hangi
     // yöne gittiği sıradaki durağın adından anlaşılsın.
     const desenSayisi = new Map<string, number>();
@@ -302,7 +330,10 @@ export default function DurakEkrani() {
         x.guzergah = [x.guzergah, `sonraki durak: ${x.sonrakiDurak}`].filter(Boolean).join(' · ');
       }
     }
-    return liste.sort((a, b) => a.kalkislar[0].dakika - b.kalkislar[0].dakika);
+    const hatKodu = (h: Hat | null) => (h?.shortName ?? '').trim().toLocaleUpperCase('tr-TR');
+    return uzakSatirlariAyikla(liste.map((x) => ({ ...x, hatKodu: hatKodu(x.hat), ilkDakika: x.kalkislar[0].dakika }))).sort(
+      (a, b) => a.kalkislar[0].dakika - b.kalkislar[0].dakika,
+    );
   }, [durak, aracVarislari]);
 
   // Gündüz seferleri sıklıkla tanımlı hatlar (Marmaray, M7, M11, T5, T6 …): OTP bunların

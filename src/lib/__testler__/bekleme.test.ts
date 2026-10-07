@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { aracVarislariniKat, ayniYoldanMi, duruyorYaz, gosterilecekAraclar, kalkislaraAracKat, beklemeSecenekleri, binilenHatTahmini, durakOranlari, durakSaatleri, paylasimMetni } from '../bekleme';
+import { aracVarislariniKat, ayniYoldanMi, duruyorYaz, gosterilecekAraclar, kalkislaraAracKat, beklemeSecenekleri, binilenHatTahmini, durakOranlari, durakSaatleri, paylasimMetni, satirsizAraclar, uzakSatirlariAyikla } from '../bekleme';
 import type { DurakKalkisi, Hat, Kalkis } from '../otp';
 
 const dk = 60_000;
@@ -281,5 +281,39 @@ describe('duran otobüs', () => {
     assert.equal(sonuc[0].kapiNo, 'B5021');
     assert.equal(sonuc[0].canli, false);
     assert.equal(sonuc[0].duruyorSn, 720);
+  });
+});
+
+describe('durak ekranı: uzak satırlar ve satırı olmayan otobüsler', () => {
+  it('3 saatten uzak satır yalnız hattın yakın satırı yoksa ve en erkeniyse kalır', () => {
+    const satir = (hatKodu: string, ilkDakika: number) => ({ hatKodu, ilkDakika });
+    const s = uzakSatirlariAyikla([satir('97GE', 11), satir('97GE', 400), satir('89C', 302), satir('89C', 330), satir('141M', 2)]);
+    assert.deepEqual(s, [satir('97GE', 11), satir('89C', 302), satir('141M', 2)]);
+  });
+
+  it('satıra girmeyen otobüsler hat (güzergâh kaydı) başına; geçmiş varış ve atanan sayılmaz', () => {
+    // Göztepe Meydanı, Aksaray yönü, 00:15: OTP'de 3 saat içinde 97GE seferi yok, köprü
+    // gecikmeli son seferi görüyor.
+    const h = (kisa: string, id: string): Hat => ({ gtfsId: `1:${id}`, shortName: kisa, longName: `EMİNÖNÜ - ${kisa}`, mode: 'BUS' });
+    const HATLAR = [h('97GE', '601'), h('97GE', '602'), h('89C', '603')];
+    const v = (kapiNo: string, dakika: number, rotaId?: string) => ({
+      kapiNo, rotaId, varis: T + dakika * dk, kalanDurak: 5, yasSn: 20, enlem: 41, boylam: 29, ogrenilen: 1,
+    });
+    const sonuc = satirsizAraclar(
+      {
+        '1:125182': { '97GE': [v('A-1725', 11, '602'), v('A-1', 3, '602'), v('ESKI', -5)], '89C': [v('T1007', 25), v('ATANDI', 4)] },
+        '1:125183': { '97GE': [v('A-1725', 11, '602')] },
+      },
+      new Set(['ATANDI']),
+      HATLAR,
+      T,
+    );
+    assert.deepEqual(
+      sonuc.map((g) => [g.hat.gtfsId, g.araclar.map((x) => x.kapiNo)]),
+      [
+        ['1:602', ['A-1', 'A-1725']],
+        ['1:603', ['T1007']],
+      ],
+    );
   });
 });

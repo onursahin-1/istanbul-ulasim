@@ -346,3 +346,63 @@ export function paylasimMetni(hedef: string | null | undefined, varis: string, h
   const yol = hatlar.filter(Boolean).join(' → ');
   return `Tahmini varışım ${varis}${hedef ? ` · ${hedef}` : ''}${yol ? ` (${yol})` : ''}`;
 }
+
+/**
+ * Durak ekranının satırları OTP'den 24 saatlik kalkışla geliyor (yakındaki duraklar listesi
+ * gibi; eskiden 3 saatti ve gece Göztepe Meydanı'nda liste "89C 05:17" ve canlı 97GE
+ * gösterirken durak ekranı hiç satır göstermiyordu, 2026-10-08 00:15). Bir hattın
+ * UZAK_SATIR_DK'dan sonraki satırları yalnız o hattın daha yakın satırı yoksa kalır, o da
+ * yalnız en erkeni: gece hattın sabahki ilk seferi görünsün, gündüz seyrek bir varyantın
+ * yarınki seferi listeyi doldurmasın.
+ */
+export const UZAK_SATIR_DK = 180;
+
+export function uzakSatirlariAyikla<T extends { hatKodu: string; ilkDakika: number }>(
+  satirlar: T[],
+  uzakDk: number = UZAK_SATIR_DK,
+): T[] {
+  const yakin = new Set(satirlar.filter((s) => s.ilkDakika <= uzakDk).map((s) => s.hatKodu));
+  const enErken = new Map<string, T>();
+  for (const s of satirlar) {
+    if (s.ilkDakika <= uzakDk || yakin.has(s.hatKodu)) continue;
+    const e = enErken.get(s.hatKodu);
+    if (!e || s.ilkDakika < e.ilkDakika) enErken.set(s.hatKodu, s);
+  }
+  return satirlar.filter((s) => s.ilkDakika <= uzakDk || enErken.get(s.hatKodu) === s);
+}
+
+/**
+ * Durak ekranında hiçbir satıra girmeyen otobüsler: hattın bu durakta OTP satırı yok (ör.
+ * gece gecikmeli son sefer; tarifedeki bir sonraki sefer 24 saatin dışında). Köprü onları
+ * görüyorsa yakındaki duraklar listesi gösteriyor; durak ekranı da kendi satırıyla göstersin.
+ * Hat (güzergâh kaydı tutan, yoksa kısa adı tutan) başına, varışa göre sıralı; geçmiş
+ * (bir dakikadan eski) varış sayılmaz.
+ */
+export function satirsizAraclar(
+  varislar: Record<string, Record<string, AracVarisi[]>>,
+  atanan: Set<string>,
+  hatlar: Hat[],
+  simdi: number,
+): { hat: Hat; araclar: AracVarisi[] }[] {
+  const anahtar = (s?: string | null) => (s ?? '').trim().toLocaleUpperCase('tr-TR');
+  const kimlik = (g?: string | null) => (g ?? '').slice((g ?? '').lastIndexOf(':') + 1);
+  const gruplar = new Map<string, { hat: Hat; araclar: AracVarisi[] }>();
+  const gorulen = new Set<string>();
+  for (const durak of Object.values(varislar)) {
+    for (const [kod, liste] of Object.entries(durak ?? {})) {
+      for (const v of liste ?? []) {
+        if (atanan.has(v.kapiNo) || gorulen.has(v.kapiNo) || v.varis < simdi - 60_000) continue;
+        const hat =
+          (v.rotaId ? hatlar.find((h) => kimlik(h.gtfsId) === v.rotaId) : undefined) ??
+          hatlar.find((h) => anahtar(h.shortName) === anahtar(kod));
+        if (!hat) continue;
+        gorulen.add(v.kapiNo);
+        const g = gruplar.get(hat.gtfsId) ?? { hat, araclar: [] };
+        g.araclar.push(v);
+        gruplar.set(hat.gtfsId, g);
+      }
+    }
+  }
+  for (const g of gruplar.values()) g.araclar.sort((a, b) => a.varis - b.varis);
+  return [...gruplar.values()];
+}

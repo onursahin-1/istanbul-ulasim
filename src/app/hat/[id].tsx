@@ -103,6 +103,11 @@ export default function HatEkrani() {
       acik = false;
     };
   }, []);
+  // Köprü duyuruları 15 dakikada bir İETT'den yeniliyor (biten duyuru listeden düşüyor);
+  // ekran açık kaldıkça uygulama da 5 dakikada bir sorar (duyurulariGetir 5 dk önbellekli).
+  useCanliAralik(() => {
+    duyurulariGetir().then(setTumDuyurular);
+  }, 5 * 60_000);
   const liste = useRef<{ kaydir: (y: number) => void }>(null);
   const kaydirildi = useRef(false);
   const harita = useRef<MapView>(null);
