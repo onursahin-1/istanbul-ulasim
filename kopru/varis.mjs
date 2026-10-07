@@ -751,6 +751,8 @@ export class AracVarislari {
       };
     }
     return {
+      // Durak ekranındaki varışın süre kaynağı (VARIS_YONTEMI): tarife | ogrenilen.
+      yontem: this.yontem,
       olcum: Math.round(this.olcum.n),
       carpan: { ogrenilen: Math.round(a * 100) / 100, tarife: Math.round(b * 100) / 100 },
       izlenenArac: this.izleme.size,
