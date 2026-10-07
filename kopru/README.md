@@ -254,6 +254,13 @@ arası 5,2 km) iki durak arasındaki düz çizgi gerçek yoldan 1–1,5 km uzakl
 otobüs düz çizgiden aralığın %40'ına kadar (en çok 2,5 km, uçlara doğru daralarak) uzakta
 olabiliyor; eskiden 5–12 dakika "güzergâhın dışında" sayılıp listeden düşüyordu.
 
+**Görevde olmayan otobüs.** İETT'nin hat sorgusu yalnız o an hatta görevli araçları veriyor.
+Hattının son başarılı taramasında olmayan otobüs (seferi bitti, garaja çekildi) sayılmıyor;
+araç → hat bilgisi yine bir hafta saklanıyor, otobüs bir sonraki taramada yeniden görülünce
+geri geliyor. Ayrıca yolda duran otobüsün bulunduğu duraktan rotasının ±45 dakikada tarifede
+seferi yoksa servis dışı sayılıyor. Tarife saatleri (hat başı kalkışı, temsilci sefer) o gün
+çalışan servisten (hafta içi / cumartesi / pazar) alınıyor.
+
 **İETT'nin en yakın durağı (çapa).** Hat taraması her otobüs için İETT'nin hesapladığı en
 yakın durağı da veriyor (`yakinDurakKodu`). Taramanın güzergâh kodu otobüsün şimdiki
 varyantıysa ve 20 dakikadan taze ise otobüs güzergâhta yalnız o durağın çevresinde (bir durak

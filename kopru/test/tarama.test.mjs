@@ -86,8 +86,44 @@ describe('İETT en yakın durak', () => {
     const t = new Tarayici(null);
     const an = Date.UTC(2026, 9, 7, 16, 6, 0);
     t.isle('141M', [{ kapiNo: 'A-1', hat: '141M', guzergah: '141M_G_D0', yakinDurak: '125181', zaman: '2026-10-07 19:05:12' }], an);
-    assert.deepEqual(t.bilgi('A-1'), { hat: '141M', guzergah: '141M_G_D0', an, yakinDurak: '125181', konumAn: Date.UTC(2026, 9, 7, 16, 5, 12) });
+    assert.deepEqual(t.bilgi('A-1'), {
+      hat: '141M',
+      tarananHat: '141M',
+      guzergah: '141M_G_D0',
+      an,
+      yakinDurak: '125181',
+      konumAn: Date.UTC(2026, 9, 7, 16, 5, 12),
+      gorevde: true,
+    });
     t.isle('141M', [{ kapiNo: 'A-2', hat: '141M', guzergah: '141M_G_D0', yakinDurak: '', zaman: '' }], an);
-    assert.deepEqual(t.bilgi('A-2'), { hat: '141M', guzergah: '141M_G_D0', an });
+    assert.deepEqual(t.bilgi('A-2'), { hat: '141M', tarananHat: '141M', guzergah: '141M_G_D0', an, gorevde: true });
+  });
+});
+
+describe('görevde mi (hattın son taramasında var mı)', () => {
+  it('seferi biten otobüs bir sonraki taramada yoksa görevde değil; yeniden görülünce görevde', () => {
+    const t = new Tarayici(null);
+    const an = Date.UTC(2026, 9, 7, 21, 0, 0);
+    const arac = (kapiNo) => ({ kapiNo, hat: '97GE', guzergah: '97GE_D_D0', yakinDurak: '', zaman: '' });
+    t.isle('97GE', [arac('A-1725'), arac('A-1523')], an);
+    assert.equal(t.bilgi('A-1523').gorevde, true);
+    t.isle('97GE', [arac('A-1725')], an + 20 * 60_000);
+    assert.equal(t.bilgi('A-1725').gorevde, true);
+    assert.equal(t.bilgi('A-1523').gorevde, false, 'garaja çekildi');
+    assert.equal(t.bilgi('A-1523').hat, '97GE', 'hattı unutulmaz (sabah yine çıkabilir)');
+    t.isle('97GE', [arac('A-1523')], an + 9 * 3_600_000);
+    assert.equal(t.bilgi('A-1523').gorevde, true);
+  });
+
+  it('başarısız sorgu (hata) görevden düşürmez; tarama zamanı bilinmeyen eski kayıtta karar yok', () => {
+    const t = new Tarayici(null);
+    const an = Date.UTC(2026, 9, 7, 21, 0, 0);
+    t.isle('89C', [{ kapiNo: 'T1005', hat: '89C', guzergah: '89C_D_D0' }], an);
+    // Hata yolu yalnız sonBakilan'ı ilerletiyor (basla()); sonTarama değişmez.
+    t.hatDurumu.get('89C').sonBakilan = an + 10 * 60_000;
+    assert.equal(t.bilgi('T1005').gorevde, true);
+    const u = new Tarayici(null);
+    u.yukle({ atama: { T1001: { hat: '89C', an: Date.now() - 60_000 } }, hatDurumu: { '89C': { sonBakilan: Date.now(), aracSayisi: 4 } } });
+    assert.equal(u.bilgi('T1001').gorevde, true);
   });
 });

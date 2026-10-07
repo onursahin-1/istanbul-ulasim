@@ -142,7 +142,9 @@ export class Tarayici {
       kalici: Object.fromEntries(this.kalici),
       atama: Object.fromEntries(this.atama),
       hatDurumu: Object.fromEntries(
-        [...this.hatDurumu].filter(([, d]) => d.soruldu).map(([h, d]) => [h, { sonBakilan: d.sonBakilan, aracSayisi: d.aracSayisi }]),
+        [...this.hatDurumu]
+          .filter(([, d]) => d.soruldu)
+          .map(([h, d]) => [h, { sonBakilan: d.sonBakilan, aracSayisi: d.aracSayisi, sonTarama: d.sonTarama }]),
       ),
     };
   }
@@ -180,12 +182,14 @@ export class Tarayici {
   isle(hat, araclar, an = Date.now()) {
     const durum = this.hatDurumu.get(hat) ?? { sonBakilan: 0, aracSayisi: 0 };
     durum.sonBakilan = an;
+    // Başarılı son tarama: hatta o an görevli araçlar bu ana sahip (gorevdeMi).
+    durum.sonTarama = an;
     durum.aracSayisi = aracSayisiGuncelle(durum.aracSayisi, araclar.length);
     durum.soruldu = true;
     this.hatDurumu.set(hat, durum);
     for (const a of araclar) {
       if (!a.kapiNo) continue;
-      const kayit = { hat: a.hat || hat, guzergah: a.guzergah || null, an };
+      const kayit = { hat: a.hat || hat, tarananHat: hat, guzergah: a.guzergah || null, an };
       // İETT'nin o konum için hesapladığı en yakın durak (stop_code) ve konumun anı:
       // varis.mjs otobüsü güzergâhta yerleştirirken buna dayanıyor (çapa).
       const konumAn = konumAni(a.zaman, an);
@@ -241,7 +245,23 @@ export class Tarayici {
 
   /** Bir aracın bilinen hattı ve (varsa) son görülen güzergâhı; bilinmiyorsa null. */
   bilgi(kapiNo) {
-    return this.atama.get(kapiNo) ?? null;
+    const k = this.atama.get(kapiNo);
+    return k ? { ...k, gorevde: this.gorevdeMi(k) } : null;
+  }
+
+  /**
+   * Araç hattının son başarılı taramasında var mıydı? İETT'nin hat sorgusu yalnız o an
+   * hatta görevli araçları veriyor: seferi biten, garaja çekilen otobüs bir sonraki
+   * taramada listede olmuyor. Araç → hat bilgisi bir hafta saklandığı için bu otobüsler
+   * eskiden "geliyor" ya da "duruyor" diye görünmeye devam ediyordu (Göztepe Meydanı
+   * 00:36: 97GE'nin son taramasında yalnız A-1725 vardı, 89C'nin dördü; garajdaki ve
+   * seferi biten onlarca otobüs hâlâ hatlarında sayılıyordu). Hat hiç taranmadıysa ya da
+   * tarama zamanı bilinmiyorsa (eski kayıt) karar verilmez: true.
+   */
+  gorevdeMi(k) {
+    const d = this.hatDurumu.get(k.tarananHat ?? k.hat);
+    if (!d || !Number.isFinite(d.sonTarama)) return true;
+    return k.an >= d.sonTarama;
   }
 
   ozet(simdi = Date.now()) {

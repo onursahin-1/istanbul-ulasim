@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { AracVarislari, capaPenceresi, ilerleyenVaryantlar, yoldakiYer } from '../varis.mjs';
+import { AracVarislari, capaPenceresi, ilerleyenVaryantlar, tarifedenKalkisBul, tarifedenYolBul, yoldakiYer } from '../varis.mjs';
 
 // Doğu-batı cadde, 6 durak ~500 m arayla. Rota 0 batıdan doğuya, rota 1 karşı yakadan geri.
 const ENLEM = 41.0;
@@ -281,6 +281,19 @@ describe('duran otobüs', () => {
     assert.equal(v.durakVarislari(durak4, SIMDI.getTime())['141M'], undefined);
   });
 
+  it('bu saatte tarifede seferi olmayan duran otobüs servis dışı (20 dakikayı beklemeden)', () => {
+    const SIMDI_SN = SIMDI.getTime() / 1000;
+    // Rotanın bu duraktan bir sonraki seferi 3 saat sonra: sefer bitmiş.
+    const seferBitmis = new AracVarislari(T, yolBul, () => null, () => SIMDI_SN + 3 * 3600);
+    nabizlar(seferBitmis, 10); // 12,5 dk
+    assert.equal(seferBitmis.durakVarislari(durak4, SIMDI.getTime())['141M'], undefined);
+    assert.match(seferBitmis.teshis(durak4, SIMDI.getTime()).araclar[0].neden, /tarifede seferi yok/);
+    // 10 dk sonra seferi var: "duruyor" olarak kalır.
+    const seferli = new AracVarislari(T, yolBul, () => null, () => SIMDI_SN + 600);
+    nabizlar(seferli, 10);
+    assert.equal(seferli.durakVarislari(durak4, SIMDI.getTime())['141M'][0].duruyorSn, 750);
+  });
+
   it('kısa duruş (ışık, trafik) duruyor sayılmaz', () => {
     const v = new AracVarislari(T, yolBul, () => null);
     nabizlar(v, 2); // 2,5 dk
@@ -508,5 +521,40 @@ describe('durağı olmayan uzun aralık (otoyol)', () => {
     v.guncelle([{ kapiNo: 'T1001', enlem: ENLEM - 0.01 + 0.011, boylam: boylam(8), tarih: SIMDI }], [], b, SIMDI);
     const r = v.durakVarislari(OD[6].durak, SIMDI.getTime())['89C'];
     assert.equal(r?.[0].kalanDurak, 3);
+  });
+});
+
+describe('görevde olmayan otobüs', () => {
+  it('hattının son taramasında olmayan otobüs sayılmaz, teşhiste nedeni yazar', () => {
+    const v = new AracVarislari(T, yolBul, () => null);
+    const b = () => ({ hat: '141M', guzergah: '141M_G_D0', an: SIMDI.getTime() - 60_000, gorevde: false });
+    v.guncelle([arac('A-1523', 1.5)], [], b, SIMDI);
+    const durak4 = T.rotaDuraklari.get(0)[4].durak;
+    assert.equal(v.durakVarislari(durak4, SIMDI.getTime())['141M'], undefined);
+    assert.match(v.teshis(durak4, SIMDI.getTime()).araclar[0].neden, /son taramasında yok/);
+  });
+});
+
+describe('tarifedeki servis günü', () => {
+  // 89C, Harbiye: hafta içi servisinin 24:51 kalkışı, cumartesi servisinin 24:35 kalkışı.
+  // Çarşamba gecesi (perşembe 00:36) hafta içi kalkışı 00:51; cumartesininki yok sayılır.
+  const HAFTAICI = { gunler: [false, true, true, true, true, true, false], bas: '20260101', bit: '20271231' };
+  const CUMARTESI = { gunler: [false, false, false, false, false, false, true], bas: '20260101', bit: '20271231' };
+  const t = {
+    servisler: [HAFTAICI, CUMARTESI],
+    durakBas: Int32Array.from([0, 2]),
+    sSefer: Int32Array.from([0, 1]),
+    sSaniye: Int32Array.from([24 * 3600 + 51 * 60, 24 * 3600 + 35 * 60]),
+    sSira: Int32Array.from([1, 1]),
+    seferRota: Int32Array.from([0, 0]),
+    seferServis: Int32Array.from([0, 1]),
+  };
+  const anSn = Date.UTC(2026, 9, 7, 21, 36) / 1000; // 2026-10-08 00:36 İstanbul
+  it('kalkış o gün çalışan servisten', () => {
+    assert.equal(tarifedenKalkisBul(t)(0, 0, anSn), Date.UTC(2026, 9, 7, 21, 51) / 1000);
+  });
+  it('yol da o gün çalışan servisin seferinden', () => {
+    const yol = tarifedenYolBul(t, (_, sefer) => [{ durak: 0, saniye: sefer }])(0, 0, anSn);
+    assert.deepEqual(yol, [{ durak: 0, saniye: 0 }]);
   });
 });

@@ -24,6 +24,7 @@
 // Hat başında (ilk durakta) bekleyen otobüs: tarifedeki kalkışı beklenir, hemen hareket
 // ediyor sayılmaz.
 
+import { hizmetGunleri } from './tarife.mjs';
 import { koridoraGoreSuz, KonumIzi, metreArasi, yonluAdaylar } from './yon.mjs';
 
 /** Bundan eski konumdaki araç sayılmaz. */
@@ -103,6 +104,14 @@ export const DURGUN_YARICAP_M = 60;
  * "en erken 46 dk" diye listede kalıyordu (2026-10-07 23:14).
  */
 export const SERVIS_DISI_SN = 20 * 60;
+/**
+ * Duran otobüsün bulunduğu duraktan rotasının tarifede ±SEFERSIZ_PAY_SN içinde hiç seferi
+ * geçmiyorsa otobüs servis dışı sayılır (20 dakikayı beklemeden). Sefer bitmiş yönde
+ * 13 dakikadır duran 97GE "Eminönü yönü, en erken 3 dk" diye listede kalıyordu (Göztepe
+ * Meydanı, Aksaray yönü, 2026-10-08 00:36). Hareket eden otobüse uygulanmaz: geciken son
+ * sefer de tarifenin dışına düşebilir.
+ */
+export const SEFERSIZ_PAY_SN = 45 * 60;
 /**
  * Konumun yaşı kadar (en çok bu kadar saniye) otobüs planlanan sürelerle ileri alınır:
  * "kaç durak uzakta" ve "durağı geçti mi" bu tahmini yere göre. Konum 1–2 dk eski
@@ -344,6 +353,11 @@ export class AracVarislari {
         continue;
       }
       if (!hat) continue;
+      // Hattının son taramasında yoksa görevde değil (seferi bitti, garaja çekildi; tarama.mjs).
+      if (bilgi.gorevde === false) {
+        this.atlanan.set(a.kapiNo, { hat, neden: 'hattın son taramasında yok (görevde değil: garaj ya da sefer bitti)' });
+        continue;
+      }
       const rotalar = T.kisaAdtanRotalar.get(hat) ?? [];
       let rota = bagli.get(a.kapiNo);
       let rotaNasil = rota != null ? 'sefer eşleşmesi' : null;
@@ -503,6 +517,16 @@ export class AracVarislari {
     return d.an;
   }
 
+  /**
+   * Rotanın bu duraktan ±SEFERSIZ_PAY_SN içinde tarifede seferi yok mu? Tarife bilinmiyorsa
+   * (kalkış bulunamıyor) false: karar verilmez.
+   */
+  seferYok(rota, durak, simdiMs) {
+    const simdiSn = Math.floor(simdiMs / 1000);
+    const kalkis = this.kalkisBul(rota, durak, simdiSn - SEFERSIZ_PAY_SN);
+    return kalkis != null && kalkis > simdiSn + SEFERSIZ_PAY_SN;
+  }
+
   /** Rotanın o duraktan geçen temsilci seferinin yolu (yarım saat önbellekte). */
   yol(rota, durak, anSn) {
     const anahtar = `${rota}|${durak}`;
@@ -567,6 +591,9 @@ export class AracVarislari {
     const duruyor = !hatBasi && duruyorMu(v, simdiMs);
     if (duruyor && simdiMs - v.durgunBas >= SERVIS_DISI_SN * 1000) {
       return { neden: `${Math.round((simdiMs - v.durgunBas) / 60_000)} dk'dır duruyor (servis dışı sayıldı)` };
+    }
+    if (duruyor && this.seferYok(v.rota, yol[Math.min(Math.floor(yer.yer), yol.length - 1)].durak, simdiMs)) {
+      return { neden: 'duruyor ve bu saatte tarifede seferi yok (servis dışı sayıldı)' };
     }
     if (duruyor) cikis = Math.max(cikis, simdiMs / 1000);
     const tahminiYer = hatBasi || duruyor ? yer.yer : ilerlet(yol, yer.yer, (simdiMs - v.damga) / 1000);
@@ -633,6 +660,7 @@ export class AracVarislari {
         const hatBasi = yer != null && yer.yer < DURAKTA_PAYI;
         if (hatBasi) duruyor = false;
         else if (simdiMs - v.durgunBas >= SERVIS_DISI_SN * 1000) continue;
+        else if (yer && this.seferYok(v.rota, yol[Math.min(Math.floor(yer.yer), yol.length - 1)].durak, simdiMs)) continue;
       }
       const h = v.hareket;
       (sonuc[id] ??= []).push({
@@ -994,18 +1022,47 @@ export class AracVarislari {
 }
 
 /**
- * Hat başından (rotanın ilk durağı) şu andan sonraki ilk tarife kalkışı, unix sn.
- * Bir dakika önce "kalkmış" görünen de sayılır (tarife payı).
+ * Bir durak saatinin (tarifenin `sSaniye`'si, hizmet gününün başından; gece yarısını aşan
+ * seferde 86400'den büyük) dün, bugün ve yarının o gün çalışan servislerine göre mutlak
+ * anları (unix sn). Eskiden servis (hafta içi / cumartesi / pazar) hiç sorulmuyordu:
+ * çarşamba gecesi 00:36'da Harbiye'de bekleyen 89C'ye cumartesi servisinin 00:35 kalkışı
+ * verildi, "01:30'da durakta" diye olmayan bir sefer göründü (2026-10-08; hafta içi
+ * bir sonraki kalkış 00:51). Tarifede servis bilgisi yoksa (testler) her gün sayılır.
+ */
+export function tarifeAnlari(tarife, sefer, sn, anSn, gunler = gunlerOnbellekli(tarife, anSn)) {
+  const gunSn = (((anSn + 3 * 3600) % 86400) + 86400) % 86400;
+  const gunBasi = anSn - gunSn;
+  if (!gunler) return [gunBasi + sn - 86400, gunBasi + sn, gunBasi + sn + 86400];
+  const servis = tarife.seferServis?.[sefer] ?? -1;
+  const sonuc = [];
+  for (const g of gunler) if (servis >= 0 && g.aktif[servis]) sonuc.push(gunBasi - g.ek + sn);
+  return sonuc;
+}
+
+const gunOnbellegi = new WeakMap();
+/** hizmetGunleri, İstanbul tarihine göre (makinenin saat diliminden bağımsız), gün başına bir kez. */
+function gunlerOnbellekli(tarife, anSn) {
+  if (!tarife.servisler?.length || !tarife.seferServis) return null;
+  const d = new Date((anSn + 3 * 3600) * 1000);
+  const anahtar = `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
+  const k = gunOnbellegi.get(tarife);
+  if (k?.anahtar === anahtar) return k.gunler;
+  const gunler = hizmetGunleri(tarife, new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12));
+  gunOnbellegi.set(tarife, { anahtar, gunler });
+  return gunler;
+}
+
+/**
+ * Bir duraktan rotanın şu andan sonraki ilk tarife kalkışı, unix sn (o gün çalışan
+ * servislerden). Bir dakika önce "kalkmış" görünen de sayılır (tarife payı).
  */
 export function tarifedenKalkisBul(tarife) {
   return (rota, durak, anSn) => {
-    const gunSn = (((anSn + 3 * 3600) % 86400) + 86400) % 86400;
-    const gunBasi = anSn - gunSn;
     let enIyi = null;
     for (let i = tarife.durakBas[durak]; i < tarife.durakBas[durak + 1]; i++) {
-      if (tarife.seferRota[tarife.sSefer[i]] !== rota) continue;
-      const sn = tarife.sSaniye[i];
-      for (const aday of [gunBasi + sn, gunBasi + sn - 86400]) {
+      const sefer = tarife.sSefer[i];
+      if (tarife.seferRota[sefer] !== rota) continue;
+      for (const aday of tarifeAnlari(tarife, sefer, tarife.sSaniye[i], anSn)) {
         if (aday >= anSn - 60 && (enIyi == null || aday < enIyi)) enIyi = aday;
       }
     }
@@ -1014,22 +1071,22 @@ export function tarifedenKalkisBul(tarife) {
 }
 
 /**
- * Gerçek tarifeden yol: rotanın o duraktan geçen seferlerinden tarife saati şimdiye en
- * yakın olanın durakları ve saatleri.
+ * Gerçek tarifeden yol: rotanın o duraktan geçen seferlerinden (o gün çalışan servislerden)
+ * tarife saati şimdiye en yakın olanın durakları ve saatleri.
  */
 export function tarifedenYolBul(tarife, seferDuraklari) {
   return (rota, durak, anSn) => {
-    const gunSn = (((anSn + 3 * 3600) % 86400) + 86400) % 86400;
     let enIyi = -1;
     let enAz = Infinity;
     for (let i = tarife.durakBas[durak]; i < tarife.durakBas[durak + 1]; i++) {
       const sefer = tarife.sSefer[i];
       if (tarife.seferRota[sefer] !== rota) continue;
-      let fark = Math.abs(tarife.sSaniye[i] - gunSn);
-      fark = Math.min(fark, Math.abs(fark - 86400));
-      if (fark < enAz) {
-        enAz = fark;
-        enIyi = sefer;
+      for (const aday of tarifeAnlari(tarife, sefer, tarife.sSaniye[i], anSn)) {
+        const fark = Math.abs(aday - anSn);
+        if (fark < enAz) {
+          enAz = fark;
+          enIyi = sefer;
+        }
       }
     }
     return enIyi < 0 ? null : seferDuraklari(tarife, enIyi).map((d) => ({ durak: d.durak, saniye: d.saniye }));
