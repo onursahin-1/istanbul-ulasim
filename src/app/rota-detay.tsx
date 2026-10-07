@@ -84,6 +84,8 @@ import {
   IYI_DOGRULUK_M,
   KABA_DOGRULUK_M,
   KISA_YURUME_M,
+  rayliMod,
+  sonYaklasmaMetresi,
   yenidenCizilmeli,
   type BacakOzeti,
   type KonumOrnegi,
@@ -109,8 +111,7 @@ const ZAMANLAMA_UFKU_MS = 90 * 60_000;
 const ZAMANLAMA_ARALIGI_MS = 20_000;
 
 /** Raylı (yeraltı, sık sefer): durakta tarife payı kısa; otobüs tarifesi ara duraklarda tahmin, payı uzun. */
-const RAYLI_MODLAR = new Set(['SUBWAY', 'RAIL', 'FUNICULAR', 'MONORAIL', 'TRAM', 'CABLE_CAR', 'GONDOLA']);
-const rayliMi = (b?: Bacak) => RAYLI_MODLAR.has((b?.route?.mode ?? b?.mode ?? '').toUpperCase());
+const rayliMi = (b?: Bacak) => rayliMod(b?.route?.mode ?? b?.mode);
 
 /** Bacağın kendi hattının (aynı yoldan giden) kalkışları: yeniden zamanlama ve sefer sıklığı için. */
 function anaHatKalkislari(b: Bacak | undefined, liste: DurakKalkisi[] | undefined): DurakKalkisi[] {
@@ -557,7 +558,10 @@ export default function RotaDetayEkrani() {
       });
       // İlk konum, doğruluğu yeterli ilk konumla tüketiliyor; kaba bir ilk konum hakkı yakmasın.
       if (dogruluk == null || dogruluk <= KOTU_DOGRULUK_M) c.ilkKonum = false;
-      if (karar && adim) yuruyusuYenidenCiz(nokta, adim.bacak);
+      // İstasyona son yaklaşmada yol çizilmez: tarif "herhangi bir girişten gir"e döndü.
+      const yaklasma =
+        adim && sonYaklasmaMetresi(nokta, ozetler[adim.bacak].bitis, rayliMi(bacaklar[adim.bacak + 1])) != null;
+      if (karar && adim && !yaklasma) yuruyusuYenidenCiz(nokta, adim.bacak);
     },
     [adimlar, ozetler, cizgiler, yuruyusuYenidenCiz],
   );
@@ -1210,6 +1214,16 @@ export default function RotaDetayEkrani() {
     });
   };
 
+  // Raylı istasyona son yaklaşmadaki yürüyüş: haritada o bacağın (tek girişe giden) çizgisi
+  // çizilmez, kart istasyonun yönünü gösteriyor.
+  const yuruAdimi = durum?.faz === 'yuru' ? adimlar[durum.adim] : undefined;
+  const yaklasilanBacak =
+    yuruAdimi?.tur === 'yuru' &&
+    sonYaklasmaMetresi(konum, ozetler[yuruAdimi.bacak]?.bitis ?? { latitude: 0, longitude: 0 }, rayliMi(bacaklar[yuruAdimi.bacak + 1])) !=
+      null
+      ? yuruAdimi.bacak
+      : null;
+
   const yolTarifi: YolTarifiVerisi | null = durum
     ? {
         bacaklar,
@@ -1234,6 +1248,7 @@ export default function RotaDetayEkrani() {
         paylas,
         otobusIzle,
         yolculukOzeti: yolculukOzeti ?? undefined,
+        cihazYonu: pusulaSeviyesi > 0 ? yonSV : undefined,
         izlenen: izlenen ? { bacak: izlenen.bacak, seferId: izlenen.seferId } : null,
         izlenenDurum:
           izlenenOtobus && typeof izlenenOtobus === 'object'
@@ -1294,7 +1309,7 @@ export default function RotaDetayEkrani() {
           </Marker>
         )}
         {bacaklar.map((b, i) =>
-          (gorunenCizgiler[i]?.length ?? 0) < 2 ? null : (
+          (gorunenCizgiler[i]?.length ?? 0) < 2 || i === yaklasilanBacak ? null : (
             <Polyline
               key={i}
               coordinates={gorunenCizgiler[i]}

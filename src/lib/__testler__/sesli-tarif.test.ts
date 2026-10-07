@@ -89,6 +89,21 @@ describe('sesliDuyurular: yürürken', () => {
   });
 });
 
+describe('sesliDuyurular: raylı istasyona son yaklaşma', () => {
+  it('dönüşler ve sapma söylenmez; bir kez "herhangi bir girişten gir"', () => {
+    const istasyon = { hedefAdi: 'Mahmutbey istasyonu' };
+    const cumleler = akis([
+      yuruyus({ simdiki: 0, sonrakine: 300, rotadan: 5 }, istasyon),
+      yuruyus({ simdiki: 0, sonrakine: 15, rotadan: 60 }, { ...istasyon, sonYaklasma: 140 }),
+      yuruyus({ simdiki: 0, sonrakine: 8, rotadan: 70 }, { ...istasyon, sonYaklasma: 90 }),
+    ]);
+    assert.deepEqual(cumleler, [
+      'Mahmutbey istasyonu yönünde 650 metre yürü, yaklaşık 8 dakika.',
+      'Mahmutbey istasyonu 150 metre ileride. Herhangi bir girişten gir.',
+    ]);
+  });
+});
+
 describe('sesliDuyurular: araçta', () => {
   const arac = (ek: Partial<SesGirdisi>): SesGirdisi => ({
     adim: 1,

@@ -33,6 +33,11 @@ export type SesGirdisi = {
   hedefAdi?: string;
   toplamMetre?: number | null;
   toplamDakika?: number | null;
+  /**
+   * Raylı istasyona son yaklaşmada istasyona kalan metre (yolculuk.ts, sonYaklasmaMetresi):
+   * dönüşler söylenmez, bir kez "herhangi bir girişten gir" denir.
+   */
+  sonYaklasma?: number | null;
   // Araçta:
   /** "89T otobüsüne bin" */
   binme?: string;
@@ -79,6 +84,10 @@ export function sesliDuyurular(g: SesGirdisi, soylenen: ReadonlySet<string>): { 
     const hedef = g.rol === 'varis' || g.rol === 'tek' ? 'Varış noktası yönünde' : `${g.hedefAdi ?? 'Durak'} yönünde`;
     ekle(k('basla'), `${hedef} ${mesafe}`);
 
+    if (g.sonYaklasma != null) {
+      ekle(k('istasyon'), `${g.hedefAdi ?? 'İstasyon'} ${mesafeSoyle(g.sonYaklasma)} ileride. Herhangi bir girişten gir.`);
+      return { soyle, unut };
+    }
     const yer = g.yer;
     if (yer && g.tarif?.length) {
       // Rotadan çıkma: bir kez uyar; çizgiye yaklaşınca unut ki yeniden çıkarsa yine uyarsın.

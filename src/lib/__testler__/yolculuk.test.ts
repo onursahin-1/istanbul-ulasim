@@ -21,7 +21,11 @@ import {
   KALKIS_PAYI_MS,
   INIS_PAYI_MS,
   YENIDEN_CIZ_ARA_MS,
+  istasyonAlaninda,
+  sonYaklasmaMetresi,
+  ISTASYON_ALANI_KAYIP_MS,
   type BacakOzeti,
+  type KonumOrnegi,
 } from '../yolculuk';
 
 // Kuzeye giden bir hat: 0.001° enlem ≈ 111 m.
@@ -298,5 +302,53 @@ describe('durumuZamanla', () => {
     assert.equal(icinde.durakta, true);
     assert.equal(durumuZamanla(icinde, t0 + 15 * 60_000 + 30_000, ADIMLAR, zamanli, null), icinde);
     assert.equal(durumuZamanla(icinde, t0 + 15 * 60_000 + INIS_PAYI_MS + 1, ADIMLAR, zamanli, null).adim, 2);
+  });
+});
+
+describe('raylı istasyona yürürken (girişi yolcu seçer)', () => {
+  // BACAKLAR'ın ilk araç bacağı metro: istasyonun noktası n(0) (peronun ortası, yeraltı).
+  const METRO = BACAKLAR.map((b, i) => (i === 1 ? { ...b, rayli: true } : b));
+  const t0 = 7_000_000;
+  const ornek = (sn: number, enlem: number, dogruluk = 10): KonumOrnegi => ({ an: t0 + sn * 1000, konum: n(enlem), dogruluk });
+
+  it('son yaklaşma: istasyona 150 m kala, yalnız raylıda', () => {
+    assert.equal(Math.round(sonYaklasmaMetresi(n(-0.0012), n(0), true)!), 133);
+    assert.equal(sonYaklasmaMetresi(n(-0.002), n(0), true), null, '222 m: henüz değil');
+    assert.equal(sonYaklasmaMetresi(n(-0.0012), n(0), false), null, 'otobüs durağı');
+    assert.equal(sonYaklasmaMetresi(null, n(0), true), null);
+  });
+
+  it('alana dışarıdan girip 10 sn kalınca istasyondasın; içeride başlatınca değil', () => {
+    const girdi = [ornek(0, -0.002), ornek(5, -0.0008), ornek(16, -0.0007)];
+    assert.equal(istasyonAlaninda(girdi, n(0)), true);
+    assert.equal(istasyonAlaninda(girdi.slice(0, 2), n(0)), false, 'henüz 0 sn');
+    const evde = [ornek(0, -0.0009), ornek(30, -0.0009), ornek(60, -0.0009)];
+    assert.equal(istasyonAlaninda(evde, n(0)), false, 'istasyonun yanındaki evde başlatıldı');
+    // Kaba konum (istasyon içi Wi-Fi) alanın içi sayılmaz, karar iyi konumlarla.
+    assert.equal(istasyonAlaninda([ornek(0, -0.002), ornek(5, -0.0008, 120), ornek(16, -0.0007, 120)], n(0)), false);
+  });
+
+  it('istasyonun öbür girişinde (yeraltı noktasına 90 m, yürüme çizgisinin sonuna uzak) bekleme adımına geçer', () => {
+    const d0 = baslangicDurumu(ADIMLAR);
+    const iz = [ornek(0, -0.002), ornek(5, -0.0008), ornek(16, -0.0008)];
+    assert.deepEqual(durumuIlerlet(d0, n(-0.0008), ADIMLAR, METRO, { iz }), { adim: 1, faz: 'bekle', kalanDurak: null, durakta: false });
+    // Otobüs durağına yürürken bu kural yok: 90 m'de hâlâ yürüyor.
+    assert.equal(durumuIlerlet(d0, n(-0.0008), ADIMLAR, BACAKLAR, { iz }), d0);
+  });
+
+  it('alana dışarıdan girip konum kesilince 30 sn sonra istasyona inilmiş sayılır', () => {
+    const d0 = baslangicDurumu(ADIMLAR);
+    // Dışarıdan alana girdi (henüz 5 sn): durum bunu hatırlar.
+    const girdi = durumuIlerlet(d0, n(-0.0008), ADIMLAR, METRO, { iz: [ornek(0, -0.002), ornek(5, -0.0008)] });
+    assert.equal(girdi.faz, 'yuru');
+    assert.equal(girdi.istasyonAlani, true);
+    const gps = { an: t0 + 5_000, dogruluk: 12, konum: n(-0.0008) };
+    assert.equal(durumuZamanla(girdi, t0 + 5_000 + ISTASYON_ALANI_KAYIP_MS - 1_000, ADIMLAR, METRO, gps), girdi);
+    assert.equal(durumuZamanla(girdi, t0 + 5_000 + ISTASYON_ALANI_KAYIP_MS, ADIMLAR, METRO, gps).faz, 'bekle');
+    // Alanın içinde başlatıldıysa (evde, iPhone dururken konumu yenilemiyor) bu kural yok.
+    assert.equal(durumuZamanla(d0, t0 + 5_000 + ISTASYON_ALANI_KAYIP_MS, ADIMLAR, METRO, gps), d0);
+    // İyi konumla alandan çıkınca unutulur.
+    const cikti = durumuIlerlet(girdi, n(-0.002), ADIMLAR, METRO, { iz: [ornek(0, -0.002), ornek(5, -0.0008), ornek(20, -0.002)] });
+    assert.equal(cikti.istasyonAlani, undefined);
   });
 });

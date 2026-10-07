@@ -28,6 +28,16 @@ export function polylineCoz(kodlu?: string | null): Nokta[] {
   return noktalar;
 }
 
+/** a'dan b'ye yön: kuzeyden saat yönünde derece (0–360). */
+export function yonAcisi(a: Nokta, b: Nokta): number {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const y = Math.sin(rad(b.longitude - a.longitude)) * Math.cos(rad(b.latitude));
+  const x =
+    Math.cos(rad(a.latitude)) * Math.sin(rad(b.latitude)) -
+    Math.sin(rad(a.latitude)) * Math.cos(rad(b.latitude)) * Math.cos(rad(b.longitude - a.longitude));
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
 /** İki nokta arasındaki kuş uçuşu mesafe (metre). */
 export function mesafeMetre(a: Nokta, b: Nokta): number {
   const R = 6371000;

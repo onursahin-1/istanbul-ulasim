@@ -27,6 +27,7 @@ import Animated, {
   withSpring,
   withTiming,
   ZoomIn,
+  type SharedValue,
 } from 'react-native-reanimated';
 import {
   ScrollView,
@@ -56,7 +57,7 @@ import {
 import type { YerlesikArac } from '@/lib/arac-konum';
 import { kalanYaz, yasYaz } from '@/lib/arac-konum';
 import { bacakCanli } from '@/lib/canli';
-import { mesafeMetre, type Nokta } from '@/lib/cografya';
+import { mesafeMetre, yonAcisi, type Nokta } from '@/lib/cografya';
 import type { Bacak } from '@/lib/otp';
 import { konus, sus } from '@/lib/konusma';
 import type { SeferBilgisi } from '@/lib/sefer';
@@ -70,8 +71,10 @@ import {
   durakSozcugu,
   DURAKTA_PAYI,
   kalanSureYaz,
+  rayliMod,
   SAPMA_M,
   SIMDI_M,
+  sonYaklasmaMetresi,
   yolaCikisAni,
   yuruyusKonumu,
   type Adim,
@@ -121,7 +124,32 @@ export type YolTarifiVerisi = {
   izlenenDurum?: { kalan: number; yasSn: number } | 'yok' | 'yukleniyor' | null;
   /** Yolculuğun başladığı an ve o anki planın varışı (ms): varış kartındaki özet için. */
   yolculukOzeti?: { baslangic: number; planliVaris: number | null };
+  /** Telefonun baktığı yön (derece, pusula); pusula yoksa verilmez. İstasyonun yön oku için. */
+  cihazYonu?: SharedValue<number>;
 };
+
+/**
+ * Yürüme bacağı raylı istasyonda bitiyorsa ve son yaklaşmadaysak istasyona kalan metre
+ * (yolculuk.ts, sonYaklasmaMetresi); değilse null.
+ */
+function istasyonaYaklasma(v: YolTarifiVerisi, bacak: number): number | null {
+  const b = v.bacaklar[bacak];
+  const sonraki = v.bacaklar[bacak + 1];
+  if (!b?.to.stop || !sonraki?.transitLeg) return null;
+  return sonYaklasmaMetresi(v.konum, { latitude: b.to.lat, longitude: b.to.lon }, rayliMod(sonraki.route?.mode ?? sonraki.mode));
+}
+
+/** İstasyon içi tarif satırlarının özeti: "asansör, alt geçit". */
+function istasyonIciOzet(tarif: YuruyusAdimi[]): string {
+  const adlar = ['asansör', 'yürüyen merdiven', 'merdiven', 'alt geçit', 'üst geçit', 'peron'];
+  const bulunan: string[] = [];
+  for (const t of tarif) {
+    const metin = t.metin.toLocaleLowerCase('tr-TR');
+    const ad = adlar.find((x) => metin.includes(x) && !(x === 'merdiven' && metin.includes('yürüyen merdiven')));
+    if (ad && !bulunan.includes(ad)) bulunan.push(ad);
+  }
+  return bulunan.join(', ');
+}
 
 const iso = (b: Bacak, uc: 'start' | 'end') => b[uc].estimated?.time ?? b[uc].scheduledTime;
 
@@ -375,6 +403,7 @@ export function useSesliTarif(v: YolTarifiVerisi | null, acik: boolean, cinsiyet
       g.hedefAdi = b.to.stop ? `${baslikYap(b.to.name)} ${bitisSozcugu(v.bacaklar, a.bacak).ad}` : 'varış noktası';
       g.toplamMetre = b.distance;
       g.toplamDakika = b.duration != null ? b.duration / 60 : null;
+      if (v.durum.faz === 'yuru') g.sonYaklasma = istasyonaYaklasma(v, a.bacak);
     } else {
       g.hat = b.route?.shortName ?? '';
       g.binme = binmeIfadesi(b.route?.mode ?? b.mode, b.route?.agency?.name);
@@ -1333,8 +1362,11 @@ function TarifKutusu({
   const tarif = v.tarifler[bacak] ?? [];
   const b = v.bacaklar[bacak];
   const yer = simdiki && v.konum ? yuruyusKonumu(tarif, v.cizgiler[bacak] ?? [], v.konum) : null;
-  const sonraki = yer ? tarif[yer.simdiki + 1] : undefined;
-  const simdi = !!yer && yer.sonrakine <= SIMDI_M;
+  // Raylı istasyona son yaklaşma: dönüş dönüş tarif yerine "İstasyona gir · herhangi bir
+  // girişten" (rota motoru tek bir girişi seçiyor; öbür girişe giden takılı kalıyordu).
+  const yaklasma = simdiki && v.durum.faz === 'yuru' ? istasyonaYaklasma(v, bacak) : null;
+  const sonraki = yer && yaklasma == null ? tarif[yer.simdiki + 1] : undefined;
+  const simdi = !!yer && yaklasma == null && yer.sonrakine <= SIMDI_M;
 
   // Manevraya gelince kısa bir titreşim: telefona bakmadan "şimdi dön" anlaşılsın.
   const titredi = useRef('');
@@ -1352,6 +1384,55 @@ function TarifKutusu({
 
   if (!tarif.length) return null;
   const varisAdi = b.to.stop ? `${baslikYap(b.to.name)} ${bitisSozcugu(v.bacaklar, bacak).ad}` : 'Varış noktası';
+
+  if (yaklasma != null) {
+    const gecilen = yer?.simdiki ?? 0;
+    const ozet = istasyonIciOzet(tarif.slice(gecilen));
+    const istasyon = { latitude: b.to.lat, longitude: b.to.lon };
+    return (
+      <View style={s.tarif}>
+        <View style={s.manevra}>
+          <View style={s.manevraSimge}>
+            <Ikon ad="enter-outline" boyut={20} renkKodu={tema.vurguYazi} />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={s.manevraMesafe}>{mesafeYaz(yaklasma)}</Text>
+            <Text style={s.manevraYazi} numberOfLines={1}>
+              İstasyona gir
+            </Text>
+            <Text style={s.manevraSokak} numberOfLines={1}>
+              {`${baslikYap(b.to.name)} · herhangi bir girişten`}
+            </Text>
+          </View>
+          {v.cihazYonu && v.konum && <IstasyonYonu yon={yonAcisi(v.konum, istasyon)} cihazYonu={v.cihazYonu} />}
+        </View>
+        <View>
+          {tarif.slice(0, gecilen).map((t, i) => (
+            <View key={i} style={s.tarifListeSatir}>
+              <Ikon ad={DONUS_SIMGELERI[t.donus]} boyut={14} renkKodu={tema.soluk} />
+              <Text style={[s.tarifSatir, { opacity: 0.5 }]} numberOfLines={1}>
+                {t.metin}
+              </Text>
+              {!!t.mesafe && <Text style={[s.tarifMesafe, { opacity: 0.5 }]}>{t.mesafe}</Text>}
+            </View>
+          ))}
+          <View style={[s.tarifListeSatir, s.tarifBurada]}>
+            <Ikon ad="enter-outline" boyut={14} renkKodu={tema.vurgu} />
+            <Text style={[s.tarifSatir, { color: tema.yazi, fontWeight: '700' }]} numberOfLines={1}>
+              {`${baslikYap(b.to.name)} ${bitisSozcugu(v.bacaklar, bacak).e} gir${ozet ? ` · ${ozet}` : ''}`}
+            </Text>
+            <Text style={s.tarifMesafe}>{mesafeYaz(yaklasma)}</Text>
+          </View>
+          <View style={s.tarifListeSatir}>
+            <Ikon ad="flag" boyut={14} renkKodu={tema.soluk} />
+            <Text style={s.tarifSatir} numberOfLines={1}>
+              {varisAdi}
+            </Text>
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={s.tarif}>
@@ -1402,6 +1483,23 @@ function TarifKutusu({
           </Text>
         </View>
       </View>
+    </View>
+  );
+}
+
+/**
+ * İstasyonun yönü: telefonun baktığı yöne göre dönen ok (pusula). Ionicons "navigate"
+ * simgesi kendiliğinden kuzeydoğuyu (45°) gösteriyor.
+ */
+function IstasyonYonu({ yon, cihazYonu }: { yon: number; cihazYonu: SharedValue<number> }) {
+  const tema = useTema();
+  const s = useStiller(stiller);
+  const donus = useAnimatedStyle(() => ({ transform: [{ rotate: `${yon - cihazYonu.get() - 45}deg` }] }));
+  return (
+    <View style={s.yonOku} accessibilityLabel="İstasyonun yönü">
+      <Animated.View style={donus}>
+        <Ikon ad="navigate" boyut={18} renkKodu={tema.vurgu} />
+      </Animated.View>
     </View>
   );
 }
@@ -1709,6 +1807,15 @@ const stiller = (t: Tema) =>
     tarif: { marginTop: 6, gap: 6 },
     manevra: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: t.yuzeyIkincil, borderRadius: 12, padding: 10 },
     manevraSimge: { width: 36, height: 36, borderRadius: 10, backgroundColor: t.vurgu, alignItems: 'center', justifyContent: 'center' },
+    yonOku: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      borderWidth: 1.5,
+      borderColor: t.vurgu,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     manevraMesafe: { fontSize: 12, fontWeight: '700', color: t.vurgu },
     manevraYazi: { fontSize: 15, fontWeight: '700', color: t.yazi },
     tarifSatir: { flex: 1, fontSize: 12.5, color: t.soluk },

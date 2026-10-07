@@ -62,6 +62,23 @@ export const DURAK_CEVRESI_M = 250;
 const VARSAYILAN_ARAC_HIZI_MS = 7;
 /** Raylı sisteme yürürken konum bu kadar süre kesilirse (istasyona inildi) yürüyüş bitti sayılır. */
 export const SINYAL_KAYBI_MS = 60_000;
+/**
+ * Metro, Marmaray, tramvay, füniküler istasyonuna yürürken son yaklaşma: istasyonun
+ * noktasına bu kadar kala dönüş dönüş tarif bırakılır, "İstasyona gir · herhangi bir
+ * girişten" gösterilir (canli-yol-tarifi.tsx). Rota motoru tek bir girişi seçiyor (Mahmutbey
+ * M3'te asansörlü giriş, 277 m'lik dolambaçlı yol); yolcu öbür girişe gidince "Sağa dön"
+ * kartında takılı kalıyordu (2026-10-07 19:59 kaydı).
+ */
+export const SON_YAKLASMA_M = 150;
+/**
+ * İstasyon alanı: istasyonun noktası peronun ortası (yeraltı); sokaktaki girişler ondan
+ * 70–150 m uzakta olabiliyor ve VARIS_M (50 m) hiç tutmuyordu. Alanın dışından gelip içinde
+ * ISTASYON_ALANI_MS kalan yolcu istasyona varmış sayılır; alanın içinde konum
+ * ISTASYON_ALANI_KAYIP_MS kesilirse (inildi) de.
+ */
+export const ISTASYON_ALANI_M = 120;
+export const ISTASYON_ALANI_MS = 10_000;
+export const ISTASYON_ALANI_KAYIP_MS = 30_000;
 /** ...yeter ki son konum istasyona bu kadar yakın olsun. */
 export const ISTASYON_GIRISI_M = 200;
 /**
@@ -156,6 +173,12 @@ export type YolculukDurumu = {
    * yeraltında konum kaba gelir, sürerse istasyona inilmiş sayılır (durumuZamanla).
    */
   kabaYakin?: number;
+  /**
+   * Raylı istasyona yürürken istasyon alanına dışarıdan girildi (iyi konumla): alanın içinde
+   * konum kesilirse istasyona inilmiş sayılır (durumuZamanla). Dışarıdan girilmediyse
+   * (istasyonun yanındaki evde başlatıldı; iPhone dururken konumu yenilemiyor) sayılmaz.
+   */
+  istasyonAlani?: boolean;
   /** Araçtayken iniş durağına varılmış sayıldığı an (ms): aynı durakta aktarmada beklemeye geçmek için. */
   duraktaAn?: number;
 };
@@ -517,6 +540,40 @@ export function hattaBekliyor(iz: KonumOrnegi[], bacak: BacakOzeti): boolean {
   return pencere.every((o) => hatUstunde(o.konum, bacak));
 }
 
+/** Durağı istasyon olan (yeraltı, peron, birkaç giriş) raylı türler. */
+export const RAYLI_MODLAR = new Set(['SUBWAY', 'RAIL', 'FUNICULAR', 'MONORAIL', 'TRAM', 'CABLE_CAR', 'GONDOLA']);
+export const rayliMod = (mode?: string | null) => RAYLI_MODLAR.has((mode ?? '').toUpperCase());
+
+/**
+ * Raylı istasyona yürürken son yaklaşmada mıyız: istasyona kuş uçuşu kaç metre (yoksa null).
+ * `rayli`: yürüyüşün sonunda binilecek araç metro, Marmaray, tramvay, füniküler.
+ */
+export function sonYaklasmaMetresi(konum: Nokta | null | undefined, istasyon: Nokta, rayli: boolean): number | null {
+  if (!rayli || !konum) return null;
+  const m = mesafeMetre(konum, istasyon);
+  return m <= SON_YAKLASMA_M ? m : null;
+}
+
+/**
+ * İstasyon alanına dışarıdan girilmişse alanda geçen süre (ms), değilse null (iyi konumlarla).
+ * Dışarıdan gelmiş olmalı: istasyonun yanındaki evde yolculuğu başlatan "vardın" sayılmasın.
+ */
+export function istasyonAlanindaSure(iz: KonumOrnegi[], istasyon: Nokta): number | null {
+  const iyi = iz.filter((o) => o.dogruluk == null || o.dogruluk <= IYI_DOGRULUK_M);
+  const son = iyi[iyi.length - 1];
+  if (!son || mesafeMetre(son.konum, istasyon) > ISTASYON_ALANI_M) return null;
+  let giris = iyi.length - 1;
+  while (giris > 0 && mesafeMetre(iyi[giris - 1].konum, istasyon) <= ISTASYON_ALANI_M) giris--;
+  // giris > 0: ondan önce alanın dışında bir konum var.
+  return giris > 0 ? son.an - iyi[giris].an : null;
+}
+
+/** Yolcu istasyon alanına dışarıdan girip ISTASYON_ALANI_MS'dir içinde mi? */
+export function istasyonAlaninda(iz: KonumOrnegi[], istasyon: Nokta): boolean {
+  const sure = istasyonAlanindaSure(iz, istasyon);
+  return sure != null && sure >= ISTASYON_ALANI_MS;
+}
+
 /** durumuIlerlet'e konumla gelen ek bilgi. */
 export type IlerletmeEki = {
   /** Konumun doğruluğu, metre. Verilmezse iyi sayılır. */
@@ -574,6 +631,17 @@ export function durumuIlerlet(
     if (sonraki?.tur === 'arac' && ek.iz) {
       const ab = bacaklar[sonraki.bacak];
       if (ab && hattaBekliyor(ek.iz, ab)) return sonrakiAdim(d, adimlar);
+      // Raylı istasyonun alanına (hangi girişten olursa) gelindi.
+      if (ab?.rayli) {
+        const sure = istasyonAlanindaSure(ek.iz, bacak.bitis);
+        if (sure != null && sure >= ISTASYON_ALANI_MS) return sonrakiAdim(d, adimlar);
+        // Alana girildiyse konum kesilince inilmiş sayılsın (durumuZamanla); iyi konumla çıkılınca unutulur.
+        if (iyi && (sure != null) !== !!d.istasyonAlani) {
+          if (sure != null) return { ...d, istasyonAlani: true };
+          const { istasyonAlani: _, ...geri } = d;
+          return geri;
+        }
+      }
     }
     // Kaba konumda doğruluğu kadar (en çok 150 m) yakınlık yeter: duraktayız ama GPS bilemiyor.
     const esik = iyi ? VARIS_M : Math.min(pay, 150);
@@ -712,6 +780,10 @@ export function durumuZamanla(
       return simdi - d.kabaYakin >= ISTASYONDA_KABA_MS ? sonrakiAdim(d, adimlar) : d;
     }
     d = sifirla(d);
+    // İstasyon alanının içinde kesildiyse (girişten inildi) daha kısa bekleme; yol boyunca
+    // ilerlemeye de bakılmaz: başka girişten girildiyse yürüme çizgisinin sonunda değiliz.
+    const alanda = !!d.istasyonAlani && mesafeMetre(gps.konum, bitis) <= ISTASYON_ALANI_M;
+    if (alanda && simdi - gps.an >= ISTASYON_ALANI_KAYIP_MS) return sonrakiAdim(d, adimlar);
     if (simdi - gps.an < SINYAL_KAYBI_MS || mesafeMetre(gps.konum, bitis) > ISTASYON_GIRISI_M) return d;
     // Yürüyüşün sonuna yakın olmalı: istasyonun yanındaki evde konum kesildi diye değil.
     // Son konum kabaysa yol boyunca ilerlemeye bakılmaz: kaba konumla ölçülemez (yolculuk
