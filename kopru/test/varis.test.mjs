@@ -193,11 +193,69 @@ describe('halka hat: gidiş ve dönüş aynı caddenin iki yakasında', () => {
     assert.ok(yonlu.yer > 6, `dönüşte bekleniyordu: ${yonlu.yer}`);
   });
 
+  it('yönü tutan parça çok uzaktaysa en yakın parça (paralel sokak, viraj)', () => {
+    // Dönüş yakasını 300 m kuzeye al: artık "karşı yaka" değil, başka bir sokak.
+    const t = halka().t;
+    for (let i = 18; i < 24; i++) t.durakEnlem[i] = ENLEM + 0.0027;
+    const yer = yoldakiYer(t, yb(), ENLEM + 0.00005, boylam(2.5), 400, { dx: -0.001, dy: 0 });
+    assert.ok(yer.yer < 5, `gidişte bekleniyordu: ${yer.yer}`);
+  });
+
   it('yerinde sayan otobüs son yönünü korur', () => {
     const v = new AracVarislari(H, yb, () => null);
     v.guncelle([konum(3.2, SIMDI.getTime() - 150_000)], [], bilgiH, new Date(SIMDI.getTime() - 150_000));
     v.guncelle([konum(2.5, SIMDI.getTime() - 75_000)], [], bilgiH, new Date(SIMDI.getTime() - 75_000));
     v.guncelle([konum(2.5, SIMDI.getTime())], [], bilgiH, SIMDI);
     assert.equal(v.durakVarislari(hedef, SIMDI.getTime())['91E']?.[0].kalanDurak, 2);
+  });
+});
+
+describe('duran otobüs', () => {
+  const durak4 = T.rotaDuraklari.get(0)[4].durak;
+  // 75 sn arayla nabızlar; otobüs x = 1,5'te kımıldamıyor (GPS 10 m oynuyor).
+  function nabizlar(v, kac, x = 1.5) {
+    for (let i = kac; i >= 0; i--) {
+      const an = new Date(SIMDI.getTime() - i * 75_000);
+      const oynama = (i % 2) * 0.0001;
+      v.guncelle([{ kapiNo: 'A-1627', enlem: ENLEM, boylam: boylam(x) + oynama, tarih: an }], [], bilgi('141M_G_D0'), an);
+    }
+  }
+
+  it('5 dakikadan uzun duran otobüs "duruyor"; varışı hemen kalkarsa', () => {
+    const v = new AracVarislari(T, yolBul, () => null);
+    nabizlar(v, 6); // 7,5 dk
+    const r = v.durakVarislari(durak4, SIMDI.getTime())['141M'];
+    assert.equal(r[0].duruyorSn, 450);
+    // 1,5 → 4: 2,5 aralık × 120 sn = 300 sn, şimdiden.
+    assert.equal((r[0].varis - SIMDI.getTime()) / 1000, 300);
+  });
+
+  it('kısa duruş (ışık, trafik) duruyor sayılmaz', () => {
+    const v = new AracVarislari(T, yolBul, () => null);
+    nabizlar(v, 2); // 2,5 dk
+    assert.equal(v.durakVarislari(durak4, SIMDI.getTime())['141M'][0].duruyorSn, null);
+  });
+
+  it('hareket edince sayım sıfırlanır', () => {
+    const v = new AracVarislari(T, yolBul, () => null);
+    nabizlar(v, 6);
+    const sonra = new Date(SIMDI.getTime() + 75_000);
+    v.guncelle([{ kapiNo: 'A-1627', enlem: ENLEM, boylam: boylam(1.8), tarih: sonra }], [], bilgi('141M_G_D0'), sonra);
+    assert.equal(v.durakVarislari(durak4, sonra.getTime())['141M'][0].duruyorSn, null);
+  });
+
+  it('konumu eskiyse duruyor denmez (bilinmiyor)', () => {
+    const v = new AracVarislari(T, yolBul, () => null);
+    nabizlar(v, 6);
+    assert.equal(v.durakVarislari(durak4, SIMDI.getTime() + 4 * 60_000)['141M'][0].duruyorSn, null);
+  });
+
+  it('hat başında bekleyen otobüs duruyor sayılmaz (tarifedeki kalkış kullanılır)', () => {
+    const kalkis = Math.floor(SIMDI.getTime() / 1000) + 4 * 60;
+    const v = new AracVarislari(T, yolBul, () => null, () => kalkis);
+    nabizlar(v, 6, 0);
+    const r = v.durakVarislari(T.rotaDuraklari.get(0)[2].durak, SIMDI.getTime())['141M'];
+    assert.equal(r[0].duruyorSn, null);
+    assert.equal((r[0].varis - SIMDI.getTime()) / 1000, 4 * 60 + 240);
   });
 });

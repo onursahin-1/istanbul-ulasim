@@ -48,8 +48,26 @@ export const DURAKTA_PAYI = 0.15;
 const M_DERECE = 111_320;
 /** Aracın gidiş yönü için iki konum arasında en az bu kadar yol (metre); daha azı GPS oynaması. */
 export const YON_ICIN_EN_AZ_M = 40;
+/**
+ * Yönü tutan parça en yakın parçadan en çok bu kadar uzak olabilir. Halka hatlarda iki yaka
+ * 20–40 m arayla; daha uzaktaki "yönü tutan" parça (aynı güzergâhın paralel bir sokağı)
+ * seçilmesin. Virajda yön hesabı şaşabildiği için sınırsız tercih otobüsü yanlış yere atar.
+ */
+export const YONLU_PAY_M = 60;
 /** Hareket yönü bu kadar süre hatırlanır: durakta, ışıkta bekleyen araç yönünü kaybetmesin. */
 export const HAREKET_OMRU_MS = 10 * 60_000;
+/**
+ * Duran otobüs (mola, park, arıza): son DURGUN_SN saniyedir DURGUN_YARICAP_M metreden az
+ * yer değiştirmiş ve konumu taze. Ne zaman kalkacağı belli olmadığından varışı "hemen
+ * kalkarsa" (en erken) diye hesaplanır ve uygulama onu ana dakika yapmaz. Işıkta ya da
+ * trafikte 1–3 dakikalık duruş buna girmez. Hat başında bekleyen otobüs ayrı: orada
+ * tarifedeki kalkış biliniyor. Göztepe Meydanı'nda dört otobüs 14 dakika boyunca
+ * "Otobüsüm Nerede?"de 1–3 dk, bizde "Şimdi" görünmüştü (2026-10-07).
+ */
+export const DURGUN_SN = 5 * 60;
+export const DURGUN_YARICAP_M = 60;
+/** Duruyor demek için konum en çok bu kadar eski olabilir (eski konumla bilinemez). */
+export const DURGUN_TAZE_MS = 3 * 60_000;
 
 /** Noktanın a→b doğru parçasına izdüşümü: oran (0–1) ve uzaklık (metre). */
 function izdusum(tarife, a, b, enlem, boylam) {
@@ -71,7 +89,8 @@ function izdusum(tarife, a, b, enlem, boylam) {
  * verilirse yolun aracın gittiği yöndeki parçaları önce gelir. Halka hatlarda gidiş ve
  * dönüş aynı caddenin iki yakasından geçiyor (20–40 m); yalnız en yakın parçaya bakınca
  * dönüşteki otobüs gidişe yerleşiyor, durağa 50 durak uzakta sanılıyordu (89C, 91E,
- * Göztepe Meydanı). Yönü tutan parça yoksa (kavşakta dönüş, kısa yol) en yakın parça.
+ * Göztepe Meydanı). Yönü tutan parça yoksa ya da en yakından YONLU_PAY_M'den uzaksa en
+ * yakın parça.
  */
 export function yoldakiYer(tarife, yol, enlem, boylam, esik, hareket = null) {
   let enIyi = null;
@@ -89,7 +108,7 @@ export function yoldakiYer(tarife, yol, enlem, boylam, esik, hareket = null) {
       if (sx * hareket.dx + sy * hareket.dy > 0 && (!yonlu || p.metre < yonlu.metre)) yonlu = aday;
     }
   }
-  const sonuc = yonlu ?? enIyi;
+  const sonuc = yonlu && enIyi && yonlu.metre <= enIyi.metre + YONLU_PAY_M ? yonlu : enIyi;
   return sonuc && sonuc.metre <= esik ? sonuc : null;
 }
 
@@ -118,6 +137,8 @@ export class AracVarislari {
     this.yon = new Map();
     /** kapıNo → { dx, dy, an } aracın son gidiş yönü (yoldakiYer'de halka hatlar için) */
     this.hareket = new Map();
+    /** kapıNo → { enlem, boylam, an } aracın son kımıldamadığı yer ve o yere geldiği an (konum zamanı) */
+    this.durgunluk = new Map();
     /** Son nabzın araçları: { kapiNo, hat, rota, enlem, boylam, damga (ms) } */
     this.araclar = [];
     this.an = 0;
@@ -168,6 +189,7 @@ export class AracVarislari {
       }
       if (rota == null) this.atlanan.set(a.kapiNo, { hat, neden: 'yönü (güzergâh varyantı) belirlenemedi' });
       this.hareketiGuncelle(a.kapiNo, a, an);
+      const durgunBas = this.durgunluguGuncelle(a.kapiNo, a);
       this.iz.guncelle(a.kapiNo, a.enlem, a.boylam, an);
       if (rota == null) continue;
       this.yon.set(a.kapiNo, { rota, an });
@@ -180,6 +202,7 @@ export class AracVarislari {
         boylam: a.boylam,
         damga: a.tarih.getTime(),
         hareket: h && an - h.an <= HAREKET_OMRU_MS ? h : null,
+        durgunBas,
         rotaNasil,
       };
       liste.push(v);
@@ -188,6 +211,7 @@ export class AracVarislari {
     for (const [k, iz] of this.izleme) if (an - iz.damga > 30 * 60_000) this.izleme.delete(k);
     for (const [k, y] of this.yon) if (an - y.an > 2 * YON_OMRU_MS) this.yon.delete(k);
     for (const [k, h] of this.hareket) if (an - h.an > 2 * HAREKET_OMRU_MS) this.hareket.delete(k);
+    for (const [k, d] of this.durgunluk) if (an - d.son > 30 * 60_000) this.durgunluk.delete(k);
     this.iz.temizle(an);
     this.araclar = liste;
     this.an = an;
@@ -202,6 +226,21 @@ export class AracVarislari {
     if (!onceki || metreArasi(onceki, a) < YON_ICIN_EN_AZ_M) return;
     const olcek = Math.cos((a.enlem * Math.PI) / 180);
     this.hareket.set(kapiNo, { dx: (a.boylam - onceki.boylam) * olcek, dy: a.enlem - onceki.enlem, an });
+  }
+
+  /**
+   * Aracın kımıldamadığı yerin başlangıç anı (ms, konum zamanı): DURGUN_YARICAP_M'den çok
+   * yer değiştirince yeni yer, o konumun anından başlar.
+   */
+  durgunluguGuncelle(kapiNo, a) {
+    const t = a.tarih.getTime();
+    const d = this.durgunluk.get(kapiNo);
+    if (!d || t < d.an || metreArasi(d, a) >= DURGUN_YARICAP_M) {
+      this.durgunluk.set(kapiNo, { enlem: a.enlem, boylam: a.boylam, an: t, son: t });
+      return t;
+    }
+    d.son = t;
+    return d.an;
   }
 
   /** Rotanın o duraktan geçen temsilci seferinin yolu (yarım saat önbellekte). */
@@ -262,10 +301,18 @@ export class AracVarislari {
     const sure = a * parca.O + b * parca.P;
     // Hat başında bekleyen otobüs: tarifedeki kalkış saatinden önce yola çıkmaz.
     let cikis = v.damga / 1000;
-    if (yer.yer < DURAKTA_PAYI) {
+    const hatBasi = yer.yer < DURAKTA_PAYI;
+    if (hatBasi) {
       const kalkis = this.kalkisBul(v.rota, yol[0].durak, Math.floor(simdiMs / 1000));
       if (kalkis != null && kalkis > cikis) cikis = kalkis;
     }
+    // Yolda uzun süredir duran otobüs: en erken şimdi kalkar.
+    const duruyor =
+      !hatBasi &&
+      v.durgunBas != null &&
+      v.damga - v.durgunBas >= DURGUN_SN * 1000 &&
+      simdiMs - v.damga <= DURGUN_TAZE_MS;
+    if (duruyor) cikis = Math.max(cikis, simdiMs / 1000);
     if (cikis + sure - simdiMs / 1000 > EN_UZUN_VARIS_SN) return { neden: 'varış 90 dk\'dan uzak' };
     const varis = Math.max(simdiMs, (cikis + sure) * 1000);
     const { aralik, ogrenilen } = parca;
@@ -278,6 +325,8 @@ export class AracVarislari {
         // Durağın ardından gelen durak: uygulama otobüsü aynı yöne giden satıra koysun
         // (aracın güzergâh varyantının satırı yoksa; ör. günün son seferi geçmiş varyant).
         sonrakiDurak: yol[hedef + 1] ? (T.durakAd?.[yol[hedef + 1].durak] ?? null) : null,
+        // Duruyorsa kaç saniyedir; varış o zaman "hemen kalkarsa en erken".
+        duruyorSn: duruyor ? Math.round((simdiMs - v.durgunBas) / 1000) : null,
         yasSn: Math.max(0, Math.round((simdiMs - v.damga) / 1000)),
         enlem: v.enlem,
         boylam: v.boylam,
@@ -305,7 +354,9 @@ export class AracVarislari {
         rotaNasil: v.rotaNasil ?? null,
         yonVar: !!v.hareket,
         konumYasSn: Math.round((simdiMs - v.damga) / 1000),
-        ...(kayit ? { varisDk: Math.round((kayit.varis - simdiMs) / 6000) / 10, kalanDurak: kayit.kalanDurak } : { neden }),
+        ...(kayit
+          ? { varisDk: Math.round((kayit.varis - simdiMs) / 6000) / 10, kalanDurak: kayit.kalanDurak, duruyorSn: kayit.duruyorSn }
+          : { neden }),
       });
     }
     for (const [kapiNo, a] of this.atlanan) {
