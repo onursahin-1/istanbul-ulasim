@@ -11,7 +11,7 @@ import Reanimated, { useAnimatedStyle, useReducedMotion, type SharedValue } from
 
 import { Pressable } from '@/components/dokun';
 
-import { Ikon } from '@/components/ulasim';
+import { DuraklatIsareti, Ikon } from '@/components/ulasim';
 import { tahminiKonum, type YerlesikArac } from '@/lib/arac-konum';
 import { useCanliAralik } from '@/lib/canli-aralik';
 import type { Nokta } from '@/lib/cografya';
@@ -34,6 +34,7 @@ export function OtobusIsareti({
   yasSn,
   tazelendi = 0,
   izlenen = false,
+  duruyor = false,
 }: {
   renk: string;
   yon?: number | null;
@@ -44,12 +45,14 @@ export function OtobusIsareti({
   /** Her yeni konumda bir artar: halka yayılır. */
   tazelendi?: number;
   izlenen?: boolean;
+  /** Uzun süredir duruyor (mola, park): uyarı renginde, "duraklat" rozetli. */
+  duruyor?: boolean;
 }) {
   const tema = useTema();
   const azalt = useReducedMotion();
   const b = bayatlik(yasSn ?? (soluk ? Infinity : 0));
   const eski = soluk || b.eski;
-  const zemin = eski ? tema.soluk : renkKaristir(renk, tema.soluk, b.oran * 0.75);
+  const zemin = eski ? tema.soluk : duruyor ? tema.uyari : renkKaristir(renk, tema.soluk, b.oran * 0.75);
 
   // Ok: önceki açıdan en kısa yoldan dönülür (350° → 10° tam tur atmadan).
   const aci = useRef(new Animated.Value(yon ?? 0)).current;
@@ -139,6 +142,11 @@ export function OtobusIsareti({
       >
         <Ikon ad="bus" boyut={14} renkKodu="#fff" />
       </View>
+      {duruyor && !eski && (
+        <View style={[stil.duraklatRozet, { backgroundColor: tema.uyariAcik, borderColor: tema.uyari }]}>
+          <DuraklatIsareti renk={tema.uyari} boy={7} />
+        </View>
+      )}
       {!!b.etiket && (
         <View style={[stil.yas, { backgroundColor: tema.yuzey, borderColor: tema.cizgi }]}>
           <Text style={[stil.yasYazi, { color: tema.soluk }]}>{b.etiket}</Text>
@@ -281,7 +289,7 @@ export function HareketliOtobus({
   aciklama,
   izlenen = false,
 }: {
-  otobus: Pick<YerlesikArac, 'lat' | 'lon' | 'an' | 'durum' | 'heading' | 'sinif'>;
+  otobus: Pick<YerlesikArac, 'lat' | 'lon' | 'an' | 'durum' | 'heading' | 'sinif' | 'duruyorSn'>;
   /** Otobüsün gittiği güzergâh (en azından durakları sırayla). */
   cizgi: Nokta[];
   /** Ortalama hız, m/sn (OTOBUS_HIZI_MS, METROBUS_HIZI_MS). */
@@ -299,7 +307,9 @@ export function HareketliOtobus({
   // Eski konum ilerlemiyor: yalnız yaş etiketi için seyrek.
   useCanliAralik(() => setSimdi(Date.now()), canli ? (azalt ? 1_000 : AKICI_ARALIK_MS) : 15_000);
 
-  const tahmin = canli
+  // Duran otobüs (mola, park) yol boyunca ilerletilmez: olduğu yerde durur.
+  const duruyor = otobus.duruyorSn != null;
+  const tahmin = canli && !duruyor
     ? tahminiKonum(otobus, cizgi, hiz, simdi)
     : { latitude: otobus.lat, longitude: otobus.lon, yon: otobus.heading, tahmini: false };
 
@@ -344,6 +354,7 @@ export function HareketliOtobus({
         yasSn={yasSn}
         tazelendi={duzeltme?.n ?? 0}
         izlenen={izlenen}
+        duruyor={duruyor}
       />
     </Marker>
   );
@@ -356,6 +367,17 @@ const OK_KUTU = 46;
 
 const stil = StyleSheet.create({
   otobusKutu: { width: KUTU, height: KUTU, alignItems: 'center', justifyContent: 'center' },
+  duraklatRozet: {
+    position: 'absolute',
+    top: (KUTU - OTOBUS) / 2 - 5,
+    right: (KUTU - OTOBUS) / 2 - 6,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   okKutu: {
     position: 'absolute',
     left: (KUTU - OK_KUTU) / 2,

@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { aracVarislariniKat, ayniYoldanMi, kalkislaraAracKat, beklemeSecenekleri, binilenHatTahmini, durakOranlari, durakSaatleri, paylasimMetni } from '../bekleme';
+import { aracVarislariniKat, ayniYoldanMi, duruyorYaz, gosterilecekAraclar, kalkislaraAracKat, beklemeSecenekleri, binilenHatTahmini, durakOranlari, durakSaatleri, paylasimMetni } from '../bekleme';
 import type { DurakKalkisi, Hat, Kalkis } from '../otp';
 
 const dk = 60_000;
@@ -234,5 +234,52 @@ describe('kalkislaraAracKat (yakındaki duraklar)', () => {
   it('durağın hatlarında olmayan araç eklenmez', () => {
     const liste = [otp(HATLAR[1], 7, 'KANUNİ SULTAN SÜLEYMAN')];
     assert.deepEqual(ozet(kalkislaraAracKat(liste, HATLAR, { '500T': [arac('X-9', 1)] }, T)), [['141M', 7, false]]);
+  });
+});
+
+describe('duran otobüs', () => {
+  const arac = (kapiNo: string, dakika: number, duruyorSn: number | null = null, kalanDurak = 2) => ({
+    kapiNo,
+    varis: T + dakika * dk,
+    kalanDurak,
+    yasSn: 20,
+    enlem: 41,
+    boylam: 29,
+    ogrenilen: 1,
+    duruyorSn,
+  });
+
+  it('gosterilecekAraclar: hareket eden varken duran ana olmaz; yalnız duran varsa o', () => {
+    const d = arac('A-1627', 0, 540);
+    const h = arac('A-1612', 11);
+    assert.deepEqual(gosterilecekAraclar([d, h]), { ana: [h], duran: d });
+    assert.deepEqual(gosterilecekAraclar([d]), { ana: [d], duran: d });
+    assert.deepEqual(gosterilecekAraclar([h]), { ana: [h], duran: null });
+  });
+
+  it('duruyorYaz', () => {
+    assert.equal(duruyorYaz(540), "9 dk'dır");
+    assert.equal(duruyorYaz(20), "1 dk'dır");
+    assert.equal(duruyorYaz(65 * 60), "1 sa 5 dk'dır");
+    assert.equal(duruyorYaz(120 * 60), '2 saattir');
+  });
+
+  it('bekleme kartı: duran otobüs kalkış olmaz, arkasındaki gelir; tarife ikisinden sonra', () => {
+    const liste = [kalkis('97GE', 3), kalkis('97GE', 25)];
+    const sonuc = aracVarislariniKat(liste, { '97GE': [arac('A-1627', 0, 540), arac('A-1612', 11)] });
+    assert.deepEqual(
+      sonuc.map((k) => [(k.an - T) / dk, k.kapiNo ?? null, k.canli]),
+      [
+        [11, 'A-1612', true],
+        [25, null, false],
+      ],
+    );
+  });
+
+  it('bekleme kartı: tek otobüs duruyorsa en erken varışıyla, canlı sayılmadan', () => {
+    const sonuc = aracVarislariniKat([kalkis('89T', 30)], { '89T': [arac('B5021', 4, 720, 3)] });
+    assert.equal(sonuc[0].kapiNo, 'B5021');
+    assert.equal(sonuc[0].canli, false);
+    assert.equal(sonuc[0].duruyorSn, 720);
   });
 });

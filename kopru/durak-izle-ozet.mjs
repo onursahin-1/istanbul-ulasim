@@ -34,7 +34,12 @@ export function anlikGoruntu(olaylar, an, enFazlaMs = 90_000) {
     const hatlar = {};
     for (const [hat, l] of Object.entries(ornek.kopru?.duraklar?.[id] ?? {})) {
       const gelecek = l.filter((v) => v.varis >= an - 60_000);
-      if (gelecek.length) (hatlar[hat] ??= { arac: [], otp: [] }).arac = gelecek.map((v) => ({ dk: dk(v.varis), kalan: v.kalan, kapi: v.kapi }));
+      if (gelecek.length) (hatlar[hat] ??= { arac: [], otp: [] }).arac = gelecek.map((v) => ({
+          dk: dk(v.varis),
+          kalan: v.kalan,
+          kapi: v.kapi,
+          ...(v.dur != null ? { durDk: Math.round(v.dur / 60) } : {}),
+        }));
     }
     for (const k of ornek.otp?.[id] ?? []) {
       if (k.tahmin < an - 60_000) continue;

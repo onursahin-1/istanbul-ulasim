@@ -61,6 +61,7 @@ import {
   ayniYoldanMi,
   beklemeSecenekleri,
   durakSaatleri,
+  duruyorYaz,
   binilenHatTahmini,
   durakOranlari,
   paylasimMetni,
@@ -1346,7 +1347,11 @@ export default function RotaDetayEkrani() {
               hiz={metrobusMu(izlenen.kisaAd) ? METROBUS_HIZI_MS : OTOBUS_HIZI_MS}
               renk={haritaRengi(bacaklar[izlenen.bacak]?.route, tema)}
               baslik={`${izlenen.kisaAd} · ${kalanYaz(izlenenOtobus.kalan)}`}
-              aciklama={`Konum ${yasYaz(izlenenOtobus.otobus.yasSn)}`}
+              aciklama={
+                izlenenOtobus.otobus.duruyorSn != null
+                  ? `${duruyorYaz(izlenenOtobus.otobus.duruyorSn)} duruyor · konum ${yasYaz(izlenenOtobus.otobus.yasSn)}`
+                  : `Konum ${yasYaz(izlenenOtobus.otobus.yasSn)}`
+              }
               izlenen
             />
           )}

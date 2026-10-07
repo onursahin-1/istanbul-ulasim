@@ -259,3 +259,26 @@ describe('duran otobüs', () => {
     assert.equal((r[0].varis - SIMDI.getTime()) / 1000, 4 * 60 + 240);
   });
 });
+
+describe('aynı yönde birkaç varyant', () => {
+  it('güzergâh kodu bayatlayınca otobüs bilinen varyantında kalır (kısa varyanta kaymaz)', () => {
+    // Rota 2: rota 0 ile aynı duraklardan geçen kısa varyant, 3. durakta biter (4. durağa gitmez).
+    const t = sahteTarife();
+    t.rotaDuraklari.set(2, t.rotaDuraklari.get(0).slice(0, 4));
+    t.kisaAdtanRotalar.set('141M', [2, 0, 1]);
+    const yb2 = (rota) => t.rotaDuraklari.get(rota).map((d, i) => ({ durak: d.durak, saniye: 36000 + i * 120 }));
+    const v = new AracVarislari(t, yb2, () => null);
+    const t0 = SIMDI.getTime() - 30 * 60_000;
+    const taramaAni = t0 - 60_000;
+    const b = () => ({ hat: '141M', guzergah: '141M_G_D0', an: taramaAni });
+    // Tarama tazeyken rota 0; sonra 25 dk boyunca güzergâh kodu bayat, otobüs ilerliyor.
+    const konumlar = [0.2, 0.5, 0.9, 1.3, 1.7, 2.1];
+    konumlar.forEach((x, i) => {
+      const an = new Date(t0 + i * 5 * 60_000);
+      v.guncelle([{ kapiNo: 'A-1857', enlem: ENLEM, boylam: boylam(x), tarih: an }], [], b, an);
+    });
+    const son = t0 + 25 * 60_000;
+    const r = v.durakVarislari(t.rotaDuraklari.get(0)[4].durak, son)['141M'];
+    assert.equal(r?.[0].kapiNo, 'A-1857');
+  });
+});

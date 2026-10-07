@@ -21,11 +21,14 @@ import {
   TarifeEtiketi,
   useStiller,
   YaklasmaSeridi,
+  DuranNotu,
+  DuruyorDakika,
 } from '@/components/ulasim';
 import { FavoriSimgesi } from '@/components/hareketli-simgeler';
 import { IskeletSatirlari } from '@/components/iskelet';
 import { KayanMetin } from '@/components/kayan-metin';
 import { aracVarisindanOtobus, araclariYerlestir, kalanYaz, yaklasanOtobus, yasYaz } from '@/lib/arac-konum';
+import { duruyorMu, duruyorYaz, gosterilecekAraclar } from '@/lib/bekleme';
 import { canliBilgi, kalkisCanli } from '@/lib/canli';
 import { trKucuk } from '@/lib/metin';
 import { siklikYaz } from '@/lib/siklik';
@@ -215,6 +218,7 @@ export default function DurakEkrani() {
             canli: kalkisCanli(k),
             kimlik: k.trip?.gtfsId ?? null,
             dakika: kacDakikaSonra(k.serviceDay ?? 0, k.realtimeDeparture ?? k.scheduledDeparture ?? 0),
+            duruyorSn: null as number | null,
           }))
           .filter((k) => k.dakika >= 0)
           .sort((a, b) => a.dakika - b.dakika);
@@ -233,20 +237,27 @@ export default function DurakEkrani() {
           )
           .sort((a, b) => a.varis - b.varis);
         let yaklasanArac: typeof yaklasan = null;
+        // Duran otobüs (mola, park): arkasından hareket eden varken kalkış olmaz, not olarak
+        // yazılır; tek otobüs oysa "Duruyor" ve en erken varışı (gosterilecekAraclar).
+        let duranNot: { kalan: number; sn: number } | null = null;
         if (araclar.length) {
           const son = araclar[araclar.length - 1].varis;
+          const { ana, duran } = gosterilecekAraclar(araclar);
           kalkislar = [
-            ...araclar.map((v) => ({
+            ...ana.map((v) => ({
               saniye: Math.round((v.varis / 1000 + 3 * 3600) % 86_400),
               an: Math.round(v.varis / 1000),
-              // Araç tabanlı: tarifeden sapma yok, "canlı" olduğu yeter.
-              canli: canliBilgi(0),
+              // Araç tabanlı: tarifeden sapma yok, "canlı" olduğu yeter. Duran otobüsün
+              // saati yalnız "en erken": canlı varış sayılmaz.
+              canli: duruyorMu(v) ? null : canliBilgi(0),
               kimlik: `arac:${v.kapiNo}` as string | null,
               dakika: Math.max(0, Math.round((v.varis - simdi) / 60_000)),
+              duruyorSn: v.duruyorSn ?? null,
             })),
             ...kalkislar.filter((k) => k.an * 1000 > son + 3 * 60_000),
           ];
-          yaklasanArac = { otobus: aracVarisindanOtobus(araclar[0]), kalan: araclar[0].kalanDurak };
+          yaklasanArac = { otobus: aracVarisindanOtobus(ana[0]), kalan: ana[0].kalanDurak };
+          if (duran && !duruyorMu(ana[0])) duranNot = { kalan: duran.kalanDurak, sn: duran.duruyorSn ?? 0 };
         }
         return {
           anahtar: `${d.pattern?.code ?? ''}|${peron ?? ''}`,
@@ -259,6 +270,7 @@ export default function DurakEkrani() {
             .ayrinti,
           kalkislar,
           yaklasan: yaklasanArac ?? yaklasan,
+          duranNot,
         };
       })
       .filter((x) => x.hat && x.kalkislar.length > 0);
@@ -459,7 +471,9 @@ export default function DurakEkrani() {
                   accessibilityLabel={[
                     y.hat?.shortName ?? '',
                     y.yon,
-                    kalkisGosterimi(y.kalkislar[0].an).seslendirme,
+                    y.kalkislar[0].duruyorSn != null
+                      ? `otobüs ${duruyorYaz(y.kalkislar[0].duruyorSn)} duruyor`
+                      : kalkisGosterimi(y.kalkislar[0].an).seslendirme,
                     y.kalkislar[0].canli ? `canlı, ${durakVarisMetni(y.kalkislar[0].an)}` : canliVar ? 'tarifeye göre' : '',
                     y.yaklasan ? `otobüs ${kalanYaz(y.yaklasan.kalan)}` : '',
                   ]
@@ -478,7 +492,7 @@ export default function DurakEkrani() {
                         {y.guzergah}
                       </Text>
                     )}
-                    {y.kalkislar[0].canli ? (
+                    {y.kalkislar[0].duruyorSn != null ? null : y.kalkislar[0].canli ? (
                       <CanliAciklama an={y.kalkislar[0].an} />
                     ) : canliVar ? (
                       <TarifeEtiketi saat={istanbulSaatiYaz(y.kalkislar[0].an)} />
@@ -490,6 +504,7 @@ export default function DurakEkrani() {
                           kalan={y.yaklasan.kalan}
                           renk={y.hat ? hatRengi(y.hat, tema) : tema.vurgu}
                           soluk={y.yaklasan.otobus.sinif === 'eski'}
+                          duruyor={y.kalkislar[0].duruyorSn != null}
                         />
                         <KayanMetin metin={`Otobüs ${kalanYaz(y.yaklasan.kalan)}`} style={[s.yaklasmaYazi, s.yaklasmaKalin]} />
                         <Text style={[s.yaklasmaYazi, { flex: 1 }]} numberOfLines={1}>
@@ -497,11 +512,24 @@ export default function DurakEkrani() {
                         </Text>
                       </Animated.View>
                     )}
-                    {y.kalkislar[0].canli || canliVar ? (
+                    {y.kalkislar[0].duruyorSn != null && (
+                      <DuranNotu metin={`${duruyorYaz(y.kalkislar[0].duruyorSn)} duruyor, arkasında otobüs yok`} />
+                    )}
+                    {!!y.duranNot && (
+                      <DuranNotu
+                        metin={
+                          y.duranNot.kalan === 0
+                            ? `Bir otobüs durakta ${duruyorYaz(y.duranNot.sn)} bekliyor`
+                            : `Bir otobüs ${y.duranNot.kalan} durak geride ${duruyorYaz(y.duranNot.sn)} duruyor`
+                        }
+                      />
+                    )}
+                    {y.kalkislar[0].canli || canliVar || y.kalkislar[0].duruyorSn != null ? (
                       // İlk kalkışın saati üstteki satırda; burada yalnız sonrakiler.
                       y.kalkislar.length > 1 && (
                         <Text style={s.seferSaat}>
-                          sonra {y.kalkislar.slice(1, 3).map((k) => saniyedenSaat(k.saniye)).join(' · ')}
+                          {y.kalkislar[0].duruyorSn != null ? 'tarifede sonra ' : 'sonra '}
+                          {y.kalkislar.slice(1, 3).map((k) => saniyedenSaat(k.saniye)).join(' · ')}
                         </Text>
                       )
                     ) : (
@@ -510,7 +538,11 @@ export default function DurakEkrani() {
                       </Text>
                     )}
                   </View>
-                  <Dakika an={y.kalkislar[0].an} canli={y.kalkislar[0].canli} kimlik={y.kalkislar[0].kimlik} />
+                  {y.kalkislar[0].duruyorSn != null ? (
+                    <DuruyorDakika an={y.kalkislar[0].an} />
+                  ) : (
+                    <Dakika an={y.kalkislar[0].an} canli={y.kalkislar[0].canli} kimlik={y.kalkislar[0].kimlik} />
+                  )}
                 </Pressable>
                 </Animated.View>
               ))}

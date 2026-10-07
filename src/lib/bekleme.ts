@@ -20,8 +20,34 @@ export type BeklemeSecenegi = {
   /** Hattın adı (uzun ad, yoksa yön). */
   ad: string;
   /** Sıradaki kalkışlar, en çok `enCok`. Araç tabanlı olanlarda kapı no ve kalan durak. */
-  kalkislar: { an: number; canli: boolean; seferId: string; kapiNo?: string; kalanDurak?: number }[];
+  kalkislar: { an: number; canli: boolean; seferId: string; kapiNo?: string; kalanDurak?: number; duruyorSn?: number | null }[];
 };
+
+/**
+ * Duran otobüs: köprü 5 dakikadan uzun kımıldamayan otobüsü (mola, park, arıza) işaretliyor;
+ * varışı "hemen kalkarsa en erken". Ne zaman kalkacağı belli olmadığından, arkasından
+ * hareket eden bir otobüs varken ana dakika olmaz. Göztepe Meydanı'nda park etmiş dört
+ * otobüs 14 dakika boyunca "1–3 dk" ve "Şimdi" görünüyordu (2026-10-07).
+ */
+export const duruyorMu = (v: { duruyorSn?: number | null }) => v.duruyorSn != null;
+
+/**
+ * Bir hattın araçlarından kalkış olarak gösterilecekler: hareket edenler; hiç hareket eden
+ * yoksa ilk duran (işaretli, en erken varışıyla). `duran`: varsa ilk duran otobüs (not için).
+ */
+export function gosterilecekAraclar<T extends { duruyorSn?: number | null }>(liste: T[]): { ana: T[]; duran: T | null } {
+  const hareketli = liste.filter((v) => !duruyorMu(v));
+  const duranlar = liste.filter(duruyorMu);
+  return { ana: hareketli.length ? hareketli : duranlar.slice(0, 1), duran: duranlar[0] ?? null };
+}
+
+/** "9 dk'dır", "1 sa 5 dk'dır". */
+export function duruyorYaz(sn: number): string {
+  const dk = Math.max(1, Math.round(sn / 60));
+  if (dk < 60) return `${dk} dk'dır`;
+  const sa = Math.floor(dk / 60);
+  return dk % 60 ? `${sa} sa ${dk % 60} dk'dır` : `${sa} saattir`;
+}
 
 /** Araç tabanlı kalkışın sahte sefer kimliği öneki: tarifede böyle bir sefer yok. */
 export const ARAC_ONEKI = 'arac:';
@@ -51,7 +77,8 @@ export function aracVarislariniKat(kalkislar: DurakKalkisi[], varislar: Record<s
     if (k.an > sonAraç + AYNI_OTOBUS_MS) sonuc.push(k);
     if (!eklenen.has(k.kisaAd)) {
       eklenen.add(k.kisaAd);
-      for (const v of liste) {
+      // Duran otobüs, arkasından hareket eden varken kalkış olmaz (gosterilecekAraclar).
+      for (const v of gosterilecekAraclar(liste).ana) {
         // İstanbul gününün başı (sn) ve ondan saniye: tarifeli kalkışlarla aynı biçim.
         const gunBasi = Math.floor((v.varis / 1000 + 3 * 3600) / 86_400) * 86_400 - 3 * 3600;
         sonuc.push({
@@ -59,13 +86,15 @@ export function aracVarislariniKat(kalkislar: DurakKalkisi[], varislar: Record<s
           an: v.varis,
           serviceDay: gunBasi,
           saniye: Math.round(v.varis / 1000) - gunBasi,
-          canli: true,
+          // Duran otobüsün saati "en erken": canlı varış sayılmaz.
+          canli: v.duruyorSn == null,
           seferId: `${ARAC_ONEKI}${v.kapiNo}`,
           desen: undefined,
           kapiNo: v.kapiNo,
           kalanDurak: v.kalanDurak,
           yasSn: v.yasSn,
           konum: { lat: v.enlem, lon: v.boylam },
+          duruyorSn: v.duruyorSn ?? null,
         });
       }
     }
@@ -111,7 +140,7 @@ export function kalkislaraAracKat(
   for (const [kod, liste] of gecerli) {
     const ayniHat = (h?: Hat | null) => !!h && anahtar(h.shortName) === kod;
     const ornek = kalkislar.find((k) => ayniHat(k.trip?.route));
-    for (const v of liste) {
+    for (const v of gosterilecekAraclar(liste).ana) {
       const rota =
         (v.rotaId ? hatlar.find((h) => ayniHat(h) && kimlik(h.gtfsId) === v.rotaId) : undefined) ??
         ornek?.trip?.route ??
@@ -125,7 +154,8 @@ export function kalkislaraAracKat(
       sonuc.push({
         scheduledDeparture: saniye,
         realtimeDeparture: saniye,
-        realtime: true,
+        // Duran otobüsün saati "en erken": canlı varış sayılmaz.
+        realtime: v.duruyorSn == null,
         serviceDay: gunBasi,
         headsign: ayniRota?.headsign ?? rota.longName ?? null,
         stop: ayniRota?.stop ?? null,
@@ -134,6 +164,7 @@ export function kalkislaraAracKat(
           route: rota,
           pattern: ayniRota?.trip?.pattern ?? { code: '', headsign: rota.longName ?? null },
         },
+        duruyorSn: v.duruyorSn ?? null,
       });
     }
   }
@@ -189,7 +220,14 @@ export function beklemeSecenekleri(
       ad: ilk?.uzunAd || ilk?.yon || '',
       kalkislar: tekillestir(uygun)
         .slice(0, enCok)
-        .map((k) => ({ an: k.an, canli: k.canli, seferId: k.seferId, kapiNo: k.kapiNo, kalanDurak: k.kalanDurak })),
+        .map((k) => ({
+          an: k.an,
+          canli: k.canli,
+          seferId: k.seferId,
+          kapiNo: k.kapiNo,
+          kalanDurak: k.kalanDurak,
+          duruyorSn: k.duruyorSn ?? null,
+        })),
     };
   });
   return secenekler.sort((a, b) => (a.kalkislar[0]?.an ?? Infinity) - (b.kalkislar[0]?.an ?? Infinity));

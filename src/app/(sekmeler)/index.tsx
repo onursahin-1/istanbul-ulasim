@@ -14,6 +14,8 @@ import {
   ARKASINDA_SN,
   CanliAciklama,
   Dakika,
+  DuranNotu,
+  DuruyorDakika,
   HataKutusu,
   HatRozeti,
   Ikon,
@@ -30,7 +32,7 @@ import { kalkisCanli } from '@/lib/canli';
 import { mesafeMetre } from '@/lib/cografya';
 import { ayniYer, favoriYerDegistir, useKayitlar, type YerTuru } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
-import { kalkislaraAracKat } from '@/lib/bekleme';
+import { duruyorYaz, kalkislaraAracKat } from '@/lib/bekleme';
 import {
   durakVarislariGetir,
   kopruyeIlgiBildir,
@@ -396,13 +398,20 @@ export default function AnaEkran() {
                       <Text style={s.seferYon} numberOfLines={1}>
                         {baslikYap(k.trip?.pattern?.headsign) || baslikYap(k.headsign)}
                       </Text>
-                      {canli ? (
+                      {k.duruyorSn != null ? (
+                        // Hattın tek görünen otobüsü uzun süredir duruyor (mola, park).
+                        <DuranNotu metin={`Otobüs ${duruyorYaz(k.duruyorSn)} duruyor`} style={s.duranNot} />
+                      ) : canli ? (
                         <CanliAciklama an={an} arkasinda={i === 1 && arkasinda} />
                       ) : canliVar ? (
                         <TarifeEtiketi />
                       ) : null}
                     </View>
-                    <Dakika an={an} canli={canli} kimlik={k.trip?.gtfsId} />
+                    {k.duruyorSn != null ? (
+                      <DuruyorDakika an={an} />
+                    ) : (
+                      <Dakika an={an} canli={canli} kimlik={k.trip?.gtfsId} />
+                    )}
                   </View>
                 ));
               })()}
@@ -585,5 +594,6 @@ const stiller = (t: Tema) =>
   // Yazı sütunu satırın ortasında: metro dairesi otobüs rozetinden uzun, satır ona göre
   // büyüyor. Yazıda `flex: 1` sütunu satır boyuna uzatıp yazıyı tepeye yapıştırıyordu.
   seferMetin: { flex: 1, minWidth: 0, justifyContent: 'center' },
+  duranNot: { marginTop: 2, paddingVertical: 2 },
   seferYon: { fontSize: 13, color: t.soluk },
 });

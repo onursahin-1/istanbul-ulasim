@@ -78,6 +78,8 @@ export type YerlesikArac = {
   heading: number | null;
   /** Konumun alındığı an (ms). */
   an: number;
+  /** Köprü: otobüs uzun süredir duruyorsa (mola, park) kaç saniyedir; haritada ilerletilmez. */
+  duruyorSn?: number | null;
 };
 
 const nokta = (lat: number, lon: number) => ({ latitude: lat, longitude: lon });
@@ -92,6 +94,7 @@ export function aracVarisindanOtobus(v: {
   yasSn: number;
   enlem: number;
   boylam: number;
+  duruyorSn?: number | null;
 }): YerlesikArac {
   const sinif = yasSinifi(v.yasSn);
   return {
@@ -108,6 +111,7 @@ export function aracVarisindanOtobus(v: {
     lon: v.boylam,
     heading: null,
     an: Date.now() - v.yasSn * 1000,
+    duruyorSn: v.duruyorSn ?? null,
   };
 }
 

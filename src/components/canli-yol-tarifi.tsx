@@ -42,7 +42,17 @@ import { KayanMetin } from '@/components/kayan-metin';
 import { ModalSayfa } from '@/components/modal-sayfa';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { canliRenk, DONUS_SIMGELERI, HatRozeti, Ikon, NabizNoktasi, useStiller, YaklasmaSeridi } from '@/components/ulasim';
+import {
+  canliRenk,
+  DONUS_SIMGELERI,
+  DuranNotu,
+  DuruyorDakika,
+  HatRozeti,
+  Ikon,
+  NabizNoktasi,
+  useStiller,
+  YaklasmaSeridi,
+} from '@/components/ulasim';
 import type { YerlesikArac } from '@/lib/arac-konum';
 import { kalanYaz, yasYaz } from '@/lib/arac-konum';
 import { bacakCanli } from '@/lib/canli';
@@ -68,7 +78,7 @@ import {
   type YolculukDurumu,
 } from '@/lib/yolculuk';
 import type { YuruyusAdimi } from '@/lib/yuruyus';
-import { durakSaatleri, type BeklemeSecenegi } from '@/lib/bekleme';
+import { durakSaatleri, duruyorYaz, type BeklemeSecenegi } from '@/lib/bekleme';
 import { durakVarisMetni, istanbulSaatiYaz, mesafeYaz, saatEkli, saatYaz, saniyedenSaat, sureYaz } from '@/lib/zaman';
 
 export type YolTarifiVerisi = {
@@ -1025,6 +1035,10 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
           </Text>
         )
       )}
+      {ilkArac?.duruyorSn != null && (
+        // Bu kalkışı yapacak otobüs uzun süredir duruyor: sayaç "hemen kalkarsa".
+        <DuranNotu metin={`Otobüs ${duruyorYaz(ilkArac.duruyorSn)} duruyor · kalkarsa en erken bu sürede gelir`} />
+      )}
       {/* Biniş konumdan anlaşılıyor; yeraltında ya da GPS zayıfken anlaşılamazsa elle. */}
       {bindimGoster && (
         <Pressable
@@ -1061,7 +1075,10 @@ function SecenekSatiri({ v, bacak, secenek, ilk }: { v: YolTarifiVerisi; bacak: 
   // Canlı otobüs yalnız planlanan seferinki biliniyor: bu satırın ilk kalkışıysa yazılır.
   const otobusBurada = !!birinci && !!otobus && otobus.otobus.sefer === birinci.seferId;
   // Araç tabanlı kalkış (köprü otobüsü görüyor): kaç durak uzakta ve kapı numarası.
-  const kaynak = birinci?.kapiNo
+  const duruyor = birinci?.duruyorSn != null;
+  const kaynak = duruyor
+    ? `Otobüs ${kalanYaz(birinci.kalanDurak ?? 0)} · ${duruyorYaz(birinci.duruyorSn ?? 0)} duruyor`
+    : birinci?.kapiNo
     ? `Canlı · otobüs ${kalanYaz(birinci.kalanDurak ?? 0)} · ${birinci.kapiNo}`
     : birinci?.canli || otobusBurada
       ? `Canlı${otobusBurada ? ` · otobüs ${kalanYaz(otobus.kalan)}` : ''}`
@@ -1093,7 +1110,13 @@ function SecenekSatiri({ v, bacak, secenek, ilk }: { v: YolTarifiVerisi; bacak: 
             {baslikYap(secenek.ad)}
           </Text>
         </View>
-        <Text style={[s.secenekKaynak, (birinci?.canli || otobusBurada) && { color: tema.vurgu, fontWeight: '600' }]}>
+        <Text
+          style={[
+            s.secenekKaynak,
+            (birinci?.canli || otobusBurada) && { color: tema.vurgu, fontWeight: '600' },
+            duruyor && { color: tema.uyari, fontWeight: '600' },
+          ]}
+        >
           {birinci ? kaynak : 'kalkış bilgisi yok'}
         </Text>
         {!!izlemeYazisi && (
@@ -1104,6 +1127,9 @@ function SecenekSatiri({ v, bacak, secenek, ilk }: { v: YolTarifiVerisi; bacak: 
         )}
       </View>
       <View style={{ alignItems: 'flex-end' }}>
+        {duruyor ? (
+          <DuruyorDakika an={Math.round(birinci!.an / 1000)} />
+        ) : (
         <View style={s.sayacSatir}>
           {(birinci?.canli || otobusBurada) && <NabizNoktasi renk={tema.vurgu} />}
           <View style={s.tabanSatir}>
@@ -1116,6 +1142,7 @@ function SecenekSatiri({ v, bacak, secenek, ilk }: { v: YolTarifiVerisi; bacak: 
             {ilkDk != null && ilkDk > 0 && ilkDk < 60 && <Text style={s.sayacBirim}> dk</Text>}
           </View>
         </View>
+        )}
         {sonrakiler.length > 0 && (
           <Text style={s.secenekKaynak}>{`sonra ${sonrakiler.slice(0, 2).map((k) => dk(k.an)).join(', ')} dk`}</Text>
         )}

@@ -113,6 +113,7 @@ async function kopruyuSor() {
           // Konum: duran (bekleyen) otobüsü ve yanlış yere yerleşmeyi sonradan görmek için.
           enlem: v.enlem,
           boylam: v.boylam,
+          dur: v.duruyorSn ?? null,
         })),
       ]),
     );
@@ -163,7 +164,11 @@ function ozetYaz(kopru, otp) {
       a.localeCompare(b, 'tr', { numeric: true }),
     );
     for (const hat of hatlar) {
-      const a = (araclar[hat] ?? []).slice(0, 3).map((v) => `${dk(v.varis)} dk (${v.kalan} durak)`).join(', ') || '—';
+      const a =
+        (araclar[hat] ?? [])
+          .slice(0, 3)
+          .map((v) => `${dk(v.varis)} dk (${v.kalan} durak${v.dur != null ? `, ${Math.round(v.dur / 60)} dk'dır duruyor` : ''})`)
+          .join(', ') || '—';
       const o =
         seferler
           .filter((k) => k.hat === hat && k.tahmin >= Date.now() - 60_000)

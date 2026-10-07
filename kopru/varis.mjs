@@ -24,7 +24,7 @@
 // Hat başında (ilk durakta) bekleyen otobüs: tarifedeki kalkışı beklenir, hemen hareket
 // ediyor sayılmaz.
 
-import { KonumIzi, metreArasi, yonluAdaylar } from './yon.mjs';
+import { koridoraGoreSuz, KonumIzi, metreArasi, yonluAdaylar } from './yon.mjs';
 
 /** Bundan eski konumdaki araç sayılmaz. */
 export const EN_ESKI_KONUM_SN = 10 * 60;
@@ -38,8 +38,14 @@ export const UFUKLAR = [3, 6, 10];
 const CEKIM = 20;
 /** Her yeni ölçümde eski ölçümlerin ağırlığı (yaklaşık son 2000 ölçüm). */
 const UNUTMA = 0.9995;
-/** Son bilinen yön bu kadar süre geçerli (araç dururken karar verilemiyor). */
-export const YON_OMRU_MS = 20 * 60_000;
+/**
+ * Son bilinen yön bu kadar süre geçerli (araç dururken karar verilemiyor). Eskiden 20 dk
+ * idi: hat taraması bir hatta 15–25 dakikada bir dönebildiğinden güzergâh kodu bayatlayan,
+ * o sırada iki konumdan da yön çıkmayan (ışık, trafik, durak) otobüs listeden düşüyordu
+ * (141M A-1857, 91E A-305; Göztepe Meydanı 18:19). Araç dönünce iki konum yeni yönü
+ * zaten söylüyor; bu süre yalnız yön çıkmadığı nabızlar için.
+ */
+export const YON_OMRU_MS = 45 * 60_000;
 /** Güzergâh kodu bu kadar tazeyse yön ondan. */
 export const TAZE_GUZERGAH_MS = 20 * 60_000;
 /** Durağı bu kadar (durak sırası) geçmiş araç "durakta" sayılır; daha çok geçtiyse gitmiş. */
@@ -175,14 +181,26 @@ export class AracVarislari {
         rota = T.guzergahtanRota.get(String(bilgi.guzergah).toUpperCase());
         if (rota != null) rotaNasil = 'taze güzergâh kodu';
       }
+      const sonYon = this.yon.get(a.kapiNo);
+      const y = sonYon && an - sonYon.an <= YON_OMRU_MS && rotalar.includes(sonYon.rota) ? sonYon : null;
       if (rota == null) {
         const onceki = this.iz.onceki(a.kapiNo, an);
-        if (onceki) rota = yonluAdaylar(T, rotalar, onceki, a)[0]?.rota;
-        if (rota != null) rotaNasil = 'iki konum';
+        const adaylar = onceki ? yonluAdaylar(T, rotalar, onceki, a) : [];
+        if (adaylar.length) {
+          // Aynı yöndeki varyantlar (garaj çıkışı, kısa dönüş, ring) çoğu durağı paylaşıyor:
+          // en yakın aday çoğu zaman başka bir varyant çıkıyor, o varyant da bu duraktan
+          // geçmiyorsa otobüs düşüyordu. Önce aracın bilinen varyantı (hâlâ ilerliyorsa),
+          // sonra bilinen varyantın (ya da bayat güzergâh kodunun) koridoru.
+          if (y && adaylar.some((x) => x.rota === y.rota)) rota = y.rota;
+          else {
+            const bayat = bilgi.guzergah ? T.guzergahtanRota.get(String(bilgi.guzergah).toUpperCase()) : undefined;
+            rota = koridoraGoreSuz(T, adaylar, y?.rota ?? bayat)[0]?.rota;
+          }
+          if (rota != null) rotaNasil = 'iki konum';
+        }
       }
       if (rota == null) {
-        const y = this.yon.get(a.kapiNo);
-        if (y && an - y.an <= YON_OMRU_MS && rotalar.includes(y.rota)) {
+        if (y) {
           rota = y.rota;
           rotaNasil = 'son bilinen yön';
         }

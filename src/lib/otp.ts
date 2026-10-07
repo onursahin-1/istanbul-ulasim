@@ -145,6 +145,8 @@ export type Kalkis = {
   stop?: { gtfsId: string } | null;
   /** Desenin yön adı: durak ekranındaki yön satırıyla aynı etiket için. */
   trip: { gtfsId: string; route: Hat; pattern?: { code: string; headsign: string | null } | null } | null;
+  /** Yalnız köprünün araç tabanlı kalkışında: otobüs kaç saniyedir duruyor (bkz. AracVarisi). */
+  duruyorSn?: number | null;
 };
 
 export type Durak = {
@@ -336,6 +338,8 @@ export type DurakKalkisi = {
   /** Araç konumunun yaşı (sn) ve yeri: haritada izlemek için. */
   yasSn?: number;
   konum?: { lat: number; lon: number };
+  /** Otobüs uzun süredir duruyorsa kaç saniyedir; `an` o zaman "hemen kalkarsa en erken". */
+  duruyorSn?: number | null;
 };
 
 /** Köprünün araç tabanlı varışı: durağa gelen bir otobüs. */
@@ -348,6 +352,11 @@ export type AracVarisi = {
   kalanDurak: number;
   /** Bu duraktan sonraki durak (GTFS kimliği, besleme öneki yok): otobüsün yönü. */
   sonrakiDurak?: string | null;
+  /**
+   * Otobüs 5 dakikadan uzun süredir kımıldamıyorsa (mola, park) kaç saniyedir; `varis` o
+   * zaman "hemen kalkarsa en erken". Hareket ediyorsa null.
+   */
+  duruyorSn?: number | null;
   yasSn: number;
   enlem: number;
   boylam: number;

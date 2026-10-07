@@ -636,6 +636,48 @@ export function Dakika({
   );
 }
 
+/** İki çizgili "duraklat" işareti: duran (mola, park) otobüs. */
+export function DuraklatIsareti({ renk, boy = 9 }: { renk: string; boy?: number }) {
+  return (
+    <View style={stil.duraklat} accessible={false}>
+      <View style={[stil.duraklatCubuk, { height: boy, backgroundColor: renk }]} />
+      <View style={[stil.duraklatCubuk, { height: boy, backgroundColor: renk }]} />
+    </View>
+  );
+}
+
+/**
+ * Duran otobüs notu (uyarı renginde): "Bir otobüs 2 durak geride 9 dk'dır duruyor".
+ * Yeşil "canlı" yalnız hareket eden otobüse kalsın diye ayrı bir renk ve işaret.
+ */
+export function DuranNotu({ metin, style }: { metin: string; style?: StyleProp<ViewStyle> }) {
+  const tema = useTema();
+  return (
+    <View style={[stil.duranNot, { backgroundColor: tema.uyariAcik }, style]} accessible accessibilityLabel={metin}>
+      <DuraklatIsareti renk={tema.uyari} />
+      <Text style={[stil.duranNotYazi, { color: tema.uyari }]} numberOfLines={2}>
+        {metin}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * Satırın sağı, gösterilecek tek otobüs de duruyorsa: büyük dakika yerine "Duruyor",
+ * altında "en erken 4 dk" (otobüs hemen kalkarsa). `an` sn.
+ */
+export function DuruyorDakika({ an, style }: { an: number; style?: StyleProp<ViewStyle> }) {
+  const tema = useTema();
+  const dk = Math.max(0, Math.round((an * 1000 - Date.now()) / 60_000));
+  const alt = dk === 0 ? 'durağın dibinde' : `en erken ${dk} dk`;
+  return (
+    <View style={[stil.duruyor, style]} accessible accessibilityLabel={`Otobüs duruyor, ${alt}`}>
+      <Text style={[stil.duruyorYazi, { color: tema.uyari }]}>Duruyor</Text>
+      <Text style={[stil.duruyorAlt, { color: tema.soluk }]}>{alt}</Text>
+    </View>
+  );
+}
+
 /**
  * Canlı kalkışın açıklaması: "Canlı · 19:02'de durakta". Gecikme ya da erkenlik
  * sayısı yazılmıyor: durak listesinde yolcu otobüsün ne zaman geleceğini soruyor,
@@ -707,12 +749,23 @@ const SERIT_DURAK = 4;
  * durağı. Son dört durak gösteriliyor; otobüs daha uzaktaysa şeridin başında
  * bekliyor, kaç durak kaldığını yanındaki yazı söylüyor.
  */
-export function YaklasmaSeridi({ kalan, renk, soluk = false }: { kalan: number; renk: string; soluk?: boolean }) {
+export function YaklasmaSeridi({
+  kalan,
+  renk,
+  soluk = false,
+  duruyor = false,
+}: {
+  kalan: number;
+  renk: string;
+  soluk?: boolean;
+  /** Otobüs uzun süredir duruyor (mola, park): uyarı renginde, halka atmaz. */
+  duruyor?: boolean;
+}) {
   const tema = useTema();
   const azalt = useHareketAzalt();
   const aralik = 12;
   const yer = SERIT_DURAK - Math.min(Math.max(kalan, 0), SERIT_DURAK);
-  const otobusRengi = soluk ? tema.soluk : renk;
+  const otobusRengi = duruyor ? tema.uyari : soluk ? tema.soluk : renk;
   // Otobüs bir sonraki durağa kayarak ilerler (zıplamadan); ilk çizimde yerinde.
   const x = useRef(new Animated.Value(yer * aralik)).current;
   useEffect(() => {
@@ -725,7 +778,7 @@ export function YaklasmaSeridi({ kalan, renk, soluk = false }: { kalan: number; 
     return () => a.stop();
   }, [yer, azalt, x]);
   // Otobüs bir önceki durakta (ya da durakta): yolcunun durağının halkası atar.
-  const geliyor = kalan <= 1 && !soluk && !azalt;
+  const geliyor = kalan <= 1 && !soluk && !duruyor && !azalt;
   const nabiz = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (!geliyor) return;
@@ -865,4 +918,21 @@ const stil = StyleSheet.create({
   dakikaSayi: { fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
   dakikaBirim: { fontSize: 11, fontWeight: '500' },
   dakikaParlama: { position: 'absolute', top: -2, bottom: -2, left: -5, right: -5, borderRadius: 7 },
+  duraklat: { flexDirection: 'row', gap: 2, alignItems: 'center' },
+  duraklatCubuk: { width: 2.5, borderRadius: 1 },
+  duranNot: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    marginTop: 4,
+  },
+  duranNotYazi: { fontSize: 12, fontWeight: '600', flexShrink: 1 },
+  duruyor: { alignItems: 'flex-end', minWidth: 44 },
+  duruyorYazi: { fontSize: 15, fontWeight: '800' },
+  duruyorAlt: { fontSize: 11, fontWeight: '600' },
 });

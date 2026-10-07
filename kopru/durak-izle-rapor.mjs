@@ -61,7 +61,11 @@ for (const s of saatler) {
     console.log(`  ${durakAdi.get(kimlik(id)) ?? id}`);
     const sirali = Object.entries(hatlar).sort(([a], [b]) => a.localeCompare(b, 'tr', { numeric: true }));
     for (const [hat, { arac, otp }] of sirali) {
-      const a = arac.slice(0, 3).map((v) => `${v.dk} dk (${v.kalan} durak, ${v.kapi})`).join(', ') || '—';
+      const a =
+        arac
+          .slice(0, 3)
+          .map((v) => `${v.dk} dk (${v.kalan} durak, ${v.kapi}${v.durDk != null ? `, ${v.durDk} dk'dır duruyor` : ''})`)
+          .join(', ') || '—';
       const o = otp.slice(0, 3).map((k) => `${k.dk} dk${k.canli ? '' : ' tarife'}`).join(', ') || '—';
       console.log(`    ${hat.padEnd(6)} araç: ${a.padEnd(48)} OTP: ${o}`);
     }
