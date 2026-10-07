@@ -1620,13 +1620,15 @@ const stiller = (t: Tema) =>
     },
     bildirimBaslik: { color: t.vurguYazi, fontWeight: '800', fontSize: 15 },
     bildirimAlt: { color: t.vurguYazi, opacity: 0.85, fontWeight: '600', fontSize: 12 },
+    // Kutu içerikle birlikte kendi yerinde: eskiden eksi kenar boşluğuyla sola taşırılıyordu,
+    // kartın kenarında kırpılıp "1" ve "SIRADAKİ İSTASYONDA İN" kutunun kenarına yapışıyordu.
     sonDurak: {
       backgroundColor: t.vurguAcik,
       borderRadius: 14,
-      paddingHorizontal: 10,
+      paddingHorizontal: 12,
       paddingVertical: 6,
-      marginHorizontal: -10,
-      marginVertical: -6,
+      alignSelf: 'flex-start',
+      flexShrink: 1,
     },
     sonDurakHalka: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, borderRadius: 14, borderWidth: 2, borderColor: t.vurgu },
     sonDurakYazi: { fontSize: 11.5, fontWeight: '800', color: t.vurgu, letterSpacing: 0.3, marginTop: 1 },
