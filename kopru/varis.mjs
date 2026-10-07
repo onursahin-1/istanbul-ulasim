@@ -60,6 +60,31 @@ export const YON_ICIN_EN_AZ_M = 40;
  * seçilmesin. Virajda yön hesabı şaşabildiği için sınırsız tercih otobüsü yanlış yere atar.
  */
 export const YONLU_PAY_M = 60;
+/**
+ * Durağı olmayan uzun aralık (otoyol, bağlantı yolu): iki durak arasındaki düz çizgi
+ * gerçek yoldan çok uzaklaşabiliyor. 89C'nin Topkapı Alt Geçit → Atışalanı Yanyol aralığı
+ * 5,2 km ve durağı yok; otobüsler orada 5–12 dakika "güzergâhın 400 m dışında" sayılıp
+ * listeden düşüyor (2026-10-07 kaydında her 89C), aralığın gerçek süresi de hiç
+ * ölçülemiyordu (öğrenilen süre: 0 ölçüm; komşu aralıklarda yüzlerce). UZUN_ARALIK_M'den
+ * uzun aralıkta izin verilen uzaklık aralığın UZUN_ARALIK_PAYI katı (en çok
+ * UZUN_ARALIK_EN_COK_M); "L" biçimli bir yolun köşesi düz çizgiden ~%25 uzakta. Uçlara
+ * doğru izin daralır (yol durakta çizgiye kavuşuyor): aralığın uçlarına yakın, ama başka
+ * bir sokaktaki otobüs aralığa yerleşmesin.
+ */
+export const UZUN_ARALIK_M = 2000;
+export const UZUN_ARALIK_PAYI = 0.4;
+export const UZUN_ARALIK_EN_COK_M = 2500;
+
+/**
+ * Bir durak aralığında aracın düz çizgiden en çok ne kadar uzak olabileceği (metre);
+ * `t` izdüşümün aralıktaki yeri (0–1). Uçtan aralığın %20'sine kadar doğrusal genişler.
+ */
+export function aralikEsigi(esik, uzunlukM, t = 0.5) {
+  if (!(uzunlukM > UZUN_ARALIK_M)) return esik;
+  const uc = Math.min(1, 5 * Math.min(t, 1 - t));
+  return Math.max(esik, Math.min(UZUN_ARALIK_EN_COK_M, uzunlukM * UZUN_ARALIK_PAYI) * uc);
+}
+
 /** Hareket yönü bu kadar süre hatırlanır: durakta, ışıkta bekleyen araç yönünü kaybetmesin. */
 export const HAREKET_OMRU_MS = 10 * 60_000;
 /**
@@ -142,7 +167,7 @@ function izdusum(tarife, a, b, enlem, boylam) {
   const dy = tarife.durakEnlem[b] - enlem - ay;
   const uz = dx * dx + dy * dy;
   const t = uz > 0 ? Math.min(1, Math.max(0, -(ax * dx + ay * dy) / uz)) : 0;
-  return { t, metre: Math.hypot(ax + t * dx, ay + t * dy) * M_DERECE };
+  return { t, metre: Math.hypot(ax + t * dx, ay + t * dy) * M_DERECE, uzunluk: Math.sqrt(uz) * M_DERECE };
 }
 
 /**
@@ -213,7 +238,7 @@ export function ilerlet(yol, yer, saniye) {
 
 /**
  * Aracın yol (durak listesi) üstündeki kesirli yeri: 3.4 = dördüncü durağı geçmiş, beşinciye
- * %40 gelmiş. Yola `esik` metreden uzaksa null.
+ * %40 gelmiş. Yola `esik` metreden (uzun aralıkta aralikEsigi) uzaksa null.
  *
  * `hareket` (aracın son gidiş yönü, {dx, dy} derece; boylam farkı enleme göre ölçekli)
  * verilirse yolun aracın gittiği yöndeki parçaları önce gelir. Halka hatlarda gidiş ve
@@ -234,16 +259,17 @@ export function yoldakiYer(tarife, yol, enlem, boylam, esik, hareket = null, pen
     const a = yol[i].durak;
     const b = yol[i + 1].durak;
     const p = izdusum(tarife, a, b, enlem, boylam);
+    // Uzun, durağı olmayan aralıkta düz çizgiden daha uzak olabilir (aralikEsigi).
+    if (p.metre > aralikEsigi(esik, p.uzunluk, p.t)) continue;
     const aday = { yer: i + p.t, metre: p.metre };
     if (!enIyi || p.metre < enIyi.metre) enIyi = aday;
-    if (hareket && p.metre <= esik) {
+    if (hareket) {
       const sx = (tarife.durakBoylam[b] - tarife.durakBoylam[a]) * olcek;
       const sy = tarife.durakEnlem[b] - tarife.durakEnlem[a];
       if (sx * hareket.dx + sy * hareket.dy > 0 && (!yonlu || p.metre < yonlu.metre)) yonlu = aday;
     }
   }
-  const sonuc = yonlu && enIyi && yonlu.metre <= enIyi.metre + YONLU_PAY_M ? yonlu : enIyi;
-  return sonuc && sonuc.metre <= esik ? sonuc : null;
+  return yonlu && enIyi && yonlu.metre <= enIyi.metre + YONLU_PAY_M ? yonlu : enIyi;
 }
 
 export class AracVarislari {

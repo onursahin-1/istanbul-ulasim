@@ -476,3 +476,37 @@ describe('hat ekranı araçları (rotaAraclari)', () => {
     assert.deepEqual(Object.keys(v.rotaAraclari(new Set(['R1']), an)), ['R1']);
   });
 });
+
+describe('durağı olmayan uzun aralık (otoyol)', () => {
+  // Duraklar x = 0, 1, 2, 3, sonra 5 km boşluk (x = 13), 14, 15. Gerçek yol "L" biçiminde:
+  // otobüs aralığın ortasında düz çizgiden ~1,2 km kuzeyde (89C Topkapı → Atışalanı gibi).
+  function otoyol() {
+    const t = sahteTarife();
+    const duraklar = [];
+    for (const x of [0, 1, 2, 3, 13, 14, 15]) {
+      t.durakEnlem.push(ENLEM - 0.01);
+      t.durakBoylam.push(boylam(x));
+      duraklar.push({ durak: t.durakEnlem.length - 1, sira: duraklar.length + 1 });
+    }
+    t.rotaDuraklari.set(7, duraklar);
+    t.kisaAdtanRotalar.set('89C', [7]);
+    t.guzergahtanRota.set('89C_D_D0', 7);
+    return { t, duraklar };
+  }
+  const { t: O, duraklar: OD } = otoyol();
+  const yb = () => OD.map((d, i) => ({ durak: d.durak, saniye: 36000 + i * 120 + (i >= 4 ? 1000 : 0) }));
+
+  it('uzun aralıkta düz çizgiden 1,2 km uzaktaki otobüs aralığa yerleşir; kısa aralıkta yerleşmez', () => {
+    const yer = yoldakiYer(O, yb(), ENLEM - 0.01 + 0.011, boylam(8), 400);
+    assert.ok(yer && yer.yer > 3 && yer.yer < 4, `uzun aralıkta bekleniyordu: ${yer?.yer}`);
+    assert.equal(yoldakiYer(O, yb(), ENLEM - 0.01 + 0.011, boylam(1.5), 400), null);
+  });
+
+  it('otoyoldaki otobüs durak listesinden düşmez', () => {
+    const v = new AracVarislari(O, yb, () => null, () => null, { yontem: 'tarife' });
+    const b = () => ({ hat: '89C', guzergah: '89C_D_D0', an: SIMDI.getTime() - 60_000 });
+    v.guncelle([{ kapiNo: 'T1001', enlem: ENLEM - 0.01 + 0.011, boylam: boylam(8), tarih: SIMDI }], [], b, SIMDI);
+    const r = v.durakVarislari(OD[6].durak, SIMDI.getTime())['89C'];
+    assert.equal(r?.[0].kalanDurak, 3);
+  });
+});

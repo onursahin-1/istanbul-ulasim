@@ -249,6 +249,11 @@ Meydanı, 41 tahmin: ortanca fark +0,5 dk). `ogrenilen` öğrenilen süreleri, c
 otobüsün kendi hızını kullanıyor. 20 dakikadan uzun süredir yolda duran otobüs servis dışı
 sayılıp gösterilmiyor.
 
+Durağı olmayan uzun aralıklarda (otoyol; 89C'nin Topkapı Alt Geçit → Atışalanı Yanyol
+arası 5,2 km) iki durak arasındaki düz çizgi gerçek yoldan 1–1,5 km uzaklaşabiliyor. Orada
+otobüs düz çizgiden aralığın %40'ına kadar (en çok 2,5 km, uçlara doğru daralarak) uzakta
+olabiliyor; eskiden 5–12 dakika "güzergâhın dışında" sayılıp listeden düşüyordu.
+
 **İETT'nin en yakın durağı (çapa).** Hat taraması her otobüs için İETT'nin hesapladığı en
 yakın durağı da veriyor (`yakinDurakKodu`). Taramanın güzergâh kodu otobüsün şimdiki
 varyantıysa ve 20 dakikadan taze ise otobüs güzergâhta yalnız o durağın çevresinde (bir durak
