@@ -111,6 +111,15 @@ describe('araclariYerlestir', () => {
     ]);
   });
 
+  it('hız verilirse konumun yaşı kadar ilerletilmiş yere göre dizer (harita işaretiyle aynı)', () => {
+    // A 0,5'te ama 120 sn önce görüldü: 4,5 m/sn ile ~540 m ileride.
+    const ham = araclariYerlestir(D, [arac('A', 41.0014, 120)], SIMDI);
+    const ileri = araclariYerlestir(D, [arac('A', 41.0014, 120)], SIMDI, 4.5);
+    assert.ok(ileri[0].konum > ham[0].konum, `${ileri[0].konum} > ${ham[0].konum}`);
+    // Ham konum işaret için korunur.
+    assert.equal(ileri[0].lat, 41.0014);
+  });
+
   it('5 dk eskiyi soluk işaretler, 10 dk eskiyi atar', () => {
     const sonuc = araclariYerlestir(D, [arac('A', 41.0014, 360), arac('B', 41.0045, 700)], SIMDI);
     assert.deepEqual(sonuc.map((a) => [a.etiket, a.sinif]), [['A', 'eski']]);

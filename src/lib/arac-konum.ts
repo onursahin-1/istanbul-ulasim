@@ -178,9 +178,19 @@ export function araclariYerlestir(
   duraklar: KonumluDurak[],
   araclar: (HamArac | null)[] | null | undefined,
   simdiMs: number = Date.now(),
+  /**
+   * Verilirse (m/sn) otobüs, konumunun yaşı kadar güzergâh boyunca ilerletilmiş yerine göre
+   * sıralanır: haritadaki işaret (HareketliOtobus, tahminiKonum) ile liste aynı şeyi
+   * söylesin. Konum 1–2 dk eski gelebiliyor; haritada otobüs Yel Değirmeni'ndeyken listede
+   * "Göztepe Meydanı'na yaklaşıyor" yazıyordu (2026-10-07 23:25). `lat`/`lon` ham kalır.
+   */
+  hizMs?: number,
 ): YerlesikArac[] {
   const sonuc: YerlesikArac[] = [];
   const gorulen = new Set<string>();
+  const cizgi = hizMs
+    ? duraklar.filter((d) => d.lat != null && d.lon != null).map((d) => nokta(d.lat!, d.lon!))
+    : [];
   for (const a of araclar ?? []) {
     if (!a || a.lat == null || a.lon == null) continue;
     const an = Date.parse(a.lastUpdate ?? '');
@@ -190,8 +200,13 @@ export function araclariYerlestir(
     if (sinif === 'gizli') continue;
     const kimlik = a.vehicleId || a.label || `${a.lat},${a.lon}`;
     if (gorulen.has(kimlik)) continue;
-    const yer = durakSirasindaYer(duraklar, a.lat, a.lon);
+    let yer = durakSirasindaYer(duraklar, a.lat, a.lon);
     if (!yer) continue;
+    if (hizMs && sinif !== 'eski') {
+      const t = tahminiKonum({ lat: a.lat, lon: a.lon, an, durum: yer.durum, heading: a.heading ?? null }, cizgi, hizMs, simdiMs);
+      const ileri = t.tahmini ? durakSirasindaYer(duraklar, t.latitude, t.longitude) : null;
+      if (ileri && ileri.konum >= yer.konum) yer = ileri;
+    }
     gorulen.add(kimlik);
     sonuc.push({
       kimlik,

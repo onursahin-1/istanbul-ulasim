@@ -367,7 +367,12 @@ export default function RotaDetayEkrani() {
           const binis = Date.parse(b.start.estimated?.time ?? b.start.scheduledTime ?? '');
           if (!b.transitLeg || !sefer || !duraklar.length || !(binis > simdi - 60_000)) return;
           try {
-            const araclar = araclariYerlestir(duraklar, await seferAraclariGetir(sefer), simdi);
+            const araclar = araclariYerlestir(
+              duraklar,
+              await seferAraclariGetir(sefer),
+              simdi,
+              metrobusMu(b.route?.shortName) ? METROBUS_HIZI_MS : OTOBUS_HIZI_MS,
+            );
             const sira = duraklar.findIndex((d) => d.gtfsId === b.from.stop?.gtfsId);
             const y = yaklasanOtobus(araclar, sira, sefer);
             // Yalnız bu seferin otobüsü: başka bir otobüsü "bineceğin" diye göstermek yanıltır.
@@ -882,7 +887,12 @@ export default function RotaDetayEkrani() {
       }
       try {
         if (!desen.length) desen = (await seferDeseniGetir(izlenen.seferId))?.pattern?.stops ?? [];
-        const araclar = araclariYerlestir(desen, await seferAraclariGetir(izlenen.seferId), Date.now());
+        const araclar = araclariYerlestir(
+          desen,
+          await seferAraclariGetir(izlenen.seferId),
+          Date.now(),
+          metrobusMu(izlenen.kisaAd) ? METROBUS_HIZI_MS : OTOBUS_HIZI_MS,
+        );
         const b = guncel.current.bacaklar[izlenen.bacak];
         const sira = desen.findIndex((d) => d.gtfsId === b?.from.stop?.gtfsId);
         const y = yaklasanOtobus(araclar, sira, izlenen.seferId);

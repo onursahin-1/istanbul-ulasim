@@ -163,7 +163,16 @@ function gruplandir(guzergahlar: Guzergah[]): Grup[] {
     gruplar.set(anahtar, [...(gruplar.get(anahtar) ?? []), { g, sira }]);
   });
   return [...gruplar.values()].map((liste) => {
-    const siralanmis = [...liste].sort((a, b) => Date.parse(a.g.start ?? '') - Date.parse(b.g.start ?? ''));
+    // Aynı hatla aynı anda binen iki güzergâh (rota motoru bazen sonrasını farklı yürüyüşle
+    // ikinci kez veriyor) tek kalkış: varışı erken olan kalır. Yoksa "M3 21:26" iki kez
+    // çıkıyor, hap anahtarları da çakışıyordu (React: two children with the same key).
+    const binis = (x: Sirali) => `${x.g.legs.find((b) => b.transitLeg)?.route?.shortName ?? ''}|${binisSaati(x.g) ?? ''}`;
+    const enIyi = new Map<string, Sirali>();
+    for (const x of liste) {
+      const o = enIyi.get(binis(x));
+      if (!o || Date.parse(x.g.end ?? '') < Date.parse(o.g.end ?? '')) enIyi.set(binis(x), x);
+    }
+    const siralanmis = [...enIyi.values()].sort((a, b) => Date.parse(a.g.start ?? '') - Date.parse(b.g.start ?? ''));
     const ana = siralanmis[0];
     const hatlar = bacakHatlari(siralanmis.map((x) => x.g));
     const anaHatlari = ana.g.legs.filter((b) => b.transitLeg).map((b) => b.route?.shortName);

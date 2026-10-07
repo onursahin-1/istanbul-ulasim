@@ -27,10 +27,18 @@ import {
 import { FavoriSimgesi } from '@/components/hareketli-simgeler';
 import { IskeletSatirlari } from '@/components/iskelet';
 import { KayanMetin } from '@/components/kayan-metin';
-import { aracVarisindanOtobus, araclariYerlestir, kalanYaz, yaklasanOtobus, yasYaz } from '@/lib/arac-konum';
+import {
+  aracVarisindanOtobus,
+  araclariYerlestir,
+  kalanYaz,
+  METROBUS_HIZI_MS,
+  OTOBUS_HIZI_MS,
+  yaklasanOtobus,
+  yasYaz,
+} from '@/lib/arac-konum';
 import { duruyorMu, duruyorYaz, gosterilecekAraclar } from '@/lib/bekleme';
 import { canliBilgi, kalkisCanli } from '@/lib/canli';
-import { trKucuk } from '@/lib/metin';
+import { metrobusMu, trKucuk } from '@/lib/metin';
 import { siklikYaz } from '@/lib/siklik';
 import { hatSikligi } from '@/lib/siklik-verisi';
 import { favoriDegistir, useKayitlar } from '@/lib/kayitlar';
@@ -209,7 +217,16 @@ export default function DurakEkrani() {
         const ilkSefer = (d.stoptimes ?? []).find((k) => k)?.trip?.gtfsId;
         const yaklasan =
           sira >= 0 && d.pattern?.vehiclePositions?.length
-            ? yaklasanOtobus(araclariYerlestir(desenDuraklari, d.pattern.vehiclePositions, simdi), sira, ilkSefer)
+            ? yaklasanOtobus(
+                araclariYerlestir(
+                  desenDuraklari,
+                  d.pattern.vehiclePositions,
+                  simdi,
+                  metrobusMu(d.pattern?.route?.shortName) ? METROBUS_HIZI_MS : OTOBUS_HIZI_MS,
+                ),
+                sira,
+                ilkSefer,
+              )
             : null;
         let kalkislar = (d.stoptimes ?? [])
           .map((k) => ({

@@ -202,8 +202,17 @@ export default function HatEkrani() {
   };
 
   const otobusler = useMemo(
-    () => (secili ? araclariYerlestir(duraklar, araclar[secili.code], simdi) : []),
-    [secili, duraklar, araclar, simdi],
+    () =>
+      secili
+        ? araclariYerlestir(
+            duraklar,
+            araclar[secili.code],
+            simdi,
+            // Liste haritadaki işaretle aynı tahmini yeri göstersin (konumun yaşı kadar ileri).
+            metrobusMu(hat?.shortName) ? METROBUS_HIZI_MS : OTOBUS_HIZI_MS,
+          )
+        : [],
+    [secili, duraklar, araclar, simdi, hat?.shortName],
   );
   // Durağın arkasına (durakta ya da ondan sonraki durağa giderken) düşen otobüsler.
   const durakSonrasi = useMemo(() => {

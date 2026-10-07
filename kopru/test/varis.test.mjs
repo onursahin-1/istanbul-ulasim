@@ -389,3 +389,24 @@ describe('tarife yöntemi (Otobüsüm Nerede? ile aynı)', () => {
     assert.equal(Math.round((r.varis - SIMDI.getTime()) / 1000), 300);
   });
 });
+
+describe('konumun yaşı kadar ilerletme', () => {
+  it('eski konumla durağa 1 durak görünen otobüs, ilerletilince durağı geçmiş sayılır', () => {
+    // 3,7'de, 150 sn önce görülmüş; aralık 120 sn: 3,7 → 4 (36 sn) → 4,95 (114 sn). Durak 4 geçildi.
+    const v = new AracVarislari(T, yolBul, () => null, () => null, { yontem: 'tarife' });
+    v.guncelle([arac('E', 3.7, 0, 150)], [], bilgi('141M_G_D0'), SIMDI);
+    const d = v.teshis(T.rotaDuraklari.get(0)[4].durak, SIMDI.getTime()).araclar.find((x) => x.kapiNo === 'E');
+    assert.match(d.neden, /tahminen durağı geçti/);
+  });
+
+  it('taze konumda kalan durak değişmez; yaşlı konumda azalır', () => {
+    const v = new AracVarislari(T, yolBul, () => null, () => null, { yontem: 'tarife' });
+    v.guncelle([arac('T', 1.5, 0, 0), arac('Y', 1.5, 0.00001, 140)], [], bilgi('141M_G_D0'), SIMDI);
+    const r = v.durakVarislari(T.rotaDuraklari.get(0)[4].durak, SIMDI.getTime())['141M'];
+    const k = Object.fromEntries(r.map((x) => [x.kapiNo, x.kalanDurak]));
+    // 1,5'ten 4. durağa: 2, 3, 4 → 3 durak.
+    assert.equal(k.T, 3);
+    // 140 sn: 1,5 → 2 (60 sn) → 2,67 (80 sn): 3, 4 → 2 durak.
+    assert.equal(k.Y, 2);
+  });
+});

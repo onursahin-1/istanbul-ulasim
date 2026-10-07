@@ -79,6 +79,14 @@ export const DURGUN_YARICAP_M = 60;
  */
 export const SERVIS_DISI_SN = 20 * 60;
 /**
+ * Konumun yaşı kadar (en çok bu kadar saniye) otobüs planlanan sürelerle ileri alınır:
+ * "kaç durak uzakta" ve "durağı geçti mi" bu tahmini yere göre. Konum 1–2 dk eski
+ * gelebiliyor; otobüs Göztepe Meydanı'nı geçip Yel Değirmeni'ne varmışken listede "1 durak
+ * uzakta, şimdi" kalıyordu (2026-10-07 23:25). Uygulamanın haritası da otobüsü aynı sınırla
+ * ilerletiyor (EN_COK_TAHMIN_SN).
+ */
+export const TAHMIN_ILERI_SN = 150;
+/**
  * Canlı trafik: son CANLI_PENCERE_MS içinde otobüslerin bir durak çiftini gerçekte kaç
  * saniyede geçtiği. Öğrenilen süreler saat dilimi ortalaması (16–20 gibi); o günkü
  * tıkanıklığı bilmiyor. Göztepe Meydanı'nda akşam trafiğinde otobüsler tahminden çok
@@ -143,6 +151,24 @@ export function ilerleyenVaryantlar(tarife, rotalar, onceki, simdiki, hareket = 
     sonuc.push({ rota, metre: a.metre + b.metre });
   }
   return sonuc.sort((x, y) => x.metre - y.metre);
+}
+
+/**
+ * Yol üstündeki kesirli yeri `saniye` kadar planlanan durak arası sürelerle ileri alır
+ * (en çok TAHMIN_ILERI_SN; aralık en az 30 sn sayılır).
+ */
+export function ilerlet(yol, yer, saniye) {
+  let gecen = Math.min(Math.max(0, saniye), TAHMIN_ILERI_SN);
+  let y = yer;
+  while (gecen > 0 && Math.floor(y) + 1 < yol.length) {
+    const j = Math.floor(y);
+    const aralik = Math.max(30, yol[j + 1].saniye - yol[j].saniye);
+    const kalan = (j + 1 - y) * aralik;
+    if (gecen < kalan) return y + gecen / aralik;
+    gecen -= kalan;
+    y = j + 1;
+  }
+  return y;
 }
 
 /**
@@ -409,6 +435,10 @@ export class AracVarislari {
       return { neden: `${Math.round((simdiMs - v.durgunBas) / 60_000)} dk'dır duruyor (servis dışı sayıldı)` };
     }
     if (duruyor) cikis = Math.max(cikis, simdiMs / 1000);
+    const tahminiYer = hatBasi || duruyor ? yer.yer : ilerlet(yol, yer.yer, (simdiMs - v.damga) / 1000);
+    if (tahminiYer > hedef + DURAKTA_PAYI) return { neden: 'tahminen durağı geçti (konum eski)' };
+    const tTam = Math.floor(tahminiYer);
+    const gosterilenKalan = Math.max(0, hedef - tTam - (tahminiYer - tTam >= 1 - DURAKTA_PAYI ? 1 : 0));
     let parca;
     let sure;
     if (this.yontem === 'tarife') {
@@ -430,7 +460,8 @@ export class AracVarislari {
         kapiNo: v.kapiNo,
         rotaId: T.rotaAd?.[v.rota] ?? null,
         varis,
-        kalanDurak,
+        // Konumun yaşı kadar ilerletilmiş yere göre (haritadaki işaretle aynı).
+        kalanDurak: Math.min(kalanDurak, gosterilenKalan),
         // Durağın ardından gelen durak: uygulama otobüsü aynı yöne giden satıra koysun
         // (aracın güzergâh varyantının satırı yoksa; ör. günün son seferi geçmiş varyant).
         sonrakiDurak: yol[hedef + 1] ? (T.durakAd?.[yol[hedef + 1].durak] ?? null) : null,
