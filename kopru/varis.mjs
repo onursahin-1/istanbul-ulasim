@@ -24,6 +24,7 @@
 // Hat başında (ilk durakta) bekleyen otobüs: tarifedeki kalkışı beklenir, hemen hareket
 // ediyor sayılmaz.
 
+import { dilimAnahtari } from './segment.mjs';
 import { hizmetGunleri } from './tarife.mjs';
 import { koridoraGoreSuz, KonumIzi, metreArasi, yonluAdaylar } from './yon.mjs';
 
@@ -75,6 +76,26 @@ export const YONLU_PAY_M = 60;
 export const UZUN_ARALIK_M = 2000;
 export const UZUN_ARALIK_PAYI = 0.4;
 export const UZUN_ARALIK_EN_COK_M = 2500;
+
+/**
+ * Durağı olmayan uzun aralıkta planlanan süre yerine ölçülen süre (tarife yönteminde de).
+ * İETT 89C'nin Topkapı Alt Geçit → Atışalanı Yanyol aralığına (5,2 km otoyol) 16,7 dakika
+ * planlıyor; gece otobüs 4–5 dakikada geçti, varış 10 dakikaya kadar geç gösteriliyordu
+ * (T1007: biz 00:34, Otobüsüm Nerede 00:30, gerçek ~00:26; 2026-10-08). Kullanıcı kararı:
+ * bu aralıklarda Otobüsüm Nerede'ye değil gerçeğe yakın.
+ *
+ * Kaynak sırası: son yarım saatte en az CANLI_EN_AZ otobüsün ölçümü (o günün trafiği); yoksa
+ * aynı saat diliminde (segment.mjs, dilimAnahtari) en az UZUN_OLCUM_EN_AZ ölçümün ortancası;
+ * yoksa plan. Ölçümler diske yazılıyor, UZUN_OLCUM_OMRU_MS saklanıyor.
+ */
+export const UZUN_OLCUM_EN_AZ = 3;
+export const UZUN_OLCUM_OMRU_MS = 21 * 24 * 3_600_000;
+const UZUN_OLCUM_EN_COK = 30;
+
+const ortanca = (l) => {
+  const s = [...l].sort((x, y) => x - y);
+  return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+};
 
 /**
  * Bir durak aralığında aracın düz çizgiden en çok ne kadar uzak olabileceği (metre);
@@ -327,6 +348,10 @@ export class AracVarislari {
     this.atlanan = new Map();
     /** kapıNo → son karşılaştırılan çapanın anı (aynı tarama iki kez sayılmasın) */
     this.capaGorulen = new Map();
+    /** "durakId>durakId|dilim" → [{ an (ms), sn }] uzun aralıkların ölçülen geçiş süreleri */
+    this.uzunOlcum = new Map();
+    /** "a>b" (sıra) → uzun aralık mı (önbellek) */
+    this.uzunMuOnbellek = new Map();
     /** İETT'nin en yakın durağı ile bizim yerleştirmemiz: kaç kez uyuştu, son uyuşmayanlar. */
     this.capaOlcum = { uyumlu: 0, uyumsuz: 0, ornekler: [] };
   }
@@ -604,7 +629,7 @@ export class AracVarislari {
     let sure;
     if (this.yontem === 'tarife') {
       // Yalnız planlanan durak arası süreler; çarpan, canlı trafik, kendi hızı yok.
-      parca = this.kalanYol(yol, yer.yer, hedef, anSn, null, null, true);
+      parca = this.kalanYol(yol, yer.yer, hedef, anSn, simdiMs, null, true);
       sure = parca.P;
     } else {
       // Kendi hızı yalnız yolda ilerleyen otobüs için (duran ve hat başında bekleyen ayrı).
@@ -747,8 +772,16 @@ export class AracVarislari {
       const p = yol[j];
       const q = yol[j + 1];
       const kesir = j === tam ? 1 - (yer - tam) : 1;
-      const ogr = yalnizTarife ? null : this.ogrenilenSure(p.durak, q.durak, anSn + O + P + C);
       const plan = Math.max(0, q.saniye - p.saniye);
+      if (yalnizTarife) {
+        // Planlanan süre; durağı olmayan uzun aralıkta ölçülen (uzunAralikSuresi).
+        const olculen = this.uzunAralikSuresi(p.durak, q.durak, canliAn, anSn + P);
+        P += kesir * (olculen ?? plan);
+        if (olculen != null) ogrenilen++;
+        aralik++;
+        continue;
+      }
+      const ogr = this.ogrenilenSure(p.durak, q.durak, anSn + O + P + C);
       const canli = canliAn != null ? this.canliSure(p.durak, q.durak, canliAn) : null;
       // İçinde bulunulan aralık: otobüs ortalamadan çok yavaş ilerliyorsa kendi hızıyla
       // (en çok 20 dk). Bu kısım gerçek gözleme dayandığı için çarpansız (C).
@@ -783,6 +816,48 @@ export class AracVarislari {
       aralik++;
     }
     return { O, P, C, aralik, ogrenilen: ogrenilen + canliAralik, canliAralik };
+  }
+
+  /** İki durak arası düz çizgi UZUN_ARALIK_M'den uzun mu (durağı olmayan uzun aralık)? */
+  uzunMu(a, b) {
+    const anahtar = `${a}>${b}`;
+    let u = this.uzunMuOnbellek.get(anahtar);
+    if (u == null) {
+      const T = this.tarife;
+      const olcek = Math.cos((T.durakEnlem[a] * Math.PI) / 180);
+      const m = Math.hypot(T.durakEnlem[b] - T.durakEnlem[a], (T.durakBoylam[b] - T.durakBoylam[a]) * olcek) * M_DERECE;
+      u = m > UZUN_ARALIK_M;
+      this.uzunMuOnbellek.set(anahtar, u);
+    }
+    return u;
+  }
+
+  uzunAnahtari(a, b, anSn) {
+    const ad = this.tarife.durakAd;
+    return `${ad?.[a] ?? a}>${ad?.[b] ?? b}|${dilimAnahtari(anSn)}`;
+  }
+
+  /** Uzun aralığın bir geçiş ölçümü (gerçek dışı olanlar atılır). */
+  uzunEkle(a, b, sn, an, planSn) {
+    if (!this.uzunMu(a, b) || !(sn >= 30) || sn > Math.max(30 * 60, 3 * planSn)) return;
+    const anahtar = this.uzunAnahtari(a, b, Math.floor(an / 1000));
+    const liste = (this.uzunOlcum.get(anahtar) ?? []).filter((x) => an - x.an <= UZUN_OLCUM_OMRU_MS);
+    liste.push({ an, sn: Math.round(sn) });
+    this.uzunOlcum.set(anahtar, liste.slice(-UZUN_OLCUM_EN_COK));
+  }
+
+  /**
+   * Uzun aralığın süresi (sn): son yarım saatin ölçümü, yoksa saat diliminin ortancası;
+   * uzun aralık değilse ya da yeterli ölçüm yoksa null (plan kullanılır).
+   */
+  uzunAralikSuresi(a, b, simdiMs, anSn) {
+    if (!this.uzunMu(a, b)) return null;
+    if (simdiMs != null) {
+      const c = this.canliSure(a, b, simdiMs);
+      if (c && c.n >= CANLI_EN_AZ) return c.sn;
+    }
+    const l = this.uzunOlcum.get(this.uzunAnahtari(a, b, anSn));
+    return l && l.length >= UZUN_OLCUM_EN_AZ ? ortanca(l.map((x) => x.sn)) : null;
   }
 
   /** Bir durak çiftinin canlı geçiş süresi ölçümü (gerçek dışı olanlar atılır). */
@@ -871,6 +946,7 @@ export class AracVarislari {
           const p = k.yol[j - 1];
           const q = k.yol[j];
           this.canliEkle(p.durak, q.durak, (t - k.sonGecis.t) / 1000, t, Math.max(0, q.saniye - p.saniye));
+          this.uzunEkle(p.durak, q.durak, (t - k.sonGecis.t) / 1000, t, Math.max(0, q.saniye - p.saniye));
         }
         k.sonGecis = { idx: j, t };
       }
@@ -959,6 +1035,12 @@ export class AracVarislari {
       carpan: { ogrenilen: Math.round(a * 100) / 100, tarife: Math.round(b * 100) / 100 },
       izlenenArac: this.izleme.size,
       canliDurakCifti: this.canli.size,
+      // Durağı olmayan uzun aralıklar: hangi aralık × saat dilimi kaç kez ölçüldü, ortancası.
+      uzunAralik: Object.fromEntries(
+        [...this.uzunOlcum]
+          .slice(0, 20)
+          .map(([k, l]) => [k, { olcum: l.length, ortancaDk: Math.round(ortanca(l.map((x) => x.sn)) / 6) / 10 }]),
+      ),
       // İETT'nin en yakın durağı: kaç otobüs bu nabızda ona dayandı; taramalarda bizim
       // yerleştirmemiz onunla uyuştu mu (en çok bir durak fark), son uyuşmayanlar.
       capa: {
@@ -994,6 +1076,7 @@ export class AracVarislari {
         hareket: Object.fromEntries(this.hareket),
         durgunluk: Object.fromEntries(this.durgunluk),
         iz: Object.fromEntries(this.iz.kayit),
+        uzun: Object.fromEntries(this.uzunOlcum),
       },
     };
   }
@@ -1013,6 +1096,10 @@ export class AracVarislari {
     for (const [k, l] of Object.entries(h.yerel ?? {})) {
       const taze = (Array.isArray(l) ? l : []).filter((x) => simdi - x.an <= CANLI_PENCERE_MS);
       if (taze.length) this.yerel.set(Number(k), taze);
+    }
+    for (const [k, l] of Object.entries(h.uzun ?? {})) {
+      const taze = (Array.isArray(l) ? l : []).filter((x) => simdi - x.an <= UZUN_OLCUM_OMRU_MS);
+      if (taze.length) this.uzunOlcum.set(k, taze);
     }
     for (const [k, l] of Object.entries(h.canli ?? {})) {
       const taze = (Array.isArray(l) ? l : []).filter((x) => simdi - x.an <= CANLI_PENCERE_MS);

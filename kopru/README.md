@@ -252,7 +252,12 @@ sayılıp gösterilmiyor.
 Durağı olmayan uzun aralıklarda (otoyol; 89C'nin Topkapı Alt Geçit → Atışalanı Yanyol
 arası 5,2 km) iki durak arasındaki düz çizgi gerçek yoldan 1–1,5 km uzaklaşabiliyor. Orada
 otobüs düz çizgiden aralığın %40'ına kadar (en çok 2,5 km, uçlara doğru daralarak) uzakta
-olabiliyor; eskiden 5–12 dakika "güzergâhın dışında" sayılıp listeden düşüyordu.
+olabiliyor; eskiden 5–12 dakika "güzergâhın dışında" sayılıp listeden düşüyordu. Bu
+aralıklarda varış süresi planlanan süreyle değil ölçülen süreyle hesaplanıyor (tarife
+yönteminde de): son yarım saatte en az iki otobüsün ölçümü, yoksa aynı saat diliminin en az üç
+ölçümünün ortancası, yoksa plan. İETT 89C'nin Topkapı → Atışalanı aralığına 16,7 dk
+planlıyor, gece otobüsler 4–5 dk'da geçiyor. Ölçümler `kayit/varis-olcumu.json`'da üç hafta
+saklanıyor; `/durum` → `varis.uzunAralik`.
 
 **Görevde olmayan otobüs.** İETT'nin hat sorgusu yalnız o an hatta görevli araçları veriyor.
 Hattının son başarılı taramasında olmayan otobüs (seferi bitti, garaja çekildi) sayılmıyor;

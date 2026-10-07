@@ -515,6 +515,44 @@ describe('durağı olmayan uzun aralık (otoyol)', () => {
     assert.equal(yoldakiYer(O, yb(), ENLEM - 0.01 + 0.011, boylam(1.5), 400), null);
   });
 
+  const b89 = () => ({ hat: '89C', guzergah: '89C_D_D0', an: SIMDI.getTime() - 60_000 });
+  const bas = (kapiNo, x, ms, kuzey = 0) => ({ kapiNo, enlem: ENLEM - 0.01 + kuzey, boylam: boylam(x), tarih: new Date(ms) });
+
+  it('uzun aralığın geçişi ölçülür (iki durağın geçiş anları arası)', () => {
+    const v = new AracVarislari(O, yb, () => null, () => null, { yontem: 'tarife' });
+    const t0 = SIMDI.getTime() - 375_000;
+    // 75 sn arayla: 2,6 → (uzun aralık 3→4 boyunca) → 4,6. Durak 3'ü 60. sn'de, durak 4'ü ~311. sn'de geçer.
+    for (const [x, i] of [[2.6, 0], [4, 1], [6, 2], [9, 3], [12, 4], [13.6, 5]]) {
+      v.guncelle([bas('T1007', x, t0 + i * 75_000)], [], b89, new Date(t0 + i * 75_000));
+    }
+    const olcumler = [...v.uzunOlcum.values()].flat();
+    assert.equal(olcumler.length, 1);
+    assert.ok(Math.abs(olcumler[0].sn - 251) <= 2, `${olcumler[0].sn}`);
+  });
+
+  it('tarife yönteminde uzun aralık ölçülen süreyle: plan 1120 sn, ölçülen 300 sn', () => {
+    const plan = new AracVarislari(O, yb, () => null, () => null, { yontem: 'tarife' });
+    plan.guncelle([bas('T1005', 2, SIMDI.getTime())], [], b89, SIMDI);
+    const hedef = OD[6].durak;
+    // 2 → 6: 120 + 1120 + 120 + 120 sn.
+    assert.equal((plan.durakVarislari(hedef, SIMDI.getTime())['89C'][0].varis - SIMDI.getTime()) / 1000, 1480);
+    const olculen = new AracVarislari(O, yb, () => null, () => null, { yontem: 'tarife' });
+    for (let i = 1; i <= 3; i++) olculen.uzunEkle(OD[3].durak, OD[4].durak, 300, SIMDI.getTime() - i * 86_400_000 * 7, 1120);
+    olculen.guncelle([bas('T1005', 2, SIMDI.getTime())], [], b89, SIMDI);
+    assert.equal((olculen.durakVarislari(hedef, SIMDI.getTime())['89C'][0].varis - SIMDI.getTime()) / 1000, 660);
+    // Kısa aralıklar planlanan süreyle kalır; ölçümler diske yazılıp geri yüklenir.
+    const yeniden = new AracVarislari(O, yb, () => null, () => null, { yontem: 'tarife' });
+    yeniden.yukle(JSON.parse(JSON.stringify(olculen.disaAktar())), SIMDI.getTime());
+    yeniden.guncelle([bas('T1005', 2, SIMDI.getTime())], [], b89, SIMDI);
+    assert.equal((yeniden.durakVarislari(hedef, SIMDI.getTime())['89C'][0].varis - SIMDI.getTime()) / 1000, 660);
+  });
+
+  it('kısa aralığın ölçümü saklanmaz (planlanan süre kalır)', () => {
+    const v = new AracVarislari(O, yb, () => null, () => null, { yontem: 'tarife' });
+    v.uzunEkle(OD[0].durak, OD[1].durak, 60, SIMDI.getTime(), 120);
+    assert.equal(v.uzunOlcum.size, 0);
+  });
+
   it('otoyoldaki otobüs durak listesinden düşmez', () => {
     const v = new AracVarislari(O, yb, () => null, () => null, { yontem: 'tarife' });
     const b = () => ({ hat: '89C', guzergah: '89C_D_D0', an: SIMDI.getTime() - 60_000 });
