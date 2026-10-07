@@ -2,6 +2,7 @@
 // Hepsi temayı kendisi okur; çağıran ekranın renk geçirmesine gerek yok.
 
 import Ionicons from '@expo/vector-icons/Ionicons';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
 import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import {
@@ -112,17 +113,23 @@ export function vapurLogosu(mode?: string | null, isletmeci?: string | null): Ha
 /**
  * Ayarlar › Vasıta türü tercihleri satırındaki simge: logosu olan türde logo (Metrobüs,
  * Metro, Marmaray), öbürlerinde araç simgesi. Kutular aynı boyda, adlar hizalı dursun.
+ * Otobüs ve minibüs hat rozetlerindeki simgeyle aynı (tabela simgesi); füniküler ve
+ * teleferik için teleferik kabini (eskiden "yükselen grafik" oku). Metro logosunun "M"si
+ * logo dosyasında saydamdı, koyu kartta koyu görünüyordu; artık dosyada beyaz.
  */
-// koyudaZemin: logonun koyu temadaki zemini. Metro logosunun laciverdi koyu kartta
-// kayboluyordu; koyu temada beyaz yuvarlak zemine oturuyor (açık temada gerek yok).
-const VASITA_SIMGELERI: Record<VasitaTuru, { logo: HatLogosu; koyudaZemin?: string } | { ikon: IkonAdi }> = {
-  otobus: { ikon: 'bus-outline' },
+type VasitaSimge =
+  | { logo: HatLogosu }
+  | { ikon: IkonAdi }
+  | { resim: ImageSourcePropType }
+  | { mci: ComponentProps<typeof MaterialCommunityIcons>['name'] };
+const VASITA_SIMGELERI: Record<VasitaTuru, VasitaSimge> = {
+  otobus: { resim: SIMGELER.otobus },
   metrobus: { logo: LOGOLAR.metrobus },
-  metro: { logo: { kaynak: require('@/assets/images/hat/metro.png'), oran: 0.87, zemin: null }, koyudaZemin: '#ffffff' },
+  metro: { logo: { kaynak: require('@/assets/images/hat/metro.png'), oran: 0.87, zemin: null } },
   marmaray: { logo: LOGOLAR.marmaray },
   tramvay: { ikon: 'train-outline' },
-  funikuler: { ikon: 'trending-up-outline' },
-  minibus: { ikon: 'car-outline' },
+  funikuler: { mci: 'gondola' },
+  minibus: { resim: SIMGELER.minibus },
   vapur: { ikon: 'boat-outline' },
 };
 
@@ -136,8 +143,22 @@ export function VasitaSimgesi({ tur }: { tur: VasitaTuru }) {
       </View>
     );
   }
+  if ('mci' in simge) {
+    return (
+      <View style={stil.vasitaKutu}>
+        <MaterialCommunityIcons name={simge.mci} size={22} color={tema.vurgu} />
+      </View>
+    );
+  }
+  if ('resim' in simge) {
+    return (
+      <View style={stil.vasitaKutu}>
+        <Image source={simge.resim} style={{ width: 22, height: 22, tintColor: tema.vurgu }} resizeMode="contain" />
+      </View>
+    );
+  }
   const { kaynak, oran } = simge.logo;
-  const zemin = simge.logo.zemin ?? (tema.koyu ? (simge.koyudaZemin ?? null) : null);
+  const zemin = simge.logo.zemin;
   // Beyaz zeminli logo (Marmaray) biraz içeride; zeminsizler kutuyu doldurur.
   const pay = zemin ? 5 : 0;
   const yukseklik = Math.min(28, 34 / oran) - pay;

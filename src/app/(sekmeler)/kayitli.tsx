@@ -70,156 +70,160 @@ export default function KayitliEkrani() {
       },
     });
 
+  // Kaydırılan içerik durum çubuğunun altında başlar ve orada kesilir: eskiden başlık
+  // kaydırılınca saatin üstüne biniyordu. (Yenileme göstergesi de durum çubuğunun altında.)
   return (
-    <ScrollView
-      ref={liste}
-      style={s.kok}
-      contentContainerStyle={{ paddingTop: kenar.top + 6, paddingBottom: kenar.bottom + 24 }}
-      refreshControl={
-        <RefreshControl
-          refreshing={yenileniyor}
-          tintColor={tema.vurgu}
-          onRefresh={async () => {
-            setYenileniyor(true);
-            await kalkislariYukle();
-            setYenileniyor(false);
-          }}
-        />
-      }
-    >
-      <Text style={s.baslik}>Kayıtlı</Text>
+    <View style={[s.kok, { paddingTop: kenar.top }]}>
+      <ScrollView
+        ref={liste}
+        style={s.kok}
+        contentContainerStyle={{ paddingTop: 6, paddingBottom: kenar.bottom + 24 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={yenileniyor}
+            tintColor={tema.vurgu}
+            onRefresh={async () => {
+              setYenileniyor(true);
+              await kalkislariYukle();
+              setYenileniyor(false);
+            }}
+          />
+        }
+      >
+        <Text style={s.baslik}>Kayıtlı</Text>
 
-      <View style={s.kartlar}>
-        {(['ev', 'is'] as YerTuru[]).map((tur) => {
-          const yer = yerler[tur];
-          return (
+        <View style={s.kartlar}>
+          {(['ev', 'is'] as YerTuru[]).map((tur) => {
+            const yer = yerler[tur];
+            return (
+              <Pressable
+                key={tur}
+                style={s.kart}
+                onPress={() => (yer ? hedefeGit(yer) : ekranAc({ pathname: '/ara', params: { kaydet: tur } }))}
+                accessibilityRole="button"
+              >
+                <View style={s.kartIkon}>
+                  <Ikon ad={tur === 'ev' ? 'home' : 'briefcase'} boyut={17} renkKodu={tema.vurgu} />
+                </View>
+                <Text style={s.kartBaslik}>{YER_ADI[tur]}</Text>
+                <Text style={s.kartAlt} numberOfLines={1}>
+                  {yer ? baslikYap(yer.ad) : 'Eklemek için dokun'}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <Text style={s.bolumBaslik}>FAVORİ YERLER</Text>
+        {favoriYerler.length === 0 ? (
+          <Text style={s.bos}>
+            Henüz favori yerin yok. Ana ekranda haritaya basılı tutup "Favorilere ekle"ye dokunarak ekleyebilirsin.
+          </Text>
+        ) : (
+          <View style={s.liste}>
+            {favoriYerler.map((y) => (
+              <KaydirmaliSatir key={`${y.lat},${y.lon}`} onSil={() => favoriYerDegistir(y)} silEtiketi="Favorilerden çıkar">
+                <Pressable style={s.satir} onPress={() => hedefeGit(y)} accessibilityRole="button">
+                  <View style={s.satirIkon}>
+                    <Ikon ad="star" boyut={17} renkKodu={tema.vurgu} />
+                  </View>
+                  <View style={s.satirMetin}>
+                    <Text style={s.satirBaslik} numberOfLines={1}>
+                      {y.ad}
+                    </Text>
+                    <Text style={s.satirAlt} numberOfLines={1}>
+                      {y.alt ? `${y.alt} · silmek için sola kaydır` : 'Silmek için sola kaydır'}
+                    </Text>
+                  </View>
+                  <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.yurume} />
+                </Pressable>
+              </KaydirmaliSatir>
+            ))}
+          </View>
+        )}
+
+        <Text style={s.bolumBaslik}>FAVORİ DURAKLAR</Text>
+        {favoriler.length === 0 ? (
+          <Text style={s.bos}>
+            Henüz favori durağın yok. Bir durak ekranını açıp kalpli düğmeye basarak buraya ekleyebilirsin.
+          </Text>
+        ) : (
+          <View style={s.liste}>
+            {favoriler.map((f) => (
+              <KaydirmaliSatir key={f.gtfsId} onSil={() => favoriDegistir(f)} silEtiketi="Favorilerden çıkar">
+                <Pressable
+                  style={s.satir}
+                  onPress={() => ekranAc({ pathname: '/durak/[id]', params: { id: f.gtfsId } })}
+                  accessibilityRole="button"
+                >
+                  <View style={s.satirIkon}>
+                    <Ikon ad="heart" boyut={17} renkKodu={tema.vurgu} />
+                  </View>
+                  <View style={s.satirMetin}>
+                    <Text style={s.satirBaslik} numberOfLines={1}>
+                      {baslikYap(f.ad)}
+                    </Text>
+                    <Text style={s.satirAlt}>Silmek için sola kaydır</Text>
+                  </View>
+                  {dakikalar[f.gtfsId] != null ? (
+                    <Dakika an={dakikalar[f.gtfsId] as number} />
+                  ) : (
+                    <Text style={s.satirAlt}>—</Text>
+                  )}
+                </Pressable>
+              </KaydirmaliSatir>
+            ))}
+          </View>
+        )}
+
+        <View style={s.bolumSatiri}>
+          <Text style={s.bolumBaslik}>SON ARAMALAR</Text>
+          {aramalar.length > 0 && (
             <Pressable
-              key={tur}
-              style={s.kart}
-              onPress={() => (yer ? hedefeGit(yer) : ekranAc({ pathname: '/ara', params: { kaydet: tur } }))}
+              onPress={() =>
+                Alert.alert(
+                  'Son aramalar silinsin mi?',
+                  `${aramalar.length} arama kaydı silinecek. Ev, İş, favori yerlerin ve durakların yerinde kalır.`,
+                  [
+                    { text: 'Vazgeç', style: 'cancel' },
+                    { text: 'Sil', style: 'destructive', onPress: () => aramalariTemizle() },
+                  ],
+                )
+              }
+              hitSlop={10}
               accessibilityRole="button"
+              accessibilityLabel="Son aramaları temizle"
             >
-              <View style={s.kartIkon}>
-                <Ikon ad={tur === 'ev' ? 'home' : 'briefcase'} boyut={17} renkKodu={tema.vurgu} />
-              </View>
-              <Text style={s.kartBaslik}>{YER_ADI[tur]}</Text>
-              <Text style={s.kartAlt} numberOfLines={1}>
-                {yer ? baslikYap(yer.ad) : 'Eklemek için dokun'}
-              </Text>
+              <Text style={s.temizle}>Temizle</Text>
             </Pressable>
-          );
-        })}
-      </View>
-
-      <Text style={s.bolumBaslik}>FAVORİ YERLER</Text>
-      {favoriYerler.length === 0 ? (
-        <Text style={s.bos}>
-          Henüz favori yerin yok. Ana ekranda haritaya basılı tutup "Favorilere ekle"ye dokunarak ekleyebilirsin.
-        </Text>
-      ) : (
-        <View style={s.liste}>
-          {favoriYerler.map((y) => (
-            <KaydirmaliSatir key={`${y.lat},${y.lon}`} onSil={() => favoriYerDegistir(y)} silEtiketi="Favorilerden çıkar">
-              <Pressable style={s.satir} onPress={() => hedefeGit(y)} accessibilityRole="button">
-                <View style={s.satirIkon}>
-                  <Ikon ad="star" boyut={17} renkKodu={tema.vurgu} />
+          )}
+        </View>
+        {aramalar.length === 0 ? (
+          <Text style={s.bos}>Aradığın yerler burada birikecek.</Text>
+        ) : (
+          <View style={s.liste}>
+            {aramalar.map((a, i) => (
+              <Pressable key={`${a.ad}-${i}`} style={s.satir} onPress={() => hedefeGit(a)} accessibilityRole="button">
+                <View style={[s.satirIkon, { backgroundColor: tema.zemin }]}>
+                  <Ikon ad="time-outline" boyut={17} renkKodu={tema.soluk} />
                 </View>
                 <View style={s.satirMetin}>
                   <Text style={s.satirBaslik} numberOfLines={1}>
-                    {y.ad}
+                    {a.ad}
                   </Text>
-                  <Text style={s.satirAlt} numberOfLines={1}>
-                    {y.alt ? `${y.alt} · silmek için sola kaydır` : 'Silmek için sola kaydır'}
-                  </Text>
+                  {!!a.alt && (
+                    <Text style={s.satirAlt} numberOfLines={1}>
+                      {a.alt}
+                    </Text>
+                  )}
                 </View>
                 <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.yurume} />
               </Pressable>
-            </KaydirmaliSatir>
-          ))}
-        </View>
-      )}
-
-      <Text style={s.bolumBaslik}>FAVORİ DURAKLAR</Text>
-      {favoriler.length === 0 ? (
-        <Text style={s.bos}>
-          Henüz favori durağın yok. Bir durak ekranını açıp kalpli düğmeye basarak buraya ekleyebilirsin.
-        </Text>
-      ) : (
-        <View style={s.liste}>
-          {favoriler.map((f) => (
-            <KaydirmaliSatir key={f.gtfsId} onSil={() => favoriDegistir(f)} silEtiketi="Favorilerden çıkar">
-              <Pressable
-                style={s.satir}
-                onPress={() => ekranAc({ pathname: '/durak/[id]', params: { id: f.gtfsId } })}
-                accessibilityRole="button"
-              >
-                <View style={s.satirIkon}>
-                  <Ikon ad="heart" boyut={17} renkKodu={tema.vurgu} />
-                </View>
-                <View style={s.satirMetin}>
-                  <Text style={s.satirBaslik} numberOfLines={1}>
-                    {baslikYap(f.ad)}
-                  </Text>
-                  <Text style={s.satirAlt}>Silmek için sola kaydır</Text>
-                </View>
-                {dakikalar[f.gtfsId] != null ? (
-                  <Dakika an={dakikalar[f.gtfsId] as number} />
-                ) : (
-                  <Text style={s.satirAlt}>—</Text>
-                )}
-              </Pressable>
-            </KaydirmaliSatir>
-          ))}
-        </View>
-      )}
-
-      <View style={s.bolumSatiri}>
-        <Text style={s.bolumBaslik}>SON ARAMALAR</Text>
-        {aramalar.length > 0 && (
-          <Pressable
-            onPress={() =>
-              Alert.alert(
-                'Son aramalar silinsin mi?',
-                `${aramalar.length} arama kaydı silinecek. Ev, İş, favori yerlerin ve durakların yerinde kalır.`,
-                [
-                  { text: 'Vazgeç', style: 'cancel' },
-                  { text: 'Sil', style: 'destructive', onPress: () => aramalariTemizle() },
-                ],
-              )
-            }
-            hitSlop={10}
-            accessibilityRole="button"
-            accessibilityLabel="Son aramaları temizle"
-          >
-            <Text style={s.temizle}>Temizle</Text>
-          </Pressable>
+            ))}
+          </View>
         )}
-      </View>
-      {aramalar.length === 0 ? (
-        <Text style={s.bos}>Aradığın yerler burada birikecek.</Text>
-      ) : (
-        <View style={s.liste}>
-          {aramalar.map((a, i) => (
-            <Pressable key={`${a.ad}-${i}`} style={s.satir} onPress={() => hedefeGit(a)} accessibilityRole="button">
-              <View style={[s.satirIkon, { backgroundColor: tema.zemin }]}>
-                <Ikon ad="time-outline" boyut={17} renkKodu={tema.soluk} />
-              </View>
-              <View style={s.satirMetin}>
-                <Text style={s.satirBaslik} numberOfLines={1}>
-                  {a.ad}
-                </Text>
-                {!!a.alt && (
-                  <Text style={s.satirAlt} numberOfLines={1}>
-                    {a.alt}
-                  </Text>
-                )}
-              </View>
-              <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.yurume} />
-            </Pressable>
-          ))}
-        </View>
-      )}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

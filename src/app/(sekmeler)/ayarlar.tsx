@@ -107,256 +107,260 @@ export default function AyarlarEkrani() {
     await Promise.all([sunucuyaBak(), hatirlaticilariYenile()]);
   }, [sunucuyaBak, hatirlaticilariYenile]);
 
+  // Kaydırılan içerik durum çubuğunun altında başlar ve orada kesilir: eskiden başlık
+  // kaydırılınca saatin üstüne biniyordu. (Yenileme göstergesi de durum çubuğunun altında.)
   return (
-    <ScrollView
-      ref={liste}
-      style={s.kok}
-      contentContainerStyle={{ paddingTop: kenar.top + 6, paddingBottom: kenar.bottom + 24 }}
-      refreshControl={
-        <RefreshControl
-          refreshing={cekiliyor}
-          tintColor={tema.vurgu}
-          onRefresh={async () => {
-            setCekiliyor(true);
-            await yenile();
-            setCekiliyor(false);
-          }}
-        />
-      }
-    >
-      <Text style={s.baslik}>Ayarlar</Text>
-
-      <Text style={s.bolumBaslik}>İSTANBULKART</Text>
-      <View style={s.kutu}>
-        <View style={s.haplar}>
-          {(Object.keys(UCRET_ADLARI) as UcretTuru[]).map((t) => (
-            <Pressable
-              key={t}
-              style={[s.hap, ucretTuru === t && s.hapSecili]}
-              hitSlop={{ top: 5, bottom: 5 }}
-              onPress={() => {
-                secimTiki();
-                ucretTuruKaydet(t);
-              }}
-              accessibilityRole="button"
-              accessibilityState={{ selected: ucretTuru === t }}
-            >
-              <Text style={[s.hapYazi, ucretTuru === t && { color: tema.vurgu }]}>{UCRET_ADLARI[t]}</Text>
-            </Pressable>
-          ))}
-        </View>
-        <Text style={s.aciklama}>{UCRET_ACIKLAMALARI[ucretTuru]}</Text>
-        <Text style={s.aciklama}>
-          {`Rota ücretleri ${TARIFE_TARIHI} tarihli İBB tarifesine göre hesaplanır. İlk biniş tam bilet, sonraki binişler aktarma bedelidir; aktarma hakkı 120 dakika sürer. Metrobüs, Marmaray ve M11 durak sayısına göre ücretlendirilir.`}
-        </Text>
-      </View>
-
-      <Text style={s.bolumBaslik}>VASITA TÜRÜ TERCİHLERİ</Text>
-      <View style={[s.kutu, s.liste]}>
-        {VASITA_TURLERI.map((tur, i) => (
-          <View key={tur} style={[s.vasitaSatiri, i > 0 && s.vasitaAyrac]}>
-            <VasitaSimgesi tur={tur} />
-            <View style={{ flex: 1 }}>
-              <Text style={s.satirBaslik}>{VASITA_ADLARI[tur]}</Text>
-              {!!VASITA_ALT[tur] && <Text style={s.vasitaAlt}>{VASITA_ALT[tur]}</Text>}
-            </View>
-            <Switch
-              value={!kapaliTurler.includes(tur)}
-              onValueChange={(acik) => turuAyarla(tur, acik)}
-              trackColor={{ true: tema.vurgu }}
-              accessibilityLabel={VASITA_ADLARI[tur]}
-            />
-          </View>
-        ))}
-      </View>
-      <Text style={s.disAciklama}>
-        Kapattığın türler rotalarda hiç kullanılmaz. Onlar olmadan gidilemeyen bir yer ararsan uyarılırsın. En az bir
-        tür açık kalır.
-      </Text>
-
-      <Text style={s.bolumBaslik}>HATIRLATICILAR</Text>
-      <View style={s.kutu}>
-        <View style={s.satir}>
-          <View style={[s.nokta, { backgroundColor: izin ? tema.vurgu : tema.uyari }]} />
-          <Text style={s.satirBaslik}>{izin ? 'Bildirim izni açık' : 'Bildirim izni kapalı'}</Text>
-        </View>
-        {!izin && (
-          <Pressable
-            style={s.dugme}
-            accessibilityRole="button"
-            onPress={async () => {
-              if (await izinIste()) {
-                hatirlaticilariYenile();
-                return;
-              }
-              Alert.alert('İzin verilmedi', 'Bildirimleri telefonun ayarlarından açabilirsin.', [
-                { text: 'Vazgeç', style: 'cancel' },
-                { text: 'Ayarları aç', onPress: () => Linking.openSettings() },
-              ]);
+    <View style={[s.kok, { paddingTop: kenar.top }]}>
+      <ScrollView
+        ref={liste}
+        style={s.kok}
+        contentContainerStyle={{ paddingTop: 6, paddingBottom: kenar.bottom + 24 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={cekiliyor}
+            tintColor={tema.vurgu}
+            onRefresh={async () => {
+              setCekiliyor(true);
+              await yenile();
+              setCekiliyor(false);
             }}
-          >
-            <Ikon ad="notifications" boyut={16} renkKodu={tema.vurgu} />
-            <Text style={s.dugmeYazi}>İzin iste</Text>
-          </Pressable>
-        )}
-
-        {hatirlaticilar.length === 0 ? (
-          <Text style={s.aciklama}>
-            Kurulu hatırlatıcı yok. Bir rota bulup detayında zil düğmesine basarsan çıkış ve iniş uyarıları
-            kurulur; uygulama kapalıyken de çıkarlar.
-          </Text>
-        ) : (
-          <>
-            {hatirlaticilar.map((h) => (
-              <View key={h.id} style={s.hatirlatici}>
-                <Text style={s.hatirlaticiSaat}>{hatirlaticiSaati(h.zaman)}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.satirBaslik} numberOfLines={1}>
-                    {h.baslik}
-                  </Text>
-                  <Text style={s.aciklama} numberOfLines={2}>
-                    {h.metin}
-                  </Text>
-                </View>
-                <Pressable
-                  hitSlop={10}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${h.baslik} hatırlatıcısını kaldır`}
-                  onPress={() => hatirlaticiIptal(h.id)}
-                >
-                  <Ikon ad="close" boyut={18} renkKodu={tema.soluk} />
-                </Pressable>
-              </View>
-            ))}
-            <Pressable style={s.dugme} onPress={hepsiniIptal} accessibilityRole="button">
-              <Ikon ad="notifications-off" boyut={16} renkKodu={tema.hata} />
-              <Text style={[s.dugmeYazi, { color: tema.hata }]}>Hepsini kaldır</Text>
-            </Pressable>
-          </>
-        )}
-      </View>
-
-      <Text style={s.bolumBaslik}>YOLCULUK</Text>
-      <View style={s.kutu}>
-        <View style={s.satir}>
-          <Ikon ad="phone-portrait-outline" boyut={17} renkKodu={tema.vurgu} />
-          <Text style={[s.satirBaslik, { flex: 1 }]}>Yolculukta ekran açık kalsın</Text>
-          <Switch
-            value={ekranAcik}
-            onValueChange={ekranAcikKaydet}
-            trackColor={{ true: tema.vurgu }}
-            accessibilityLabel="Yolculukta ekran açık kalsın"
           />
-        </View>
-        <Text style={s.aciklama}>
-          "Yolculuğu başlat"tan sonra telefon ekranı kararmaz; bakınca sıradaki adım hazır olur. Kapatırsan pil daha
-          az harcanır.
-        </Text>
-        <View style={[s.satir, { marginTop: 6 }]}>
-          <Ikon ad="volume-high-outline" boyut={17} renkKodu={tema.vurgu} />
-          <Text style={[s.satirBaslik, { flex: 1 }]}>Sesli yol tarifi</Text>
-          <Switch
-            value={sesliTarif}
-            onValueChange={sesliTarifKaydet}
-            trackColor={{ true: tema.vurgu }}
-            accessibilityLabel="Sesli yol tarifi"
-          />
-        </View>
-        <Text style={s.aciklama}>
-          Yürürken dönüşleri ("80 metre sonra sağa dön"), araçta ineceğin durağı iki ve bir durak kala söyler.
-          Yolculuk ekranındaki hoparlör düğmesiyle de açıp kapatabilirsin. Telefon sessizdeyken duyulmayabilir.
-        </Text>
-        <View style={[s.satir, { marginTop: 6 }]}>
-          <View style={[s.haplar, { flex: 1 }]}>
-            {cinsiyetler.length > 1 && (
-              [
-                ['kadin', 'Kadın sesi'],
-                ['erkek', 'Erkek sesi'],
-              ] as [SesCinsiyeti, string][]
-            ).map(([c, ad]) => (
+        }
+      >
+        <Text style={s.baslik}>Ayarlar</Text>
+
+        <Text style={s.bolumBaslik}>İSTANBULKART</Text>
+        <View style={s.kutu}>
+          <View style={s.haplar}>
+            {(Object.keys(UCRET_ADLARI) as UcretTuru[]).map((t) => (
               <Pressable
-                key={c}
-                style={[s.hap, sesCinsiyeti === c && s.hapSecili]}
-              hitSlop={{ top: 5, bottom: 5 }}
+                key={t}
+                style={[s.hap, ucretTuru === t && s.hapSecili]}
+                hitSlop={{ top: 5, bottom: 5 }}
                 onPress={() => {
                   secimTiki();
-                  sesCinsiyetiKaydet(c);
+                  ucretTuruKaydet(t);
                 }}
                 accessibilityRole="button"
-                accessibilityState={{ selected: sesCinsiyeti === c }}
+                accessibilityState={{ selected: ucretTuru === t }}
               >
-                <Text style={[s.hapYazi, sesCinsiyeti === c && { color: tema.vurgu }]}>{ad}</Text>
+                <Text style={[s.hapYazi, ucretTuru === t && { color: tema.vurgu }]}>{UCRET_ADLARI[t]}</Text>
               </Pressable>
             ))}
           </View>
-          <Pressable hitSlop={5}
-            style={s.dinle}
-            onPress={() => konus('200 metre sonra sağa dön, Bağdat Caddesi. Sonra 89T otobüsüne bin.', sesCinsiyeti, true)}
-            accessibilityRole="button"
-            accessibilityLabel="Sesi dinle"
-          >
-            <Ikon ad="play" boyut={14} renkKodu={tema.vurgu} />
-            <Text style={s.dugmeYazi}>Dinle</Text>
-          </Pressable>
-        </View>
-        {kullanilanSes !== undefined && (
+          <Text style={s.aciklama}>{UCRET_ACIKLAMALARI[ucretTuru]}</Text>
           <Text style={s.aciklama}>
-            {kullanilanSes
-              ? `Kullanılan ses: ${sesAdi(kullanilanSes.ses)}.` +
-                (cinsiyetler.length > 1
-                  ? ''
-                  : ' iPhone\'da Türkçe için tek ses var (kadın); erkek ses seçeneği bu yüzden yok.') +
-                (sesKalitesi(kullanilanSes.ses) < 2
-                  ? ' Daha net bir ses için iPhone Ayarlar › Erişilebilirlik › Seslendirilen İçerik › Sesler › Türkçe bölümünden sesin "Gelişmiş" sürümünü indir.'
-                  : '')
-              : 'Telefonunda Türkçe ses bulunamadı; sistemin varsayılan sesi kullanılır. iPhone Ayarlar › Erişilebilirlik › Seslendirilen İçerik › Sesler › Türkçe bölümünden ses indirebilirsin.'}
+            {`Rota ücretleri ${TARIFE_TARIHI} tarihli İBB tarifesine göre hesaplanır. İlk biniş tam bilet, sonraki binişler aktarma bedelidir; aktarma hakkı 120 dakika sürer. Metrobüs, Marmaray ve M11 durak sayısına göre ücretlendirilir.`}
           </Text>
-        )}
-      </View>
+        </View>
 
-      <Text style={s.bolumBaslik}>GÖRÜNÜM</Text>
-      <View style={s.kutu}>
-        <View style={s.haplar}>
-          {TEMA_SECENEKLERI.map(([t, ad, ikon]) => (
-            <Pressable
-              key={t}
-              style={[s.hap, s.hapIkonlu, temaTercihi === t && s.hapSecili]}
-              hitSlop={{ top: 5, bottom: 5 }}
-              onPress={() => {
-                secimTiki();
-                temaTercihiKaydet(t);
-              }}
-              accessibilityRole="button"
-              accessibilityState={{ selected: temaTercihi === t }}
-            >
-              <Ikon ad={ikon} boyut={15} renkKodu={temaTercihi === t ? tema.vurgu : tema.yazi} />
-              <Text style={[s.hapYazi, temaTercihi === t && { color: tema.vurgu }]}>{ad}</Text>
-            </Pressable>
+        <Text style={s.bolumBaslik}>VASITA TÜRÜ TERCİHLERİ</Text>
+        <View style={[s.kutu, s.liste]}>
+          {VASITA_TURLERI.map((tur, i) => (
+            <View key={tur} style={[s.vasitaSatiri, i > 0 && s.vasitaAyrac]}>
+              <VasitaSimgesi tur={tur} />
+              <View style={{ flex: 1 }}>
+                <Text style={s.satirBaslik}>{VASITA_ADLARI[tur]}</Text>
+                {!!VASITA_ALT[tur] && <Text style={s.vasitaAlt}>{VASITA_ALT[tur]}</Text>}
+              </View>
+              <Switch
+                value={!kapaliTurler.includes(tur)}
+                onValueChange={(acik) => turuAyarla(tur, acik)}
+                trackColor={{ true: tema.vurgu }}
+                accessibilityLabel={VASITA_ADLARI[tur]}
+              />
+            </View>
           ))}
         </View>
-        <Text style={s.aciklama}>
-          {temaTercihi === 'sistem'
-            ? `Telefonun açık/koyu ayarını izler; şu an ${tema.koyu ? 'koyu' : 'açık'}.`
-            : `Telefonun ayarından bağımsız olarak her zaman ${temaTercihi === 'koyu' ? 'koyu' : 'açık'}.`}
+        <Text style={s.disAciklama}>
+          Kapattığın türler rotalarda hiç kullanılmaz. Onlar olmadan gidilemeyen bir yer ararsan uyarılırsın. En az bir
+          tür açık kalır.
         </Text>
-      </View>
 
-      <View style={[s.kutu, s.liste, { marginTop: 26 }]}>
-        <Pressable
-          style={({ pressed }) => [s.gecisSatiri, pressed && { opacity: 0.6 }]}
-          onPress={() => ekranAc('/hakkinda')}
-          accessibilityRole="button"
-          accessibilityLabel={`Hakkında, rota sunucusu ${sunucuBagli ? 'bağlı' : 'ulaşılamıyor'}`}
-        >
-          <View style={s.gecisIkon}>
-            <Ikon ad="information" boyut={19} renkKodu="#ffffff" />
+        <Text style={s.bolumBaslik}>HATIRLATICILAR</Text>
+        <View style={s.kutu}>
+          <View style={s.satir}>
+            <View style={[s.nokta, { backgroundColor: izin ? tema.vurgu : tema.uyari }]} />
+            <Text style={s.satirBaslik}>{izin ? 'Bildirim izni açık' : 'Bildirim izni kapalı'}</Text>
           </View>
-          <Text style={[s.satirBaslik, { flex: 1, fontWeight: '400', fontSize: 16 }]}>Hakkında</Text>
-          {sunucuBagli === false && <Text style={[s.gecisDeger, { color: tema.hata }]}>Sunucuya ulaşılamıyor</Text>}
-          <Ikon ad="chevron-forward" boyut={17} renkKodu={tema.soluk} />
-        </Pressable>
-      </View>
-    </ScrollView>
+          {!izin && (
+            <Pressable
+              style={s.dugme}
+              accessibilityRole="button"
+              onPress={async () => {
+                if (await izinIste()) {
+                  hatirlaticilariYenile();
+                  return;
+                }
+                Alert.alert('İzin verilmedi', 'Bildirimleri telefonun ayarlarından açabilirsin.', [
+                  { text: 'Vazgeç', style: 'cancel' },
+                  { text: 'Ayarları aç', onPress: () => Linking.openSettings() },
+                ]);
+              }}
+            >
+              <Ikon ad="notifications" boyut={16} renkKodu={tema.vurgu} />
+              <Text style={s.dugmeYazi}>İzin iste</Text>
+            </Pressable>
+          )}
+
+          {hatirlaticilar.length === 0 ? (
+            <Text style={s.aciklama}>
+              Kurulu hatırlatıcı yok. Bir rota bulup detayında zil düğmesine basarsan çıkış ve iniş uyarıları
+              kurulur; uygulama kapalıyken de çıkarlar.
+            </Text>
+          ) : (
+            <>
+              {hatirlaticilar.map((h) => (
+                <View key={h.id} style={s.hatirlatici}>
+                  <Text style={s.hatirlaticiSaat}>{hatirlaticiSaati(h.zaman)}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.satirBaslik} numberOfLines={1}>
+                      {h.baslik}
+                    </Text>
+                    <Text style={s.aciklama} numberOfLines={2}>
+                      {h.metin}
+                    </Text>
+                  </View>
+                  <Pressable
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${h.baslik} hatırlatıcısını kaldır`}
+                    onPress={() => hatirlaticiIptal(h.id)}
+                  >
+                    <Ikon ad="close" boyut={18} renkKodu={tema.soluk} />
+                  </Pressable>
+                </View>
+              ))}
+              <Pressable style={s.dugme} onPress={hepsiniIptal} accessibilityRole="button">
+                <Ikon ad="notifications-off" boyut={16} renkKodu={tema.hata} />
+                <Text style={[s.dugmeYazi, { color: tema.hata }]}>Hepsini kaldır</Text>
+              </Pressable>
+            </>
+          )}
+        </View>
+
+        <Text style={s.bolumBaslik}>YOLCULUK</Text>
+        <View style={s.kutu}>
+          <View style={s.satir}>
+            <Ikon ad="phone-portrait-outline" boyut={17} renkKodu={tema.vurgu} />
+            <Text style={[s.satirBaslik, { flex: 1 }]}>Yolculukta ekran açık kalsın</Text>
+            <Switch
+              value={ekranAcik}
+              onValueChange={ekranAcikKaydet}
+              trackColor={{ true: tema.vurgu }}
+              accessibilityLabel="Yolculukta ekran açık kalsın"
+            />
+          </View>
+          <Text style={s.aciklama}>
+            "Yolculuğu başlat"tan sonra telefon ekranı kararmaz; bakınca sıradaki adım hazır olur. Kapatırsan pil daha
+            az harcanır.
+          </Text>
+          <View style={[s.satir, { marginTop: 6 }]}>
+            <Ikon ad="volume-high-outline" boyut={17} renkKodu={tema.vurgu} />
+            <Text style={[s.satirBaslik, { flex: 1 }]}>Sesli yol tarifi</Text>
+            <Switch
+              value={sesliTarif}
+              onValueChange={sesliTarifKaydet}
+              trackColor={{ true: tema.vurgu }}
+              accessibilityLabel="Sesli yol tarifi"
+            />
+          </View>
+          <Text style={s.aciklama}>
+            Yürürken dönüşleri ("80 metre sonra sağa dön"), araçta ineceğin durağı iki ve bir durak kala söyler.
+            Yolculuk ekranındaki hoparlör düğmesiyle de açıp kapatabilirsin. Telefon sessizdeyken duyulmayabilir.
+          </Text>
+          <View style={[s.satir, { marginTop: 6 }]}>
+            <View style={[s.haplar, { flex: 1 }]}>
+              {cinsiyetler.length > 1 && (
+                [
+                  ['kadin', 'Kadın sesi'],
+                  ['erkek', 'Erkek sesi'],
+                ] as [SesCinsiyeti, string][]
+              ).map(([c, ad]) => (
+                <Pressable
+                  key={c}
+                  style={[s.hap, sesCinsiyeti === c && s.hapSecili]}
+                hitSlop={{ top: 5, bottom: 5 }}
+                  onPress={() => {
+                    secimTiki();
+                    sesCinsiyetiKaydet(c);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: sesCinsiyeti === c }}
+                >
+                  <Text style={[s.hapYazi, sesCinsiyeti === c && { color: tema.vurgu }]}>{ad}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Pressable hitSlop={5}
+              style={s.dinle}
+              onPress={() => konus('200 metre sonra sağa dön, Bağdat Caddesi. Sonra 89T otobüsüne bin.', sesCinsiyeti, true)}
+              accessibilityRole="button"
+              accessibilityLabel="Sesi dinle"
+            >
+              <Ikon ad="play" boyut={14} renkKodu={tema.vurgu} />
+              <Text style={s.dugmeYazi}>Dinle</Text>
+            </Pressable>
+          </View>
+          {kullanilanSes !== undefined && (
+            <Text style={s.aciklama}>
+              {kullanilanSes
+                ? `Kullanılan ses: ${sesAdi(kullanilanSes.ses)}.` +
+                  (cinsiyetler.length > 1
+                    ? ''
+                    : ' iPhone\'da Türkçe için tek ses var (kadın); erkek ses seçeneği bu yüzden yok.') +
+                  (sesKalitesi(kullanilanSes.ses) < 2
+                    ? ' Daha net bir ses için iPhone Ayarlar › Erişilebilirlik › Seslendirilen İçerik › Sesler › Türkçe bölümünden sesin "Gelişmiş" sürümünü indir.'
+                    : '')
+                : 'Telefonunda Türkçe ses bulunamadı; sistemin varsayılan sesi kullanılır. iPhone Ayarlar › Erişilebilirlik › Seslendirilen İçerik › Sesler › Türkçe bölümünden ses indirebilirsin.'}
+            </Text>
+          )}
+        </View>
+
+        <Text style={s.bolumBaslik}>GÖRÜNÜM</Text>
+        <View style={s.kutu}>
+          <View style={s.haplar}>
+            {TEMA_SECENEKLERI.map(([t, ad, ikon]) => (
+              <Pressable
+                key={t}
+                style={[s.hap, s.hapIkonlu, temaTercihi === t && s.hapSecili]}
+                hitSlop={{ top: 5, bottom: 5 }}
+                onPress={() => {
+                  secimTiki();
+                  temaTercihiKaydet(t);
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ selected: temaTercihi === t }}
+              >
+                <Ikon ad={ikon} boyut={15} renkKodu={temaTercihi === t ? tema.vurgu : tema.yazi} />
+                <Text style={[s.hapYazi, temaTercihi === t && { color: tema.vurgu }]}>{ad}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={s.aciklama}>
+            {temaTercihi === 'sistem'
+              ? `Telefonun açık/koyu ayarını izler; şu an ${tema.koyu ? 'koyu' : 'açık'}.`
+              : `Telefonun ayarından bağımsız olarak her zaman ${temaTercihi === 'koyu' ? 'koyu' : 'açık'}.`}
+          </Text>
+        </View>
+
+        <View style={[s.kutu, s.liste, { marginTop: 26 }]}>
+          <Pressable
+            style={({ pressed }) => [s.gecisSatiri, pressed && { opacity: 0.6 }]}
+            onPress={() => ekranAc('/hakkinda')}
+            accessibilityRole="button"
+            accessibilityLabel={`Hakkında, rota sunucusu ${sunucuBagli ? 'bağlı' : 'ulaşılamıyor'}`}
+          >
+            <View style={s.gecisIkon}>
+              <Ikon ad="information" boyut={19} renkKodu="#ffffff" />
+            </View>
+            <Text style={[s.satirBaslik, { flex: 1, fontWeight: '400', fontSize: 16 }]}>Hakkında</Text>
+            {sunucuBagli === false && <Text style={[s.gecisDeger, { color: tema.hata }]}>Sunucuya ulaşılamıyor</Text>}
+            <Ikon ad="chevron-forward" boyut={17} renkKodu={tema.soluk} />
+          </Pressable>
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
