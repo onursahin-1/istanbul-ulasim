@@ -308,3 +308,63 @@ describe('az hareketle yön', () => {
     assert.equal(bos.durakVarislari(T.rotaDuraklari.get(0)[4].durak, SIMDI.getTime())['141M'], undefined);
   });
 });
+
+describe('canlı trafik', () => {
+  it('önden geçen otobüslerin gerçek süreleri arkadan gelene uygulanır (tarifenin 2 katı yavaş)', () => {
+    // Tarife durak arası 120 sn; bugün trafik var, otobüsler 240 sn'de geçiyor.
+    const v = new AracVarislari(T, yolBul, () => null);
+    const t0 = SIMDI.getTime() - 30 * 60_000;
+    const bilgiG = (an) => () => ({ hat: '141M', guzergah: '141M_G_D0', an });
+    // İki otobüs 0 → 4,9 arası, dakikada çeyrek durak (240 sn/durak).
+    for (let dk = 0; dk <= 20; dk++) {
+      const an = t0 + dk * 60_000;
+      const araclar = [
+        { kapiNo: 'O-1', enlem: ENLEM, boylam: boylam(Math.min(4.9, 0.1 + dk * 0.25)), tarih: new Date(an) },
+        { kapiNo: 'O-2', enlem: ENLEM, boylam: boylam(Math.min(4.9, 0.05 + dk * 0.25)), tarih: new Date(an) },
+      ];
+      v.guncelle(araclar, [], bilgiG(an), new Date(an));
+    }
+    // Arkadan gelen otobüs 1,5'te: 4. durağa 2,5 aralık; canlı 240 sn ile 600 sn (tarifeyle 300 sn olurdu).
+    const simdi = t0 + 21 * 60_000;
+    v.guncelle([{ kapiNo: 'A-1', enlem: ENLEM, boylam: boylam(1.5), tarih: new Date(simdi) }], [], bilgiG(simdi), new Date(simdi));
+    const r = v.durakVarislari(T.rotaDuraklari.get(0)[4].durak, simdi)['141M'].find((x) => x.kapiNo === 'A-1');
+    const sure = (r.varis - simdi) / 1000;
+    assert.ok(Math.abs(sure - 600) < 30, `600 sn bekleniyordu: ${sure}`);
+    assert.equal(r.canli, 1);
+  });
+
+  it('yarım saatten eski ölçüm kullanılmaz', () => {
+    const v = new AracVarislari(T, yolBul, () => null);
+    v.canliEkle(T.rotaDuraklari.get(0)[1].durak, T.rotaDuraklari.get(0)[2].durak, 500, SIMDI.getTime() - 40 * 60_000, 120);
+    assert.equal(v.canliSure(T.rotaDuraklari.get(0)[1].durak, T.rotaDuraklari.get(0)[2].durak, SIMDI.getTime()), null);
+  });
+});
+
+describe('otobüsün kendi hızı', () => {
+  it('içinde bulunduğu aralıkta sürünen otobüsün tahmini uzar (kuyruk)', () => {
+    const v = new AracVarislari(T, yolBul, () => null);
+    const b = (an) => () => ({ hat: '141M', guzergah: '141M_G_D0', an });
+    // 4 dakikada yalnız 0,1 durak aralığı (yaklaşık 50 m) ilerliyor.
+    for (let dk = 0; dk <= 4; dk++) {
+      const an = SIMDI.getTime() - (4 - dk) * 60_000;
+      v.guncelle([{ kapiNo: 'K-1', enlem: ENLEM, boylam: boylam(1.1 + dk * 0.025), tarih: new Date(an) }], [], b(an), new Date(an));
+    }
+    const r = v.durakVarislari(T.rotaDuraklari.get(0)[4].durak, SIMDI.getTime())['141M'][0];
+    const sure = (r.varis - SIMDI.getTime()) / 1000;
+    // Ortalama hızla 0,8 × 120 + 2 × 120 = 336 sn olurdu; kuyrukta çok daha uzun.
+    assert.ok(sure > 900, `uzun bekleniyordu: ${sure}`);
+  });
+
+  it('normal hızda giden otobüse dokunmaz', () => {
+    const v = new AracVarislari(T, yolBul, () => null);
+    const b = (an) => () => ({ hat: '141M', guzergah: '141M_G_D0', an });
+    // Dakikada yarım aralık (tarife 120 sn'de bir aralık): tam zamanında.
+    for (let dk = 0; dk <= 4; dk++) {
+      const an = SIMDI.getTime() - (4 - dk) * 60_000;
+      v.guncelle([{ kapiNo: 'K-2', enlem: ENLEM, boylam: boylam(0.1 + dk * 0.5), tarih: new Date(an) }], [], b(an), new Date(an));
+    }
+    const r = v.durakVarislari(T.rotaDuraklari.get(0)[4].durak, SIMDI.getTime())['141M'][0];
+    // 2,1 → 4: 1,9 aralık × 120 sn = 228 sn.
+    assert.ok(Math.abs((r.varis - SIMDI.getTime()) / 1000 - 228) < 20);
+  });
+});

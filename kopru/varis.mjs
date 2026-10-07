@@ -72,6 +72,34 @@ export const HAREKET_OMRU_MS = 10 * 60_000;
  */
 export const DURGUN_SN = 5 * 60;
 export const DURGUN_YARICAP_M = 60;
+/**
+ * Canlı trafik: son CANLI_PENCERE_MS içinde otobüslerin bir durak çiftini gerçekte kaç
+ * saniyede geçtiği. Öğrenilen süreler saat dilimi ortalaması (16–20 gibi); o günkü
+ * tıkanıklığı bilmiyor. Göztepe Meydanı'nda akşam trafiğinde otobüsler tahminden çok
+ * yavaş geldi (7–9 durak uzaktakiler 7–10 dk geç; 2026-10-07 19:01–19:34 ölçümü).
+ * Aynı durak çiftinden az önce geçen otobüslerin süresi en taze bilgi: Google'ın canlı
+ * trafiği gibi. Durak çiftleri hattan bağımsız (aynı yoldan geçen bütün hatlar öğretiyor).
+ */
+export const CANLI_PENCERE_MS = 30 * 60_000;
+/**
+ * Yerel trafik oranı: son CANLI_PENCERE_MS içinde bir durağa varan otobüslerin gerçek
+ * süresinin tahmine oranı (ortanca). O durağa yapılan tahmine uygulanır. Canlı durak arası
+ * süreler tek başına yetmiyordu (Göztepe Meydanı 19:15 sonrası ortalama hata −3,3 dk →
+ * −2,8 dk): kuyruk ve ışıklar durak çiftlerine dağınık, oran ise doğrudan "bu durağa
+ * gelişler bugün tahminden yüzde kaç uzun" diyor.
+ */
+export const YEREL_EN_AZ = 3;
+/**
+ * Otobüsün kendi hızı: içinde bulunduğu durak aralığında son birkaç dakikadır sürünüyorsa
+ * (kuyruk, kaza) aralığın kalanı ortalama süreyle değil, bu hızla hesaplanır. Göztepe
+ * Meydanı'na 3 durak kala bir aralıkta 5 dk kalan 97M A-293 için tahmin "4 dk sonra"
+ * diye yerinde sayıyordu (2026-10-07 19:08–19:14).
+ */
+export const KENDI_HIZ_EN_AZ_MS = 3 * 60_000;
+export const KENDI_HIZ_PENCERE_MS = 6 * 60_000;
+export const YEREL_ORAN_SINIR = [0.75, 2.5];
+/** Bu kadar canlı ölçümle yalnız canlı süre; daha azıyla öğrenilen/tarifeyle yarı yarıya. */
+export const CANLI_EN_AZ = 2;
 /** Duruyor demek için konum en çok bu kadar eski olabilir (eski konumla bilinemez). */
 export const DURGUN_TAZE_MS = 3 * 60_000;
 
@@ -169,6 +197,10 @@ export class AracVarislari {
     this.hareket = new Map();
     /** kapıNo → { enlem, boylam, an } aracın son kımıldamadığı yer ve o yere geldiği an (konum zamanı) */
     this.durgunluk = new Map();
+    /** "durakA>durakB" → [{ an (ms), sn }] son yarım saatte gözlenen geçiş süreleri */
+    this.canli = new Map();
+    /** durak (sıra) → [{ an (ms), oran }] son yarım saatte o durağa varışlarda gerçek/tahmin */
+    this.yerel = new Map();
     /** Son nabzın araçları: { kapiNo, hat, rota, enlem, boylam, damga (ms) } */
     this.araclar = [];
     this.an = 0;
@@ -261,6 +293,7 @@ export class AracVarislari {
     for (const [k, y] of this.yon) if (an - y.an > 2 * YON_OMRU_MS) this.yon.delete(k);
     for (const [k, h] of this.hareket) if (an - h.an > 2 * HAREKET_OMRU_MS) this.hareket.delete(k);
     for (const [k, d] of this.durgunluk) if (an - d.son > 30 * 60_000) this.durgunluk.delete(k);
+    for (const [k, l] of this.canli) if (!l.length || an - l[l.length - 1].an > CANLI_PENCERE_MS) this.canli.delete(k);
     this.iz.temizle(an);
     this.araclar = liste;
     this.an = an;
@@ -345,9 +378,6 @@ export class AracVarislari {
     const tam = Math.floor(yer.yer);
     const kalanDurak = Math.max(0, hedef - tam - (yer.yer - tam >= 1 - DURAKTA_PAYI ? 1 : 0));
     if (hedef - tam > EN_UZAK_DURAK) return { neden: `durağa ${hedef - tam} durak (çok uzak)` };
-    const parca = this.kalanYol(yol, yer.yer, hedef, anSn);
-    const { a, b } = this.carpanlar();
-    const sure = a * parca.O + b * parca.P;
     // Hat başında bekleyen otobüs: tarifedeki kalkış saatinden önce yola çıkmaz.
     let cikis = v.damga / 1000;
     const hatBasi = yer.yer < DURAKTA_PAYI;
@@ -362,6 +392,11 @@ export class AracVarislari {
       v.damga - v.durgunBas >= DURGUN_SN * 1000 &&
       simdiMs - v.damga <= DURGUN_TAZE_MS;
     if (duruyor) cikis = Math.max(cikis, simdiMs / 1000);
+    // Kendi hızı yalnız yolda ilerleyen otobüs için (duran ve hat başında bekleyen ayrı).
+    const kendiHiz = duruyor || hatBasi ? null : this.kendiHizi(v.kapiNo);
+    const parca = this.kalanYol(yol, yer.yer, hedef, anSn, simdiMs, kendiHiz);
+    const { a, b } = this.carpanlar();
+    const sure = (a * parca.O + b * parca.P) * this.yerelOran(durak, simdiMs) + parca.C;
     if (cikis + sure - simdiMs / 1000 > EN_UZUN_VARIS_SN) return { neden: 'varış 90 dk\'dan uzak' };
     const varis = Math.max(simdiMs, (cikis + sure) * 1000);
     const { aralik, ogrenilen } = parca;
@@ -380,6 +415,8 @@ export class AracVarislari {
         enlem: v.enlem,
         boylam: v.boylam,
         ogrenilen: aralik ? Math.round((ogrenilen / aralik) * 100) / 100 : 1,
+        // Kalan yolun ne kadarı canlı (son yarım saatte gözlenen) sürelerle.
+        canli: aralik ? Math.round((parca.canliAralik / aralik) * 100) / 100 : 0,
       },
     };
   }
@@ -439,26 +476,88 @@ export class AracVarislari {
    * Yolun `yer`den `hedef` durağa kalan kısmı: öğrenilen süreli aralıkların toplamı (O),
    * tarife aralıklarının toplamı (P), sn; içinde bulunulan aralığın yalnız kalanı.
    */
-  kalanYol(yol, yer, hedef, anSn) {
+  kalanYol(yol, yer, hedef, anSn, canliAn = null, kendiHiz = null) {
     const tam = Math.floor(yer);
     let O = 0;
     let P = 0;
+    // Canlı (son yarım saatte gözlenen) süreler: çarpansız eklenir, zaten gerçek.
+    let C = 0;
     let aralik = 0;
     let ogrenilen = 0;
+    let canliAralik = 0;
     for (let j = tam; j < hedef; j++) {
       const p = yol[j];
       const q = yol[j + 1];
       const kesir = j === tam ? 1 - (yer - tam) : 1;
-      const ogr = this.ogrenilenSure(p.durak, q.durak, anSn + O + P);
-      if (ogr != null) {
+      const ogr = this.ogrenilenSure(p.durak, q.durak, anSn + O + P + C);
+      const plan = Math.max(0, q.saniye - p.saniye);
+      const canli = canliAn != null ? this.canliSure(p.durak, q.durak, canliAn) : null;
+      // İçinde bulunulan aralık: otobüs ortalamadan çok yavaş ilerliyorsa kendi hızıyla
+      // (en çok 20 dk). Bu kısım gerçek gözleme dayandığı için çarpansız (C).
+      const temel = canli && canli.n >= CANLI_EN_AZ ? canli.sn : canli ? (canli.sn + (ogr ?? plan)) / 2 : ogr ?? plan;
+      // Durağa 2 aralıktan az kalmışsa uygulanmaz: son yaklaşmada (önceki durakta yolcu
+      // alırken) yavaşlayan otobüs ölçümde fazla geç gösteriliyordu.
+      if (j === tam && kendiHiz != null && kendiHiz > 0 && hedef - tam >= 2) {
+        // Hiç ilerlemiyorsa (durakta yolcu alıyor, ışık) kendi hızı bir şey söylemez;
+        // uzun duruş zaten "duruyor" sayılıyor. Tek otobüsün hızı yanıltabileceği için
+        // ortalama süreyle yarı yarıya.
+        const kendi = kesir / kendiHiz;
+        if (kendi > kesir * temel * 1.3) {
+          C += Math.min((kendi + kesir * temel) / 2, 20 * 60);
+          canliAralik++;
+          aralik++;
+          continue;
+        }
+      }
+      if (canli && canli.n >= CANLI_EN_AZ) {
+        C += kesir * canli.sn;
+        canliAralik++;
+      } else if (canli) {
+        // Tek ölçüm: tek otobüsün şansına (ışık, yolcu) kalmasın, temel süreyle yarı yarıya.
+        C += kesir * (canli.sn + (ogr ?? plan)) / 2;
+        canliAralik++;
+      } else if (ogr != null) {
         O += kesir * ogr;
         ogrenilen++;
       } else {
-        P += kesir * Math.max(0, q.saniye - p.saniye);
+        P += kesir * plan;
       }
       aralik++;
     }
-    return { O, P, aralik, ogrenilen };
+    return { O, P, C, aralik, ogrenilen: ogrenilen + canliAralik, canliAralik };
+  }
+
+  /** Bir durak çiftinin canlı geçiş süresi ölçümü (gerçek dışı olanlar atılır). */
+  canliEkle(a, b, sn, an, planSn) {
+    if (!(sn >= 5) || sn > 20 * 60 || (planSn > 0 && sn > 5 * planSn + 300)) return;
+    const anahtar = `${a}>${b}`;
+    const liste = (this.canli.get(anahtar) ?? []).filter((x) => an - x.an <= CANLI_PENCERE_MS);
+    liste.push({ an, sn });
+    this.canli.set(anahtar, liste.slice(-12));
+  }
+
+  yerelEkle(durak, oran, an) {
+    const liste = (this.yerel.get(durak) ?? []).filter((x) => an - x.an <= CANLI_PENCERE_MS);
+    liste.push({ an, oran });
+    this.yerel.set(durak, liste.slice(-20));
+  }
+
+  /** Bir durağa varışlarda son yarım saatin gerçek/tahmin oranı (ortanca, sınırlı); azsa 1. */
+  yerelOran(durak, simdi) {
+    const l = (this.yerel.get(durak) ?? []).filter((x) => simdi - x.an <= CANLI_PENCERE_MS);
+    if (l.length < YEREL_EN_AZ) return 1;
+    const s = l.map((x) => x.oran).sort((x, y) => x - y);
+    const orta = s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+    return Math.min(YEREL_ORAN_SINIR[1], Math.max(YEREL_ORAN_SINIR[0], orta));
+  }
+
+  /** Son yarım saatin ortanca geçiş süresi ve ölçüm sayısı; yoksa null. */
+  canliSure(a, b, simdi) {
+    const liste = (this.canli.get(`${a}>${b}`) ?? []).filter((x) => simdi - x.an <= CANLI_PENCERE_MS);
+    if (!liste.length) return null;
+    const s = liste.map((x) => x.sn).sort((x, y) => x - y);
+    const orta = s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+    return { sn: orta, n: liste.length };
   }
 
   /** Gerçeğe uyan çarpanlar (a: öğrenilen süreler, b: tarife), 1'e çekilmiş, 0,4–2,5 arası. */
@@ -501,12 +600,28 @@ export class AracVarislari {
       return;
     }
     // Geri gittiyse (yeni tur) ya da uzun boşluk: baştan.
-    if (k.yer != null && (yer.yer < k.yer - 0.5 || v.damga - k.damga > 10 * 60_000)) k.hedefler = [];
+    if (k.yer != null && (yer.yer < k.yer - 0.5 || v.damga - k.damga > 10 * 60_000)) {
+      k.hedefler = [];
+      k.sonGecis = null;
+    }
+    if (k.yer != null && yer.yer > k.yer && v.damga > k.damga && v.damga - k.damga <= 6 * 60_000) {
+      // Geçilen her durağın anı (iki konum arasında ara değer); ardışık iki durağın arası
+      // canlı süre ölçümü.
+      for (let j = Math.floor(k.yer) + 1; j <= Math.floor(yer.yer); j++) {
+        const t = k.damga + ((j - k.yer) / (yer.yer - k.yer)) * (v.damga - k.damga);
+        if (k.sonGecis?.idx === j - 1) {
+          const p = k.yol[j - 1];
+          const q = k.yol[j];
+          this.canliEkle(p.durak, q.durak, (t - k.sonGecis.t) / 1000, t, Math.max(0, q.saniye - p.saniye));
+        }
+        k.sonGecis = { idx: j, t };
+      }
+    }
     if (k.yer != null && yer.yer > k.yer && v.damga > k.damga) {
       for (const h of k.hedefler) {
         if (yer.yer < h.idx) continue;
         const gecis = k.damga + ((h.idx - k.yer) / (yer.yer - k.yer)) * (v.damga - k.damga);
-        this.kaydet(h, (gecis - h.baslangic) / 1000);
+        this.kaydet(h, (gecis - h.baslangic) / 1000, gecis);
         h.bitti = true;
       }
       k.hedefler = k.hedefler.filter((h) => !h.bitti && v.damga - h.baslangic < 90 * 60_000);
@@ -519,18 +634,34 @@ export class AracVarislari {
         if (idx >= k.yol.length || k.hedefler.some((h) => h.ufuk === ufuk)) continue;
         const { O, P } = this.kalanYol(k.yol, yer.yer, idx, anSn);
         if (O + P <= 0) continue;
-        k.hedefler.push({ ufuk, idx, baslangic: v.damga, O, P });
+        k.hedefler.push({ ufuk, idx, durak: k.yol[idx].durak, baslangic: v.damga, O, P });
       }
     }
     k.yer = yer.yer;
     k.damga = v.damga;
+    // Son dakikaların ilerleyişi (aynı konum tekrar gelirse eklenmez).
+    const g = (k.gecmis ?? []).filter((x) => v.damga - x.t <= KENDI_HIZ_PENCERE_MS && x.yer <= yer.yer + 0.05);
+    if (!g.length || g[g.length - 1].t !== v.damga) g.push({ t: v.damga, yer: yer.yer });
+    k.gecmis = g;
+  }
+
+  /** Aracın son dakikalardaki ilerleyişi: durak aralığı / sn; yeterli geçmiş yoksa null. */
+  kendiHizi(kapiNo) {
+    const g = this.izleme.get(kapiNo)?.gecmis;
+    if (!g || g.length < 2) return null;
+    const ilk = g[0];
+    const son = g[g.length - 1];
+    if (son.t - ilk.t < KENDI_HIZ_EN_AZ_MS) return null;
+    return Math.max(0, son.yer - ilk.yer) / ((son.t - ilk.t) / 1000);
   }
 
   /** Bir tahminin gerçekleşen süresi: regresyon toplamları ve ufuk hataları. */
-  kaydet(h, gercek) {
+  kaydet(h, gercek, an = Date.now()) {
     if (!(gercek > 0) || gercek > 3 * 3600) return;
     const s = this.olcum;
     const { a, b } = this.carpanlar();
+    const tahmin = a * h.O + b * h.P;
+    if (h.durak != null && tahmin >= 60) this.yerelEkle(h.durak, gercek / tahmin, an);
     for (const anahtar of ['OO', 'OP', 'PP', 'OA', 'PA', 'n']) s[anahtar] *= UNUTMA;
     s.OO += h.O * h.O;
     s.OP += h.O * h.P;
@@ -567,6 +698,7 @@ export class AracVarislari {
       olcum: Math.round(this.olcum.n),
       carpan: { ogrenilen: Math.round(a * 100) / 100, tarife: Math.round(b * 100) / 100 },
       izlenenArac: this.izleme.size,
+      canliDurakCifti: this.canli.size,
       hata,
     };
   }
@@ -588,6 +720,8 @@ export class AracVarislari {
       surum: 1,
       olcum: this.olcum,
       hafiza: {
+        canli: Object.fromEntries(this.canli),
+        yerel: Object.fromEntries(this.yerel),
         yon,
         hareket: Object.fromEntries(this.hareket),
         durgunluk: Object.fromEntries(this.durgunluk),
@@ -608,6 +742,14 @@ export class AracVarislari {
     for (const [k, x] of Object.entries(h.hareket ?? {})) if (x && simdi - x.an <= HAREKET_OMRU_MS) this.hareket.set(k, x);
     for (const [k, x] of Object.entries(h.durgunluk ?? {})) if (x && simdi - x.son <= 10 * 60_000) this.durgunluk.set(k, x);
     for (const [k, x] of Object.entries(h.iz ?? {})) if (x && simdi - x.an <= 8 * 60_000) this.iz.kayit.set(k, x);
+    for (const [k, l] of Object.entries(h.yerel ?? {})) {
+      const taze = (Array.isArray(l) ? l : []).filter((x) => simdi - x.an <= CANLI_PENCERE_MS);
+      if (taze.length) this.yerel.set(Number(k), taze);
+    }
+    for (const [k, l] of Object.entries(h.canli ?? {})) {
+      const taze = (Array.isArray(l) ? l : []).filter((x) => simdi - x.an <= CANLI_PENCERE_MS);
+      if (taze.length) this.canli.set(k, taze);
+    }
   }
 }
 
