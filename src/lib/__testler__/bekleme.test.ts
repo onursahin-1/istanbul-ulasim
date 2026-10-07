@@ -3,8 +3,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { aracVarislariniKat, ayniYoldanMi, beklemeSecenekleri, binilenHatTahmini, durakOranlari, durakSaatleri, paylasimMetni } from '../bekleme';
-import type { DurakKalkisi } from '../otp';
+import { aracVarislariniKat, ayniYoldanMi, kalkislaraAracKat, beklemeSecenekleri, binilenHatTahmini, durakOranlari, durakSaatleri, paylasimMetni } from '../bekleme';
+import type { DurakKalkisi, Hat, Kalkis } from '../otp';
 
 const dk = 60_000;
 const T = 1_800_000_000_000;
@@ -163,5 +163,76 @@ describe('paylasimMetni', () => {
   it('varış, hedef ve hatlar', () => {
     assert.equal(paylasimMetni('Seyrantepe', '10:05', ['97M', '500L', '27SE']), 'Tahmini varışım 10:05 · Seyrantepe (97M → 500L → 27SE)');
     assert.equal(paylasimMetni(null, '10:05', []), 'Tahmini varışım 10:05');
+  });
+});
+
+describe('kalkislaraAracKat (yakındaki duraklar)', () => {
+  // Göztepe Meydanı, İkitelli yönü (2026-10-07 17:34): OTP 97GE'yi "şimdi", 141M'yi 7 dk
+  // diyordu; durak ekranı (araçtan) 91E şimdi, 141M 2 dk, 97GE 4 dk.
+  const hat = (kisa: string, id: string, uzun: string): Hat => ({ gtfsId: `1:${id}`, shortName: kisa, longName: uzun, mode: 'BUS' });
+  const HATLAR = [
+    hat('97GE', '501', '15 TEMMUZ MAH. - SELEN SOKAK'),
+    hat('141M', '502', 'MECİDİYEKÖY - KANUNİ SULTAN SÜLEYMAN'),
+    hat('91E', '503', 'GÖZTEPE MAHALLESİ - AKSARAY RİNG'),
+    hat('91E', '504', 'AKSARAY RİNG - GÖZTEPE MAHALLESİ'),
+  ];
+  const gun = Math.floor(T / 1000) - 10 * 3600;
+  const otp = (h: Hat, dakika: number, yon: string): Kalkis => {
+    const sn = Math.floor(T / 1000) - gun + dakika * 60;
+    return {
+      scheduledDeparture: sn,
+      realtimeDeparture: sn,
+      realtime: true,
+      serviceDay: gun,
+      headsign: yon,
+      trip: { gtfsId: `sefer-${h.shortName}-${dakika}`, route: h, pattern: { code: `d-${h.gtfsId}`, headsign: yon } },
+    };
+  };
+  const arac = (kapiNo: string, dakika: number, rotaId?: string) => ({
+    kapiNo,
+    rotaId,
+    varis: T + dakika * dk,
+    kalanDurak: 3,
+    yasSn: 20,
+    enlem: 41,
+    boylam: 29,
+    ogrenilen: 1,
+  });
+  const ozet = (l: Kalkis[]) =>
+    l.map((k) => [k.trip?.route.shortName, Math.round(((k.serviceDay ?? 0) + (k.realtimeDeparture ?? 0) - T / 1000) / 60), k.trip?.gtfsId.startsWith('arac:')]);
+
+  it('otobüsü görülen hatta OTP kalkışı otobüsle değişir, OTP\'de olmayan hat da eklenir', () => {
+    const liste = [otp(HATLAR[0], 0, 'SELEN SOKAK'), otp(HATLAR[1], 7, 'KANUNİ SULTAN SÜLEYMAN'), otp(HATLAR[1], 27, 'KANUNİ SULTAN SÜLEYMAN')];
+    const sonuc = kalkislaraAracKat(
+      liste,
+      HATLAR,
+      { '97GE': [arac('A-1', 4)], '141M': [arac('B-2', 2)], '91E': [arac('C-3', 0, '503')] },
+      T,
+    );
+    assert.deepEqual(ozet(sonuc), [
+      ['91E', 0, true],
+      ['141M', 2, true],
+      ['97GE', 4, true],
+      // Son görülen otobüsten 3 dk'dan sonraki OTP kalkışı kalır (durak ekranındaki kural):
+      // henüz yola çıkmamış bir otobüs olabilir.
+      ['141M', 7, false],
+      ['141M', 27, false],
+    ]);
+    // 91E OTP'de yoktu: hat aracın güzergâh kaydından, yön güzergâhın adından.
+    assert.equal(sonuc[0].trip?.route.gtfsId, '1:503');
+    assert.equal(sonuc[0].trip?.pattern?.headsign, 'GÖZTEPE MAHALLESİ - AKSARAY RİNG');
+    // Aynı güzergâhın OTP kalkışı varsa yön etiketi ondan.
+    assert.equal(sonuc[1].trip?.pattern?.headsign, 'KANUNİ SULTAN SÜLEYMAN');
+  });
+
+  it('köprüde veri yoksa ya da otobüs durağı çoktan geçmişse liste olduğu gibi', () => {
+    const liste = [otp(HATLAR[1], 7, 'KANUNİ SULTAN SÜLEYMAN')];
+    assert.equal(kalkislaraAracKat(liste, HATLAR, {}, T), liste);
+    assert.equal(kalkislaraAracKat(liste, HATLAR, { '141M': [arac('B-2', -5)] }, T), liste);
+  });
+
+  it('durağın hatlarında olmayan araç eklenmez', () => {
+    const liste = [otp(HATLAR[1], 7, 'KANUNİ SULTAN SÜLEYMAN')];
+    assert.deepEqual(ozet(kalkislaraAracKat(liste, HATLAR, { '500T': [arac('X-9', 1)] }, T)), [['141M', 7, false]]);
   });
 });

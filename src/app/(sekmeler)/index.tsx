@@ -2,7 +2,7 @@
 
 import * as Location from 'expo-location';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Pressable } from '@/components/dokun';
 import { ModalSayfa } from '@/components/modal-sayfa';
@@ -30,7 +30,16 @@ import { kalkisCanli } from '@/lib/canli';
 import { mesafeMetre } from '@/lib/cografya';
 import { ayniYer, favoriYerDegistir, useKayitlar, type YerTuru } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
-import { kopruyeIlgiBildir, OtpHatasi, yakinDuraklariGetir, type Hat, type YakinDurak } from '@/lib/otp';
+import { kalkislaraAracKat } from '@/lib/bekleme';
+import {
+  durakVarislariGetir,
+  kopruyeIlgiBildir,
+  OtpHatasi,
+  yakinDuraklariGetir,
+  type AracVarisi,
+  type Hat,
+  type YakinDurak,
+} from '@/lib/otp';
 import { baslikYap, hatEtiketi, useTema, yonYaz, type Tema } from '@/lib/tema';
 import { mesafeYaz } from '@/lib/zaman';
 import { siklikOzeti } from '@/lib/siklik';
@@ -74,6 +83,9 @@ export default function AnaEkran() {
   const harita = useRef<MapView>(null);
 
   const [duraklar, setDuraklar] = useState<YakinDurak[] | null>(null);
+  // Köprünün araç tabanlı varışları (durak → hat → gelen otobüsler): durak ekranı ve
+  // yol tarifi otobüsleri bunlardan gösteriyor; liste de aynısını göstersin.
+  const [aracVarislari, setAracVarislari] = useState<Record<string, Record<string, AracVarisi[]>>>({});
   // Yakındaki durakların ilk gelişi sırayla; bundan sonra (tazelemede) yalnız belirir.
   const [duraklarAcildi, setDuraklarAcildi] = useState(false);
   useEffect(() => {
@@ -81,6 +93,14 @@ export default function AnaEkran() {
     const t = setTimeout(() => setDuraklarAcildi(true), 1200);
     return () => clearTimeout(t);
   }, [duraklar, duraklarAcildi]);
+  const gosterilenDuraklar = useMemo(() => {
+    if (!duraklar) return null;
+    const simdi = Date.now();
+    return duraklar.map((y) => {
+      const v = aracVarislari[y.durak.gtfsId];
+      return v ? { ...y, durak: { ...y.durak, kalkislar: kalkislaraAracKat(y.durak.kalkislar, y.durak.routes, v, simdi) } } : y;
+    });
+  }, [duraklar, aracVarislari]);
   const [hata, setHata] = useState<string | null>(null);
   // Alt yaprağın ölçüleri: ekranın boyu ve arama kutusunun bittiği yer.
   const [ekranBoyu, setEkranBoyu] = useState(0);
@@ -98,7 +118,15 @@ export default function AnaEkran() {
     try {
       const liste = await yakinDuraklariGetir(latitude, longitude);
       if (no !== sonYukleme.current) return;
+      // Otobüs duraklarına gelen araçlar da sorulur, liste ikisi gelince bir kerede yazılır:
+      // önce OTP'nin dakikası görünüp sonra araçtan gelene atlamasın. Köprü kapalıysa boş.
+      const otobusDuraklari = liste
+        .filter(({ durak }) => (durak.routes ?? []).some((r) => (r.mode ?? 'BUS').toUpperCase() === 'BUS'))
+        .map(({ durak }) => durak.gtfsId);
+      const varislar = await durakVarislariGetir(otobusDuraklari);
+      if (no !== sonYukleme.current) return;
       setDuraklar(liste);
+      setAracVarislari(varislar);
       // Yakındaki ilk durakların otobüs hatlarını köprü öncelikle tarasın: evden çıkarken
       // bakılan durakta otobüsler canlı görünsün.
       kopruyeIlgiBildir(liste.slice(0, 4).flatMap((y) => (y.durak.routes ?? []).map((r) => r.shortName)));
@@ -310,7 +338,7 @@ export default function AnaEkran() {
             </View>
           )}
           {duraklar?.length === 0 && <Text style={s.bos}>1 km içinde durak bulunamadı.</Text>}
-          {duraklar?.map(({ durak, mesafe }, i) => (
+          {gosterilenDuraklar?.map(({ durak, mesafe }, i) => (
             <Animated.View
               key={durak.gtfsId}
               // İlk yüklemede duraklar sırayla gelir; tazelemede yeni gelen durak yalnız belirir.

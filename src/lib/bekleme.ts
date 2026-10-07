@@ -11,7 +11,7 @@
 // Bağımlılıksız: testlerden çağrılabiliyor.
 
 import { mesafeMetre, type Nokta } from './cografya';
-import type { AracVarisi, DurakKalkisi } from './otp';
+import type { AracVarisi, DurakKalkisi, Hat, Kalkis } from './otp';
 
 export type BeklemeSecenegi = {
   kisaAd: string;
@@ -71,6 +71,73 @@ export function aracVarislariniKat(kalkislar: DurakKalkisi[], varislar: Record<s
     }
   }
   return sonuc.sort((a, b) => a.an - b.an);
+}
+
+/** Durağı az önce geçmiş sayılan otobüs: köprünün son verisi biraz eski olabilir. */
+const GECMIS_VARIS_MS = 60_000;
+
+/**
+ * Yakındaki duraklar listesi için aracVarislariniKat: OTP'nin ham kalkışlarına köprünün
+ * araç tabanlı varışlarını katar. Durak ekranı ve bekleme kartı otobüsleri araçtan
+ * gösteriyor, liste ise yalnız OTP'nin sefer tabanlı tahmininden gösteriyordu; aynı durak
+ * için iki ekran farklı otobüs ve dakika söylüyordu (97GE listede "Şimdi", durakta 4 dk).
+ *
+ * Kural aynı: otobüsü görülen hatta son görülen otobüse kadarki (ve onunla aynı
+ * dakikalardaki) OTP kalkışları atılır, yerine otobüsler girer. Listede kalkışı olmayan
+ * ama otobüsü gelen hat da eklenir (OTP yalnız ilk üç kalkışı veriyor). Hat bilgisi
+ * durağın hatlarından; aracın güzergâh kaydı (rotaId) tutuyorsa o varyant.
+ *
+ * @param varislar hat kısa adı → bu durağa gelen araçlar (köprü)
+ */
+export function kalkislaraAracKat(
+  kalkislar: Kalkis[],
+  hatlar: Hat[],
+  varislar: Record<string, AracVarisi[]>,
+  simdi: number,
+): Kalkis[] {
+  const anahtar = (s?: string | null) => (s ?? '').trim().toLocaleUpperCase('tr-TR');
+  const kimlik = (g?: string | null) => (g ?? '').slice((g ?? '').lastIndexOf(':') + 1);
+  const gecerli = new Map<string, AracVarisi[]>();
+  for (const [h, l] of Object.entries(varislar)) {
+    const taze = l.filter((v) => v.varis >= simdi - GECMIS_VARIS_MS).sort((a, b) => a.varis - b.varis);
+    if (taze.length) gecerli.set(anahtar(h), taze);
+  }
+  if (!gecerli.size) return kalkislar;
+  const anMs = (k: Kalkis) => ((k.serviceDay ?? 0) + (k.realtimeDeparture ?? k.scheduledDeparture ?? 0)) * 1000;
+  const sonuc = kalkislar.filter((k) => {
+    const l = gecerli.get(anahtar(k.trip?.route?.shortName));
+    return !l || anMs(k) > l[l.length - 1].varis + AYNI_OTOBUS_MS;
+  });
+  for (const [kod, liste] of gecerli) {
+    const ayniHat = (h?: Hat | null) => !!h && anahtar(h.shortName) === kod;
+    const ornek = kalkislar.find((k) => ayniHat(k.trip?.route));
+    for (const v of liste) {
+      const rota =
+        (v.rotaId ? hatlar.find((h) => ayniHat(h) && kimlik(h.gtfsId) === v.rotaId) : undefined) ??
+        ornek?.trip?.route ??
+        hatlar.find(ayniHat);
+      if (!rota) continue;
+      // Yön etiketi aynı güzergâh kaydının OTP kalkışından; yoksa güzergâhın adı (başka
+      // varyantın yön adı yanlış yönü söyleyebilir).
+      const ayniRota = kalkislar.find((k) => k.trip?.route?.gtfsId === rota.gtfsId);
+      const gunBasi = Math.floor((v.varis / 1000 + 3 * 3600) / 86_400) * 86_400 - 3 * 3600;
+      const saniye = Math.round(v.varis / 1000) - gunBasi;
+      sonuc.push({
+        scheduledDeparture: saniye,
+        realtimeDeparture: saniye,
+        realtime: true,
+        serviceDay: gunBasi,
+        headsign: ayniRota?.headsign ?? rota.longName ?? null,
+        stop: ayniRota?.stop ?? null,
+        trip: {
+          gtfsId: `${ARAC_ONEKI}${v.kapiNo}`,
+          route: rota,
+          pattern: ayniRota?.trip?.pattern ?? { code: '', headsign: rota.longName ?? null },
+        },
+      });
+    }
+  }
+  return sonuc.sort((a, b) => anMs(a) - anMs(b));
 }
 
 /** Bir bacağın hattını tanıtan bilgi: kısa ad, desen ve yön. */
