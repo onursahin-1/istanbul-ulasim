@@ -73,6 +73,12 @@ export const HAREKET_OMRU_MS = 10 * 60_000;
 export const DURGUN_SN = 5 * 60;
 export const DURGUN_YARICAP_M = 60;
 /**
+ * Yolda bu kadar uzun süredir duran otobüs servis dışı sayılır, hiç gösterilmez (garajda,
+ * cep peronda park). Göztepe Meydanı'nda 91E'nin 60 ve 118 dakikadır duran iki otobüsü
+ * "en erken 46 dk" diye listede kalıyordu (2026-10-07 23:14).
+ */
+export const SERVIS_DISI_SN = 20 * 60;
+/**
  * Canlı trafik: son CANLI_PENCERE_MS içinde otobüslerin bir durak çiftini gerçekte kaç
  * saniyede geçtiği. Öğrenilen süreler saat dilimi ortalaması (16–20 gibi); o günkü
  * tıkanıklığı bilmiyor. Göztepe Meydanı'nda akşam trafiğinde otobüsler tahminden çok
@@ -181,8 +187,16 @@ export class AracVarislari {
    * @param {(rota:number, durak:number, anSn:number) => number | null} [kalkisBul] hat başından
    *   şu andan sonraki ilk tarife kalkışı (unix sn)
    */
-  constructor(tarife, yolBul, ogrenilenSure, kalkisBul = () => null) {
+  /**
+   * @param {{ yontem?: 'tarife' | 'ogrenilen' }} [secenek] varış süresinin kaynağı:
+   *   'tarife' — İETT'nin planladığı durak arası süreler (Otobüsüm Nerede? ile aynı sonucu
+   *   veriyor: 2026-10-07 Göztepe Meydanı ölçümünde 41 tahminde ortanca fark 0,0 dk);
+   *   'ogrenilen' — öğrenilen süreler, çarpanlar, canlı trafik ve otobüsün kendi hızı
+   *   (aynı ölçümde Otobüsüm Nerede?den ortalama 3,3 dk geç).
+   */
+  constructor(tarife, yolBul, ogrenilenSure, kalkisBul = () => null, secenek = {}) {
     this.tarife = tarife;
+    this.yontem = secenek.yontem ?? 'ogrenilen';
     this.yolBul = yolBul;
     this.ogrenilenSure = ogrenilenSure;
     this.kalkisBul = kalkisBul;
@@ -391,12 +405,23 @@ export class AracVarislari {
       v.durgunBas != null &&
       v.damga - v.durgunBas >= DURGUN_SN * 1000 &&
       simdiMs - v.damga <= DURGUN_TAZE_MS;
+    if (duruyor && simdiMs - v.durgunBas >= SERVIS_DISI_SN * 1000) {
+      return { neden: `${Math.round((simdiMs - v.durgunBas) / 60_000)} dk'dır duruyor (servis dışı sayıldı)` };
+    }
     if (duruyor) cikis = Math.max(cikis, simdiMs / 1000);
-    // Kendi hızı yalnız yolda ilerleyen otobüs için (duran ve hat başında bekleyen ayrı).
-    const kendiHiz = duruyor || hatBasi ? null : this.kendiHizi(v.kapiNo);
-    const parca = this.kalanYol(yol, yer.yer, hedef, anSn, simdiMs, kendiHiz);
-    const { a, b } = this.carpanlar();
-    const sure = (a * parca.O + b * parca.P) * this.yerelOran(durak, simdiMs) + parca.C;
+    let parca;
+    let sure;
+    if (this.yontem === 'tarife') {
+      // Yalnız planlanan durak arası süreler; çarpan, canlı trafik, kendi hızı yok.
+      parca = this.kalanYol(yol, yer.yer, hedef, anSn, null, null, true);
+      sure = parca.P;
+    } else {
+      // Kendi hızı yalnız yolda ilerleyen otobüs için (duran ve hat başında bekleyen ayrı).
+      const kendiHiz = duruyor || hatBasi ? null : this.kendiHizi(v.kapiNo);
+      parca = this.kalanYol(yol, yer.yer, hedef, anSn, simdiMs, kendiHiz);
+      const { a, b } = this.carpanlar();
+      sure = (a * parca.O + b * parca.P) * this.yerelOran(durak, simdiMs) + parca.C;
+    }
     if (cikis + sure - simdiMs / 1000 > EN_UZUN_VARIS_SN) return { neden: 'varış 90 dk\'dan uzak' };
     const varis = Math.max(simdiMs, (cikis + sure) * 1000);
     const { aralik, ogrenilen } = parca;
@@ -476,7 +501,7 @@ export class AracVarislari {
    * Yolun `yer`den `hedef` durağa kalan kısmı: öğrenilen süreli aralıkların toplamı (O),
    * tarife aralıklarının toplamı (P), sn; içinde bulunulan aralığın yalnız kalanı.
    */
-  kalanYol(yol, yer, hedef, anSn, canliAn = null, kendiHiz = null) {
+  kalanYol(yol, yer, hedef, anSn, canliAn = null, kendiHiz = null, yalnizTarife = false) {
     const tam = Math.floor(yer);
     let O = 0;
     let P = 0;
@@ -489,7 +514,7 @@ export class AracVarislari {
       const p = yol[j];
       const q = yol[j + 1];
       const kesir = j === tam ? 1 - (yer - tam) : 1;
-      const ogr = this.ogrenilenSure(p.durak, q.durak, anSn + O + P + C);
+      const ogr = yalnizTarife ? null : this.ogrenilenSure(p.durak, q.durak, anSn + O + P + C);
       const plan = Math.max(0, q.saniye - p.saniye);
       const canli = canliAn != null ? this.canliSure(p.durak, q.durak, canliAn) : null;
       // İçinde bulunulan aralık: otobüs ortalamadan çok yavaş ilerliyorsa kendi hızıyla

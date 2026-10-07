@@ -17,6 +17,7 @@
 //   NABIZ        filo konumu tazeleme aralığı, saniye (75)
 //   OGRENILEN    öğrenilenlerin dosyası (kopru\ogrenilen.json)
 //   TAHMIN       varış tahmini: ogrenilen | sabit (boş: ölçüme göre kendiliğinden; /durum'da `tahmin`)
+//   VARIS_YONTEMI  durak ekranındaki araç tabanlı varış: tarife (varsayılan) | ogrenilen
 //
 // Uç noktalar:
 //   /arac-konumlari        GTFS-RT VehiclePosition  → OTP VEHICLE_POSITIONS
@@ -107,12 +108,16 @@ if (existsSync(SEGMENT_DOSYASI)) {
 }
 const kalite = new KaliteOlcer(tarife, segment);
 // Araç tabanlı varış (sefer eşleştirmesinden bağımsız): durak ekranı ve bekleme kartı için.
+// VARIS_YONTEMI: tarife (varsayılan; "Otobüsüm Nerede?" ile aynı) | ogrenilen (varis.mjs).
+const VARIS_YONTEMI = process.env.VARIS_YONTEMI === 'ogrenilen' ? 'ogrenilen' : 'tarife';
 const varislar = new AracVarislari(
   tarife,
   tarifedenYolBul(tarife, seferDuraklari),
   (a, b, anSn) => segment.sure(a, b, anSn),
   tarifedenKalkisBul(tarife),
+  { yontem: VARIS_YONTEMI },
 );
+console.log(`varış tahmini: ${VARIS_YONTEMI === 'tarife' ? 'planlanan durak arası süreler' : 'öğrenilen süreler ve canlı trafik'}`);
 // Varış tahmininin kendi ölçümü (gerçeğe uyan çarpanlar): diskten sürer.
 const VARIS_DOSYASI = join(KAYIT_KLASORU, 'varis-olcumu.json');
 if (existsSync(VARIS_DOSYASI)) {

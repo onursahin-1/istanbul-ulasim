@@ -243,6 +243,12 @@ GET /durak-varislari?durak=1:301262,1:301263&hat=141M,97M
 → { nabiz, bayat, duraklar: { "1:301262": { "141M": [{ kapiNo, varis, kalanDurak, yasSn, enlem, boylam, ogrenilen }] } } }
 ```
 
+Süre kaynağı `VARIS_YONTEMI` ile seçiliyor. `tarife` (varsayılan) İETT'nin planladığı durak
+arası süreleri kullanıyor; "Otobüsüm Nerede?" ile aynı sonucu veriyor (2026-10-07 Göztepe
+Meydanı, 41 tahmin: ortanca fark +0,5 dk). `ogrenilen` öğrenilen süreleri, canlı trafiği ve
+otobüsün kendi hızını kullanıyor. 20 dakikadan uzun süredir yolda duran otobüs servis dışı
+sayılıp gösterilmiyor.
+
 ### Durak izleme ("Otobüsüm Nerede?" ile karşılaştırma)
 
 Bir durağa gelen otobüsler için iki kaynağı 30 saniyede bir kayda alır: araç tabanlı varış

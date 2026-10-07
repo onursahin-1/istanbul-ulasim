@@ -230,6 +230,12 @@ describe('duran otobüs', () => {
     assert.equal((r[0].varis - SIMDI.getTime()) / 1000, 300);
   });
 
+  it('20 dakikadan uzun duran otobüs servis dışı: listede yok', () => {
+    const v = new AracVarislari(T, yolBul, () => null);
+    nabizlar(v, 18); // 22,5 dk
+    assert.equal(v.durakVarislari(durak4, SIMDI.getTime())['141M'], undefined);
+  });
+
   it('kısa duruş (ışık, trafik) duruyor sayılmaz', () => {
     const v = new AracVarislari(T, yolBul, () => null);
     nabizlar(v, 2); // 2,5 dk
@@ -366,5 +372,20 @@ describe('otobüsün kendi hızı', () => {
     const r = v.durakVarislari(T.rotaDuraklari.get(0)[4].durak, SIMDI.getTime())['141M'][0];
     // 2,1 → 4: 1,9 aralık × 120 sn = 228 sn.
     assert.ok(Math.abs((r.varis - SIMDI.getTime()) / 1000 - 228) < 20);
+  });
+});
+
+describe('tarife yöntemi (Otobüsüm Nerede? ile aynı)', () => {
+  it('yalnız planlanan süreler: öğrenilen süre, canlı trafik ve kendi hızı kullanılmaz', () => {
+    const v = new AracVarislari(T, yolBul, () => 999, () => null, { yontem: 'tarife' });
+    const b = (an) => () => ({ hat: '141M', guzergah: '141M_G_D0', an });
+    // Sürünen otobüs (öğrenilen yöntemde kendi hızı devreye girerdi).
+    for (let dk = 0; dk <= 4; dk++) {
+      const an = SIMDI.getTime() - (4 - dk) * 60_000;
+      v.guncelle([{ kapiNo: 'K-1', enlem: ENLEM, boylam: boylam(1.4 + dk * 0.025), tarih: new Date(an) }], [], b(an), new Date(an));
+    }
+    const r = v.durakVarislari(T.rotaDuraklari.get(0)[4].durak, SIMDI.getTime())['141M'][0];
+    // 1,5 → 4: 2,5 aralık × 120 sn = 300 sn.
+    assert.equal(Math.round((r.varis - SIMDI.getTime()) / 1000), 300);
   });
 });
