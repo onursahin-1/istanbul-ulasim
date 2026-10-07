@@ -28,6 +28,8 @@
 //   /araclar?hat=141M      bir hattın şu an eşlenen araçları: kapı no, sefer, gecikme (tanı için)
 //   /durak-varislari?durak=ID[,ID]&hat=141M,97M
 //                          araç tabanlı varış: durağa gelen her otobüs kaç dakikada (varis.mjs)
+//   /teshis?durak=ID       tanı: bu duraktan geçen hatların her aracı sayıldı mı, sayılmadıysa
+//                          neden; hatların taranma durumu; yakındaki hattı başka sanılan araçlar
 //   /durum                 insan için JSON özet (varış doğruluğu ölçümü `kalite`de)
 //
 // Doğruluk ölçümü: kayit/kalite-YYYY-MM-DD.json, özet için `node kalite-rapor.mjs`.
@@ -190,6 +192,8 @@ const BOS_GECIKME = () => gecikmeAkisi([], new Date());
 let konumlar = BOS_KONUM();
 /** Son nabzın eşlemesi ve anı: tanı uç noktası ve yolculuk kaydı için. */
 let sonEslesenler = [];
+/** Son nabzın ham filo konumları (teşhis: yakındaki araçlar). */
+let sonFilo = [];
 let sonNabizAn = 0;
 let gecikmeler = BOS_GECIKME();
 let sonBasari = 0;
@@ -263,6 +267,7 @@ async function nabiz() {
       simdi,
     );
     sonEslesenler = eslesenler;
+    sonFilo = araclar;
     sonNabizAn = simdi.getTime();
     // Varış tahmini: öğrenilen yol süreleri, ölçüm onları sabit gecikmeden iyi bulduysa
     // (kalite.mjs, yontemKarari). TAHMIN=ogrenilen|sabit ile elle de seçilebilir.
@@ -350,6 +355,66 @@ function ilgiAl(istek, cevap) {
     }
     yanitla(cevap, Buffer.from(JSON.stringify({ kabul })), 'application/json; charset=utf-8');
   });
+}
+
+/** Yakındaki araç taraması için yarıçap (metre). */
+const TESHIS_YARICAP_M = 1500;
+
+/**
+ * Bir durak için tanı: "Otobüsüm Nerede?"de görünen bir otobüs bizde neden yok ya da
+ * neden farklı. Üç katman: (1) duraktan geçen hatların taranma durumu (ne zaman soruldu,
+ * ilgide mi), (2) bu hatlara atanmış her aracın sonucu (varış ya da neden), (3) durağın
+ * yakınında olup hattı başka bir hat sanılan ya da hiç bilinmeyen araçlar (bayat atama).
+ */
+function durakTeshisi(sira) {
+  const simdi = Date.now();
+  const { hatlar, araclar } = varislar.teshis(sira, simdi);
+  const dk = (an) => (an ? Math.round((simdi - an) / 60_000) : null);
+  const hatDurumu = Object.fromEntries(
+    hatlar.map((h) => {
+      const kanonik = tarayici.hatlar.find((x) => String(x).toLocaleUpperCase('tr-TR') === h) ?? h;
+      const d = tarayici.hatDurumu.get(kanonik);
+      const ilgi = tarayici.ilgi.get(kanonik);
+      return [
+        h,
+        {
+          sonTaramaDkOnce: d?.soruldu ? dk(d.sonBakilan) : null,
+          aracSayisi: d?.aracSayisi ?? null,
+          ilgide: ilgi != null && simdi - ilgi <= 45 * 60_000,
+          kalici: tarayici.kalici.has(kanonik),
+        },
+      ];
+    }),
+  );
+  const listede = new Set(araclar.map((a) => a.kapiNo));
+  const enlem = tarife.durakEnlem[sira];
+  const boylam = tarife.durakBoylam[sira];
+  const olcek = Math.cos((enlem * Math.PI) / 180);
+  const yakindaki = [];
+  for (const a of sonFilo) {
+    if (!a.kapiNo || listede.has(a.kapiNo) || !Number.isFinite(a.enlem)) continue;
+    const metre = Math.hypot(a.enlem - enlem, (a.boylam - boylam) * olcek) * 111_320;
+    if (metre > TESHIS_YARICAP_M) continue;
+    const b = tarayici.bilgi(a.kapiNo);
+    yakindaki.push({
+      kapiNo: a.kapiNo,
+      metre: Math.round(metre),
+      bilinenHat: b?.hat ?? null,
+      guzergah: b?.guzergah ?? null,
+      ogrenmeDkOnce: b ? dk(b.an) : null,
+    });
+  }
+  yakindaki.sort((x, y) => x.metre - y.metre);
+  return {
+    nabiz: sonNabizAn ? new Date(sonNabizAn).toISOString() : null,
+    durak: tarife.durakAd[sira],
+    hatlar: hatDurumu,
+    araclar: araclar.map((a) => {
+      const b = tarayici.bilgi(a.kapiNo);
+      return { ...a, guzergah: b?.guzergah ?? null, ogrenmeDkOnce: b ? dk(b.an) : null };
+    }),
+    yakindakiBaskaHat: yakindaki,
+  };
 }
 
 const saatYaz = (sn) => {
@@ -452,6 +517,12 @@ createServer((istek, cevap) => {
     }
     const govde = { nabiz: sonNabizAn ? new Date(sonNabizAn).toISOString() : null, bayat: bayatMi, duraklar };
     return yanitla(cevap, Buffer.from(JSON.stringify(govde)), 'application/json; charset=utf-8');
+  }
+  if (yol === '/teshis') {
+    const id = new URL(istek.url ?? '/', 'http://x').searchParams.get('durak') ?? '';
+    const sira = durakSirasi.get(id.includes(':') ? id.slice(id.lastIndexOf(':') + 1) : id);
+    const govde = sira == null ? { hata: 'durak bulunamadı' } : durakTeshisi(sira);
+    return yanitla(cevap, Buffer.from(JSON.stringify(govde, null, 2)), 'application/json; charset=utf-8');
   }
   if (yol === '/araclar') {
     const hat = new URL(istek.url ?? '/', 'http://x').searchParams.get('hat') ?? '';

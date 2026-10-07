@@ -149,3 +149,55 @@ describe('kendini ölçme', () => {
     assert.ok(Math.abs(h.duzeltilmisOrtalamaSn) < Math.abs(h.hamOrtalamaSn) / 2, JSON.stringify(h));
   });
 });
+
+describe('halka hat: gidiş ve dönüş aynı caddenin iki yakasında', () => {
+  // Rota 9: batıdan doğuya güney yakada 6 durak, sonra kuzey yakadan geri 6 durak (halka).
+  // Hedef durak dönüşte, 5. sırada (x = 1). Otobüs dönüşte x = 2,5'te, batıya gidiyor (önünde
+  // x = 2 ve x = 1: 2 durak);
+  // GPS onu caddenin ortasına, gidiş yakasına biraz daha yakın koyuyor.
+  function halka() {
+    const t = sahteTarife();
+    const duraklar = [];
+    const ekle = (e, b) => {
+      t.durakEnlem.push(e);
+      t.durakBoylam.push(b);
+      duraklar.push({ durak: t.durakEnlem.length - 1, sira: duraklar.length + 1 });
+    };
+    for (const i of [0, 1, 2, 3, 4, 5]) ekle(ENLEM, boylam(i));
+    for (const i of [5, 4, 3, 2, 1, 0]) ekle(ENLEM + 0.0003, boylam(i));
+    t.rotaDuraklari.set(9, duraklar);
+    t.kisaAdtanRotalar.set('91E', [9]);
+    t.guzergahtanRota.set('91E_G_D4952', 9);
+    t.durakAd = t.durakEnlem.map((_, i) => `d${i}`);
+    return { t, duraklar };
+  }
+  const { t: H, duraklar: HD } = halka();
+  const yb = () => HD.map((d, i) => ({ durak: d.durak, saniye: 36000 + i * 120 }));
+  const hedef = HD[10].durak; // dönüşte x = 1
+  const bilgiH = () => ({ hat: '91E', guzergah: '91E_G_D4952', an: SIMDI.getTime() - 60_000 });
+  const konum = (x, an) => ({ kapiNo: 'A-304', enlem: ENLEM + 0.00013, boylam: boylam(x), tarih: new Date(an) });
+
+  it('yönü bilinen otobüs dönüş yakasına yerleşir: durağa 2 durak', () => {
+    const v = new AracVarislari(H, yb, () => null);
+    v.guncelle([konum(3.2, SIMDI.getTime() - 75_000)], [], bilgiH, new Date(SIMDI.getTime() - 75_000));
+    v.guncelle([konum(2.5, SIMDI.getTime())], [], bilgiH, SIMDI);
+    const r = v.durakVarislari(hedef, SIMDI.getTime())['91E'];
+    assert.equal(r?.[0].kalanDurak, 2);
+    assert.equal(r?.[0].sonrakiDurak, `d${HD[11].durak}`);
+  });
+
+  it('yön bilinmezse en yakın parça (eski davranış): gidiş yakası, durağa çok uzak', () => {
+    const yer = yoldakiYer(H, yb(), ENLEM + 0.00013, boylam(2.5), 400);
+    assert.ok(yer.yer < 5, `gidişte bekleniyordu: ${yer.yer}`);
+    const yonlu = yoldakiYer(H, yb(), ENLEM + 0.00013, boylam(2.5), 400, { dx: -0.001, dy: 0 });
+    assert.ok(yonlu.yer > 6, `dönüşte bekleniyordu: ${yonlu.yer}`);
+  });
+
+  it('yerinde sayan otobüs son yönünü korur', () => {
+    const v = new AracVarislari(H, yb, () => null);
+    v.guncelle([konum(3.2, SIMDI.getTime() - 150_000)], [], bilgiH, new Date(SIMDI.getTime() - 150_000));
+    v.guncelle([konum(2.5, SIMDI.getTime() - 75_000)], [], bilgiH, new Date(SIMDI.getTime() - 75_000));
+    v.guncelle([konum(2.5, SIMDI.getTime())], [], bilgiH, SIMDI);
+    assert.equal(v.durakVarislari(hedef, SIMDI.getTime())['91E']?.[0].kalanDurak, 2);
+  });
+});

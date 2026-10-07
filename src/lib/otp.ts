@@ -346,6 +346,8 @@ export type AracVarisi = {
   /** Durağa varış anı, ms. */
   varis: number;
   kalanDurak: number;
+  /** Bu duraktan sonraki durak (GTFS kimliği, besleme öneki yok): otobüsün yönü. */
+  sonrakiDurak?: string | null;
   yasSn: number;
   enlem: number;
   boylam: number;

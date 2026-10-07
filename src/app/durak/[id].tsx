@@ -38,6 +38,7 @@ import {
   durakSaatleriYedekli,
   durakVarislariGetir,
   type AracVarisi,
+  type DurakDeseni,
   OtpHatasi,
   saatsizHatlariGetir,
   saatsizHatMi,
@@ -164,17 +165,44 @@ export default function DurakEkrani() {
   const yonler = useMemo(() => {
     const simdi = Date.now();
     const ad = trKucuk(durak?.name ?? '').trim();
-    const liste = (durak?.desenler ?? [])
-      .map((d) => {
-        // Bu yöne gelen en yakın otobüs: desenin durak sırasında bu durak kaçıncı,
-        // otobüs nerede. İstasyondan (birden çok peron) gelindiyse ad tutan durak.
-        const desenDuraklari = d.pattern?.stops ?? [];
-        // İstasyon ekranında kalkışın hangi perondan olduğu kalkışın kendisinde yazıyor.
-        // Ring hatları istasyonun iki peronundan da (gidişte ve dönüşte) geçiyor.
-        const peron = (d.stoptimes ?? []).find((k) => k?.stop?.gtfsId)?.stop?.gtfsId;
-        let sira = peron ? desenDuraklari.findIndex((x) => x.gtfsId === peron) : -1;
-        if (sira < 0) sira = desenDuraklari.findIndex((x) => x.gtfsId === durak?.gtfsId);
-        if (sira < 0 && ad) sira = desenDuraklari.findIndex((x) => trKucuk(x.name ?? '').trim() === ad);
+    const hatKoduOf = (d: DurakDeseni) =>
+      (d.pattern?.route?.shortName ?? '').trim().toLocaleUpperCase('tr-TR');
+    const kimlik = (g?: string | null) => (g ?? '').slice((g ?? '').lastIndexOf(':') + 1);
+    // Her satırın peronu, desendeki yeri ve bu duraktan sonraki durak.
+    const satirYeri = (d: DurakDeseni) => {
+      // Bu yöne gelen en yakın otobüs: desenin durak sırasında bu durak kaçıncı,
+      // otobüs nerede. İstasyondan (birden çok peron) gelindiyse ad tutan durak.
+      const desenDuraklari = d.pattern?.stops ?? [];
+      // İstasyon ekranında kalkışın hangi perondan olduğu kalkışın kendisinde yazıyor.
+      // Ring hatları istasyonun iki peronundan da (gidişte ve dönüşte) geçiyor.
+      const peron = (d.stoptimes ?? []).find((k) => k?.stop?.gtfsId)?.stop?.gtfsId;
+      let sira = peron ? desenDuraklari.findIndex((x) => x.gtfsId === peron) : -1;
+      if (sira < 0) sira = desenDuraklari.findIndex((x) => x.gtfsId === durak?.gtfsId);
+      if (sira < 0 && ad) sira = desenDuraklari.findIndex((x) => trKucuk(x.name ?? '').trim() === ad);
+      return { desenDuraklari, peron, sira, sonraki: sira >= 0 ? kimlik(desenDuraklari[sira + 1]?.gtfsId) : '' };
+    };
+    // Satırı olmayan güzergâh varyantının otobüsü (ör. günün son seferi geçmiş varyant,
+    // 89C T1087 "Harbiye → İkitelli Garajı") hangi satıra: aynı peronda bu duraktan sonra
+    // aynı durağa giden (aynı yöne) satır; yoksa hattın o perondaki ilk satırı. Eskiden
+    // hattın başka satırında kendi otobüsü varsa bu otobüs hiçbir satıra girmiyordu.
+    const desenler = durak?.desenler ?? [];
+    const yerler = desenler.map(satirYeri);
+    const satirRotalariHat = new Map<string, Set<string>>();
+    desenler.forEach((d) => {
+      const h = hatKoduOf(d);
+      if (!satirRotalariHat.has(h)) satirRotalariHat.set(h, new Set());
+      satirRotalariHat.get(h)!.add(kimlik(d.pattern?.route?.gtfsId));
+    });
+    const sahipsizSatiri = (hat: string, durakId: string, v: AracVarisi): number => {
+      const adaylar = desenler
+        .map((d, i) => i)
+        .filter((i) => hatKoduOf(desenler[i]) === hat && (yerler[i].peron ?? durak?.gtfsId ?? '') === durakId);
+      if (!adaylar.length) return -1;
+      return adaylar.find((i) => !!v.sonrakiDurak && yerler[i].sonraki === v.sonrakiDurak) ?? adaylar[0];
+    };
+    const liste = desenler
+      .map((d, satirNo) => {
+        const { desenDuraklari, peron, sira } = yerler[satirNo];
         const ilkSefer = (d.stoptimes ?? []).find((k) => k)?.trip?.gtfsId;
         const yaklasan =
           sira >= 0 && d.pattern?.vehiclePositions?.length
@@ -191,18 +219,19 @@ export default function DurakEkrani() {
           .filter((k) => k.dakika >= 0)
           .sort((a, b) => a.dakika - b.dakika);
         // Köprü bu durağa gelen otobüsleri görüyorsa onlar: tarife yalnız son görülenden sonrası.
-        const hatKodu = (d.pattern?.route?.shortName ?? '').trim().toLocaleUpperCase('tr-TR');
-        const hepsi = aracVarislari[peron ?? durak?.gtfsId ?? '']?.[hatKodu] ?? [];
+        const hatKodu = hatKoduOf(d);
+        const durakId = peron ?? durak?.gtfsId ?? '';
+        const hepsi = aracVarislari[durakId]?.[hatKodu] ?? [];
         // Aynı hattın birkaç güzergâh satırı varsa (halka, varyant) her otobüs kendi
-        // güzergâhının satırına; güzergâhı hiçbir satıra uymayan hepsinde.
-        const kimlik = (g?: string | null) => (g ?? '').slice((g ?? '').lastIndexOf(':') + 1);
-        const satirRotalari = new Set(
-          (durak?.desenler ?? [])
-            .filter((x) => (x.pattern?.route?.shortName ?? '').trim().toLocaleUpperCase('tr-TR') === hatKodu)
-            .map((x) => kimlik(x.pattern?.route?.gtfsId)),
-        );
-        const kendi = hepsi.filter((v) => v.rotaId === kimlik(d.pattern?.route?.gtfsId));
-        const araclar = kendi.length ? kendi : hepsi.filter((v) => !v.rotaId || !satirRotalari.has(v.rotaId));
+        // güzergâhının satırına; satırı olmayan varyantın otobüsü aynı yöne giden satıra.
+        const satirRotalari = satirRotalariHat.get(hatKodu) ?? new Set<string>();
+        const araclar = hepsi
+          .filter((v) =>
+            v.rotaId && satirRotalari.has(v.rotaId)
+              ? v.rotaId === kimlik(d.pattern?.route?.gtfsId)
+              : sahipsizSatiri(hatKodu, durakId, v) === satirNo,
+          )
+          .sort((a, b) => a.varis - b.varis);
         let yaklasanArac: typeof yaklasan = null;
         if (araclar.length) {
           const son = araclar[araclar.length - 1].varis;

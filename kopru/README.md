@@ -243,6 +243,26 @@ GET /durak-varislari?durak=1:301262,1:301263&hat=141M,97M
 → { nabiz, bayat, duraklar: { "1:301262": { "141M": [{ kapiNo, varis, kalanDurak, yasSn, enlem, boylam, ogrenilen }] } } }
 ```
 
+### Durak izleme ("Otobüsüm Nerede?" ile karşılaştırma)
+
+Bir durağa gelen otobüsler için iki kaynağı 30 saniyede bir kayda alır: araç tabanlı varış
+(durak ekranı ve listeler bunu gösteriyor) ve OTP'nin sefer tabanlı tahmini (rota sonuçları).
+Durakta iki uygulamanın ekran görüntüsü alınırken çalıştırılır; görüntünün saatiyle kayıttaki
+an eşleşir.
+
+```
+node durak-izle.mjs 125181             durak kodu; birkaç durak: 125181,125182; ya da ad
+node durak-izle-rapor.mjs              en yeni kayıt: her otobüsün tahmini nasıl oynadı
+node durak-izle-rapor.mjs <kayıt> 17:34 17:41   o anlarda iki kaynak ne diyordu
+```
+
+Kayıt: `kayit/durak-izle/<kod>-<tarih-saat>.jsonl`.
+
+Köprünün tanısı da kayda giriyor (`GET /teshis?durak=1:579099`): duraktan geçen hatların her
+aracı sayıldı mı, sayılmadıysa neden (konum eski, yönü belirlenemedi, güzergâhın dışında,
+durağı geçmiş…); hatların en son ne zaman tarandığı; durağın 1,5 km yakınında hattı başka
+bir hat sanılan araçlar (bayat araç–hat ataması).
+
 ### Yolculuk kaydı (geliştirme)
 
 Uygulamanın geliştirme sürümünde (Expo Go) "Yolculuğu başlat" deyince takip sırasında gelen

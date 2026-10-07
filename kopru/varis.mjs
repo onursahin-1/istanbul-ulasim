@@ -24,7 +24,7 @@
 // Hat başında (ilk durakta) bekleyen otobüs: tarifedeki kalkışı beklenir, hemen hareket
 // ediyor sayılmaz.
 
-import { KonumIzi, yonluAdaylar } from './yon.mjs';
+import { KonumIzi, metreArasi, yonluAdaylar } from './yon.mjs';
 
 /** Bundan eski konumdaki araç sayılmaz. */
 export const EN_ESKI_KONUM_SN = 10 * 60;
@@ -46,6 +46,10 @@ export const TAZE_GUZERGAH_MS = 20 * 60_000;
 export const DURAKTA_PAYI = 0.15;
 
 const M_DERECE = 111_320;
+/** Aracın gidiş yönü için iki konum arasında en az bu kadar yol (metre); daha azı GPS oynaması. */
+export const YON_ICIN_EN_AZ_M = 40;
+/** Hareket yönü bu kadar süre hatırlanır: durakta, ışıkta bekleyen araç yönünü kaybetmesin. */
+export const HAREKET_OMRU_MS = 10 * 60_000;
 
 /** Noktanın a→b doğru parçasına izdüşümü: oran (0–1) ve uzaklık (metre). */
 function izdusum(tarife, a, b, enlem, boylam) {
@@ -62,14 +66,31 @@ function izdusum(tarife, a, b, enlem, boylam) {
 /**
  * Aracın yol (durak listesi) üstündeki kesirli yeri: 3.4 = dördüncü durağı geçmiş, beşinciye
  * %40 gelmiş. Yola `esik` metreden uzaksa null.
+ *
+ * `hareket` (aracın son gidiş yönü, {dx, dy} derece; boylam farkı enleme göre ölçekli)
+ * verilirse yolun aracın gittiği yöndeki parçaları önce gelir. Halka hatlarda gidiş ve
+ * dönüş aynı caddenin iki yakasından geçiyor (20–40 m); yalnız en yakın parçaya bakınca
+ * dönüşteki otobüs gidişe yerleşiyor, durağa 50 durak uzakta sanılıyordu (89C, 91E,
+ * Göztepe Meydanı). Yönü tutan parça yoksa (kavşakta dönüş, kısa yol) en yakın parça.
  */
-export function yoldakiYer(tarife, yol, enlem, boylam, esik) {
+export function yoldakiYer(tarife, yol, enlem, boylam, esik, hareket = null) {
   let enIyi = null;
+  let yonlu = null;
+  const olcek = Math.cos((enlem * Math.PI) / 180);
   for (let i = 0; i + 1 < yol.length; i++) {
-    const p = izdusum(tarife, yol[i].durak, yol[i + 1].durak, enlem, boylam);
-    if (!enIyi || p.metre < enIyi.metre) enIyi = { yer: i + p.t, metre: p.metre };
+    const a = yol[i].durak;
+    const b = yol[i + 1].durak;
+    const p = izdusum(tarife, a, b, enlem, boylam);
+    const aday = { yer: i + p.t, metre: p.metre };
+    if (!enIyi || p.metre < enIyi.metre) enIyi = aday;
+    if (hareket && p.metre <= esik) {
+      const sx = (tarife.durakBoylam[b] - tarife.durakBoylam[a]) * olcek;
+      const sy = tarife.durakEnlem[b] - tarife.durakEnlem[a];
+      if (sx * hareket.dx + sy * hareket.dy > 0 && (!yonlu || p.metre < yonlu.metre)) yonlu = aday;
+    }
   }
-  return enIyi && enIyi.metre <= esik ? enIyi : null;
+  const sonuc = yonlu ?? enIyi;
+  return sonuc && sonuc.metre <= esik ? sonuc : null;
 }
 
 export class AracVarislari {
@@ -95,10 +116,13 @@ export class AracVarislari {
     this.iz = new KonumIzi();
     /** kapıNo → { rota, an } son bilinen yön */
     this.yon = new Map();
+    /** kapıNo → { dx, dy, an } aracın son gidiş yönü (yoldakiYer'de halka hatlar için) */
+    this.hareket = new Map();
     /** Son nabzın araçları: { kapiNo, hat, rota, enlem, boylam, damga (ms) } */
     this.araclar = [];
     this.an = 0;
     this.yolOnbellegi = new Map();
+    this.atlanan = new Map();
   }
 
   /**
@@ -112,37 +136,72 @@ export class AracVarislari {
     const T = this.tarife;
     const bagli = new Map(eslesenler.map((e) => [e.kapiNo, e.rotaIdx]));
     const liste = [];
+    /** Bu nabızda sayılmayan araçlar ve nedeni (teşhis için). */
+    this.atlanan = new Map();
     for (const a of araclar) {
       if (!a.kapiNo || !Number.isFinite(a.enlem) || !Number.isFinite(a.boylam) || !a.tarih) continue;
-      if ((an - a.tarih.getTime()) / 1000 > EN_ESKI_KONUM_SN) continue;
       const bilgi = bilgiAl(a.kapiNo);
       const hat = String(bilgi?.hat ?? '').trim().toUpperCase();
+      if ((an - a.tarih.getTime()) / 1000 > EN_ESKI_KONUM_SN) {
+        if (hat) this.atlanan.set(a.kapiNo, { hat, neden: `konum ${Math.round((an - a.tarih.getTime()) / 60_000)} dk eski` });
+        continue;
+      }
       if (!hat) continue;
       const rotalar = T.kisaAdtanRotalar.get(hat) ?? [];
       let rota = bagli.get(a.kapiNo);
+      let rotaNasil = rota != null ? 'sefer eşleşmesi' : null;
       if (rota == null && bilgi.guzergah && an - (bilgi.an ?? 0) <= TAZE_GUZERGAH_MS) {
         rota = T.guzergahtanRota.get(String(bilgi.guzergah).toUpperCase());
+        if (rota != null) rotaNasil = 'taze güzergâh kodu';
       }
       if (rota == null) {
         const onceki = this.iz.onceki(a.kapiNo, an);
         if (onceki) rota = yonluAdaylar(T, rotalar, onceki, a)[0]?.rota;
+        if (rota != null) rotaNasil = 'iki konum';
       }
       if (rota == null) {
         const y = this.yon.get(a.kapiNo);
-        if (y && an - y.an <= YON_OMRU_MS && rotalar.includes(y.rota)) rota = y.rota;
+        if (y && an - y.an <= YON_OMRU_MS && rotalar.includes(y.rota)) {
+          rota = y.rota;
+          rotaNasil = 'son bilinen yön';
+        }
       }
+      if (rota == null) this.atlanan.set(a.kapiNo, { hat, neden: 'yönü (güzergâh varyantı) belirlenemedi' });
+      this.hareketiGuncelle(a.kapiNo, a, an);
       this.iz.guncelle(a.kapiNo, a.enlem, a.boylam, an);
       if (rota == null) continue;
       this.yon.set(a.kapiNo, { rota, an });
-      const v = { kapiNo: a.kapiNo, hat, rota, enlem: a.enlem, boylam: a.boylam, damga: a.tarih.getTime() };
+      const h = this.hareket.get(a.kapiNo);
+      const v = {
+        kapiNo: a.kapiNo,
+        hat,
+        rota,
+        enlem: a.enlem,
+        boylam: a.boylam,
+        damga: a.tarih.getTime(),
+        hareket: h && an - h.an <= HAREKET_OMRU_MS ? h : null,
+        rotaNasil,
+      };
       liste.push(v);
       this.olc(v);
     }
     for (const [k, iz] of this.izleme) if (an - iz.damga > 30 * 60_000) this.izleme.delete(k);
     for (const [k, y] of this.yon) if (an - y.an > 2 * YON_OMRU_MS) this.yon.delete(k);
+    for (const [k, h] of this.hareket) if (an - h.an > 2 * HAREKET_OMRU_MS) this.hareket.delete(k);
     this.iz.temizle(an);
     this.araclar = liste;
     this.an = an;
+  }
+
+  /**
+   * Aracın gidiş yönü: önceki konumundan (KonumIzi, araç gerçekten yol alınca yenileniyor)
+   * bugünkü konumuna. Araç yerinde sayıyorsa son bilinen yön kalır.
+   */
+  hareketiGuncelle(kapiNo, a, an) {
+    const onceki = this.iz.onceki(kapiNo, an);
+    if (!onceki || metreArasi(onceki, a) < YON_ICIN_EN_AZ_M) return;
+    const olcek = Math.cos((a.enlem * Math.PI) / 180);
+    this.hareket.set(kapiNo, { dx: (a.boylam - onceki.boylam) * olcek, dy: a.enlem - onceki.enlem, an });
   }
 
   /** Rotanın o duraktan geçen temsilci seferinin yolu (yarım saat önbellekte). */
@@ -164,53 +223,116 @@ export class AracVarislari {
    *   enlem:number, boylam:number, ogrenilen:number}[]>}
    */
   durakVarislari(durak, simdiMs = Date.now(), hatlar = null) {
-    const T = this.tarife;
     const sonuc = {};
     for (const v of this.araclar) {
       if (hatlar && !hatlar.has(v.hat)) continue;
-      const anSn = Math.floor(v.damga / 1000);
-      const yol = this.yol(v.rota, durak, anSn);
-      if (!yol || yol.length < 2) continue;
-      const esik = T.rotaEsik?.get(v.rota) ?? 400;
-      const yer = yoldakiYer(T, yol, v.enlem, v.boylam, esik);
-      if (!yer) continue;
-      // Hedef: aracın önündeki ilk uğrayışı (halka hatlarda durak iki kez geçebilir).
-      let hedef = -1;
-      for (let i = 0; i < yol.length; i++) {
-        if (yol[i].durak === durak && i + DURAKTA_PAYI >= yer.yer) {
-          hedef = i;
-          break;
-        }
+      const { kayit } = this.aracinVarisi(v, durak, simdiMs);
+      if (kayit) (sonuc[v.hat] ??= []).push(kayit);
+    }
+    for (const liste of Object.values(sonuc)) liste.sort((a, b) => a.varis - b.varis);
+    return sonuc;
+  }
+
+  /**
+   * Bir aracın bu durağa varışı: `{ kayit }`, sayılmıyorsa `{ neden }` (teşhis için,
+   * "Otobüsüm Nerede?"de görünen otobüs bizde neden yok).
+   */
+  aracinVarisi(v, durak, simdiMs) {
+    const T = this.tarife;
+    const anSn = Math.floor(v.damga / 1000);
+    const yol = this.yol(v.rota, durak, anSn);
+    if (!yol || yol.length < 2) return { neden: 'aracın güzergâhı bu duraktan geçmiyor' };
+    const esik = T.rotaEsik?.get(v.rota) ?? 400;
+    const yer = yoldakiYer(T, yol, v.enlem, v.boylam, esik, v.hareket);
+    if (!yer) return { neden: `araç güzergâhın ${esik} m dışında` };
+    // Hedef: aracın önündeki ilk uğrayışı (halka hatlarda durak iki kez geçebilir).
+    let hedef = -1;
+    for (let i = 0; i < yol.length; i++) {
+      if (yol[i].durak === durak && i + DURAKTA_PAYI >= yer.yer) {
+        hedef = i;
+        break;
       }
-      if (hedef < 0) continue;
-      const tam = Math.floor(yer.yer);
-      const kalanDurak = Math.max(0, hedef - tam - (yer.yer - tam >= 1 - DURAKTA_PAYI ? 1 : 0));
-      if (hedef - tam > EN_UZAK_DURAK) continue;
-      const parca = this.kalanYol(yol, yer.yer, hedef, anSn);
-      const { a, b } = this.carpanlar();
-      let sure = a * parca.O + b * parca.P;
-      // Hat başında bekleyen otobüs: tarifedeki kalkış saatinden önce yola çıkmaz.
-      let cikis = v.damga / 1000;
-      if (yer.yer < DURAKTA_PAYI) {
-        const kalkis = this.kalkisBul(v.rota, yol[0].durak, Math.floor(simdiMs / 1000));
-        if (kalkis != null && kalkis > cikis) cikis = kalkis;
-      }
-      if (cikis + sure - simdiMs / 1000 > EN_UZUN_VARIS_SN) continue;
-      const varis = Math.max(simdiMs, (cikis + sure) * 1000);
-      const { aralik, ogrenilen } = parca;
-      (sonuc[v.hat] ??= []).push({
+    }
+    if (hedef < 0) return { neden: 'durağı geçmiş' };
+    const tam = Math.floor(yer.yer);
+    const kalanDurak = Math.max(0, hedef - tam - (yer.yer - tam >= 1 - DURAKTA_PAYI ? 1 : 0));
+    if (hedef - tam > EN_UZAK_DURAK) return { neden: `durağa ${hedef - tam} durak (çok uzak)` };
+    const parca = this.kalanYol(yol, yer.yer, hedef, anSn);
+    const { a, b } = this.carpanlar();
+    const sure = a * parca.O + b * parca.P;
+    // Hat başında bekleyen otobüs: tarifedeki kalkış saatinden önce yola çıkmaz.
+    let cikis = v.damga / 1000;
+    if (yer.yer < DURAKTA_PAYI) {
+      const kalkis = this.kalkisBul(v.rota, yol[0].durak, Math.floor(simdiMs / 1000));
+      if (kalkis != null && kalkis > cikis) cikis = kalkis;
+    }
+    if (cikis + sure - simdiMs / 1000 > EN_UZUN_VARIS_SN) return { neden: 'varış 90 dk\'dan uzak' };
+    const varis = Math.max(simdiMs, (cikis + sure) * 1000);
+    const { aralik, ogrenilen } = parca;
+    return {
+      kayit: {
         kapiNo: v.kapiNo,
         rotaId: T.rotaAd?.[v.rota] ?? null,
         varis,
         kalanDurak,
+        // Durağın ardından gelen durak: uygulama otobüsü aynı yöne giden satıra koysun
+        // (aracın güzergâh varyantının satırı yoksa; ör. günün son seferi geçmiş varyant).
+        sonrakiDurak: yol[hedef + 1] ? (T.durakAd?.[yol[hedef + 1].durak] ?? null) : null,
         yasSn: Math.max(0, Math.round((simdiMs - v.damga) / 1000)),
         enlem: v.enlem,
         boylam: v.boylam,
         ogrenilen: aralik ? Math.round((ogrenilen / aralik) * 100) / 100 : 1,
+      },
+    };
+  }
+
+  /**
+   * Teşhis: bu duraktan geçen hatların son nabızdaki bütün araçları, sayıldıysa varışı,
+   * sayılmadıysa nedeni. Hattı başka sanılan ya da hiç bilinmeyen yakındaki araçlar
+   * sunucuda ayrıca ekleniyor (tarama bilgisi orada).
+   */
+  teshis(durak, simdiMs = Date.now()) {
+    const T = this.tarife;
+    const hatlar = this.durakHatlari(durak);
+    const sonuc = [];
+    for (const v of this.araclar) {
+      if (!hatlar.has(v.hat)) continue;
+      const { kayit, neden } = this.aracinVarisi(v, durak, simdiMs);
+      sonuc.push({
+        kapiNo: v.kapiNo,
+        hat: v.hat,
+        rota: T.rotaAd?.[v.rota] ?? null,
+        rotaNasil: v.rotaNasil ?? null,
+        yonVar: !!v.hareket,
+        konumYasSn: Math.round((simdiMs - v.damga) / 1000),
+        ...(kayit ? { varisDk: Math.round((kayit.varis - simdiMs) / 6000) / 10, kalanDurak: kayit.kalanDurak } : { neden }),
       });
     }
-    for (const liste of Object.values(sonuc)) liste.sort((a, b) => a.varis - b.varis);
-    return sonuc;
+    for (const [kapiNo, a] of this.atlanan) {
+      if (hatlar.has(a.hat)) sonuc.push({ kapiNo, hat: a.hat, neden: a.neden });
+    }
+    return { hatlar: [...hatlar], araclar: sonuc };
+  }
+
+  /** Duraktan geçen hatların kısa adları (büyük harf). */
+  durakHatlari(durak) {
+    const T = this.tarife;
+    if (!this.rotaHat) {
+      this.rotaHat = new Map();
+      for (const [hat, rotalar] of T.kisaAdtanRotalar) for (const r of rotalar) this.rotaHat.set(r, hat);
+    }
+    const hatlar = new Set();
+    if (T.durakBas && T.sSefer && T.seferRota) {
+      for (let i = T.durakBas[durak]; i < T.durakBas[durak + 1]; i++) {
+        const h = this.rotaHat.get(T.seferRota[T.sSefer[i]]);
+        if (h) hatlar.add(h);
+      }
+    } else {
+      for (const [rota, liste] of T.rotaDuraklari) {
+        if (liste.some((d) => d.durak === durak) && this.rotaHat.has(rota)) hatlar.add(this.rotaHat.get(rota));
+      }
+    }
+    return hatlar;
   }
 
   /**
@@ -273,7 +395,7 @@ export class AracVarislari {
       k = { rota: v.rota, yol, yer: null, damga: v.damga, hedefler: [] };
       this.izleme.set(v.kapiNo, k);
     }
-    const yer = yoldakiYer(T, k.yol, v.enlem, v.boylam, T.rotaEsik?.get(v.rota) ?? 400);
+    const yer = yoldakiYer(T, k.yol, v.enlem, v.boylam, T.rotaEsik?.get(v.rota) ?? 400, v.hareket);
     if (!yer) {
       this.izleme.delete(v.kapiNo);
       return;
