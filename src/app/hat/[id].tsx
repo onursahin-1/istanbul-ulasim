@@ -18,6 +18,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   Easing,
   FadeInLeft,
+  Keyframe,
   FadeOut,
   LinearTransition,
   useAnimatedStyle,
@@ -25,7 +26,6 @@ import Animated, {
   useSharedValue,
   withRepeat,
   withTiming,
-  ZoomIn,
   type EntryAnimationsValues,
 } from 'react-native-reanimated';
 import { Pressable } from '@/components/dokun';
@@ -527,16 +527,14 @@ export default function HatEkrani() {
                       {(durakSonrasi.get(i) ?? []).map((o) => (
                         <Animated.View
                           key={o.kimlik}
-                          // Açılışta otobüsler en son, yaylı belirir; sonra bir sonraki durağa
-                          // geçen otobüsün yeni satırı açılırken simgesi önceki duraktan iner.
-                          entering={
-                            acilis.acik
-                              ? ZoomIn.delay(40 + Math.min(i, SIRALI_DURAK) * 45 + 150).springify().damping(12)
-                              : otobusIner
-                          }
+                          // Açılışta satır yerinde durur; simgesi önceki duraktan çizgi boyunca iner,
+                          // yazısı belirir (OtobusSatiri, acilisGecikmesi). Sonra bir sonraki durağa
+                          // geçen otobüsün yeni satırı açılırken önceki duraktan iner.
+                          entering={acilis.acik ? undefined : otobusIner}
                           exiting={FadeOut.duration(220)}
                         >
                           <OtobusSatiri
+                            acilisGecikmesi={acilis.acik ? 40 + Math.min(i, SIRALI_DURAK) * 45 + 150 : null}
                             otobus={o}
                             renkKodu={renkKodu}
                             sonDurak={son}
@@ -580,6 +578,28 @@ function otobusIner(v: EntryAnimationsValues) {
   };
 }
 
+/**
+ * Açılışta otobüs simgesi bir önceki duraktan çizgi boyunca kendi yerine kayarak iner,
+ * hafifçe oturur. Yazı büyüyüp küçülmez (eskiden bütün satır yaylı büyüyordu, "Durakta"
+ * yazısı ekrandan taşıyordu); yalnız solarak gelir (OTOBUS_YAZI_GIRISI).
+ */
+const otobusSimgeGirisi = (gecikme: number) =>
+  new Keyframe({
+    0: { opacity: 0, transform: [{ translateY: -30 }] },
+    15: { opacity: 1, transform: [{ translateY: -30 }] },
+    80: { opacity: 1, transform: [{ translateY: 2 }], easing: Easing.out(Easing.cubic) },
+    100: { opacity: 1, transform: [{ translateY: 0 }] },
+  })
+    .duration(520)
+    .delay(gecikme);
+const otobusYaziGirisi = (gecikme: number) =>
+  new Keyframe({
+    0: { opacity: 0, transform: [{ translateX: -6 }] },
+    100: { opacity: 1, transform: [{ translateX: 0 }], easing: Easing.out(Easing.quad) },
+  })
+    .duration(260)
+    .delay(gecikme + 120);
+
 /** Senin durağının noktası: en yakın otobüs bir durak kalınca etrafında halka atar. */
 function NabizHalkasi({ renk }: { renk: string }) {
   const azalt = useReducedMotion();
@@ -620,7 +640,10 @@ function OtobusSatiri({
   sonDurak,
   durakAdi,
   onPress,
+  acilisGecikmesi = null,
 }: {
+  /** Ekran açılırken: simge iner, yazı belirir (ms gecikmeyle). Açılıştan sonra null. */
+  acilisGecikmesi?: number | null;
   otobus: YerlesikArac;
   renkKodu: string;
   sonDurak: boolean;
@@ -648,20 +671,28 @@ function OtobusSatiri({
     >
       <View style={s.cizgiSutun}>
         <View style={[s.cizgiTam, { backgroundColor: renkKodu }, sonDurak && { opacity: 0 }]} />
-        <View style={[s.otobusSimge, { backgroundColor: simgeRengi, borderColor: tema.yuzey }]}>
+        <Animated.View
+          entering={acilisGecikmesi != null ? otobusSimgeGirisi(acilisGecikmesi) : undefined}
+          style={[s.otobusSimge, { backgroundColor: simgeRengi, borderColor: tema.yuzey }]}
+        >
           <Ikon ad="bus" boyut={12} renkKodu={tema.yuzey} />
-        </View>
+        </Animated.View>
       </View>
-      {eski ? (
-        <Text style={s.otobusSoluk} numberOfLines={1}>
-          {`${durakAdi} civarı · ${yasYaz(otobus.yasSn)} görüldü`}
-        </Text>
-      ) : (
-        <Text style={s.otobusYazi} numberOfLines={1}>
-          <Text style={s.kalin}>{otobus.durum === 'durakta' ? 'Durakta' : 'Yaklaşıyor'}</Text>
-          <Text style={s.otobusYas}>{`  ${yasYaz(otobus.yasSn)}`}</Text>
-        </Text>
-      )}
+      <Animated.View
+        entering={acilisGecikmesi != null ? otobusYaziGirisi(acilisGecikmesi) : undefined}
+        style={s.otobusMetin}
+      >
+        {eski ? (
+          <Text style={s.otobusSoluk} numberOfLines={1}>
+            {`${durakAdi} civarı · ${yasYaz(otobus.yasSn)} görüldü`}
+          </Text>
+        ) : (
+          <Text style={s.otobusYazi} numberOfLines={1}>
+            <Text style={s.kalin}>{otobus.durum === 'durakta' ? 'Durakta' : 'Yaklaşıyor'}</Text>
+            <Text style={s.otobusYas}>{`  ${yasYaz(otobus.yasSn)}`}</Text>
+          </Text>
+        )}
+      </Animated.View>
     </Pressable>
   );
 }
@@ -735,6 +766,8 @@ const stiller = (t: Tema) =>
       overflow: 'hidden',
     },
     otobus: { flexDirection: 'row', alignItems: 'center', gap: 11, height: 34 },
+    // Yazının kabı satır boyunca uzanır, yazıyı dikeyde ortalar (simgeyle aynı hizada).
+    otobusMetin: { flex: 1, minWidth: 0, alignSelf: 'stretch', justifyContent: 'center' },
     cizgiTam: { position: 'absolute', top: 0, bottom: 0, width: 3 },
     otobusSimge: {
       width: 22,
@@ -744,9 +777,9 @@ const stiller = (t: Tema) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
-    otobusYazi: { flex: 1, fontSize: 12.5, color: t.yazi },
+    otobusYazi: { fontSize: 12.5, color: t.yazi },
     otobusYas: { color: t.soluk },
-    otobusSoluk: { flex: 1, fontSize: 12.5, color: t.soluk, fontStyle: 'italic' },
+    otobusSoluk: { fontSize: 12.5, color: t.soluk, fontStyle: 'italic' },
     tamami: {
       position: 'absolute',
       right: 12,
