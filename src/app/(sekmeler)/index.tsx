@@ -54,9 +54,9 @@ import { useScrollToTop } from 'expo-router';
 const YENILEME_ARALIGI = 30_000;
 
 /**
- * Minibüs ve dolmuş hatlarını araç tipine göre gruplar: her tip tek satır, yanında
- * güzergâh adları. Saatleri olmadığı için (bkz. saatsizHatlariKatla) yalnız hangi
- * hatların uğradığını söylüyoruz.
+ * Saatsiz hatları (bugün yalnız dolmuş; minibüsler yakın durak listesine hiç gelmiyor,
+ * bkz. hatlariCikar) araç tipine göre gruplar: her tip tek satır, yanında güzergâh adları.
+ * Saatleri olmadığı için (bkz. saatsizHatlariKatla) yalnız hangi hatların uğradığını söylüyoruz.
  */
 function saatsizGruplari(hatlar: Hat[]): { tur: string; hatlar: Hat[]; adlar: string[] }[] {
   const gruplar = new Map<string, { tur: string; hatlar: Hat[]; adlar: string[] }>();

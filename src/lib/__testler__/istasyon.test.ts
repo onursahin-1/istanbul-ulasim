@@ -7,6 +7,7 @@ import {
   adTekrariniEle,
   aramayiIndir,
   ayniAdliSaatsizHatlar,
+  hatlariCikar,
   saatsizHatlariKatla,
   temsilci,
   yakinlariIndir,
@@ -310,5 +311,31 @@ describe('ayniAdliSaatsizHatlar', () => {
   it('durağın kendi minibüs hatlarını da sayar', () => {
     const hatlar = ayniAdliSaatsizHatlar({ gtfsId: 'rv:90990', name: 'MALAZGİRT İLK Ö.O', routes: [MB2, IETT] }, [], minibusMu);
     assert.deepEqual(hatlar.map((h) => h.gtfsId), ['mb2']);
+  });
+});
+
+describe('hatlariCikar', () => {
+  type H = { gtfsId: string; minibus?: boolean };
+  const minibusMu = (h: H) => !!h.minibus;
+  const MB = { gtfsId: 'mb', minibus: true };
+  const IETT = { gtfsId: 'iett-89C' };
+  const y = (id: string, kalkis: number, hatlar: H[]) => ({
+    mesafe: 50,
+    durak: { gtfsId: id, name: id, code: null, desc: null, lat: 41, lon: 29, kalkislar: Array(kalkis).fill(0), routes: hatlar },
+  });
+
+  it('yalnız minibüsü olan durağı listeden çıkarır', () => {
+    const sonuc = hatlariCikar([y('mb', 0, [MB]), y('iett', 2, [IETT])], minibusMu);
+    assert.deepEqual(sonuc.map((x) => x.durak.gtfsId), ['iett']);
+  });
+
+  it('karma durakta minibüs hattını siler, durağı bırakır', () => {
+    const sonuc = hatlariCikar([y('karma', 0, [IETT, MB])], minibusMu);
+    assert.deepEqual(sonuc[0].durak.routes.map((h) => h.gtfsId), ['iett-89C']);
+  });
+
+  it('hat bilgisi gelmeyen durağa dokunmaz', () => {
+    const sonuc = hatlariCikar([y('bilinmeyen', 0, [])], minibusMu);
+    assert.equal(sonuc.length, 1);
   });
 });

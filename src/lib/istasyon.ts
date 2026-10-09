@@ -145,6 +145,26 @@ export function yakinlariIndir<T extends Konumlu, K, R extends { gtfsId: string 
 }
 
 /**
+ * Yakın durak listesinden bir hat türünü çıkarır: hatları durakların hat listesinden
+ * silinir, yalnız o türden hatları olan (ve kalkışı olmayan) duraklar listeden düşer.
+ *
+ * Kullanım: Keşfet'teki "Yakındaki duraklar"da minibüsler gösterilmiyor. Saatleri
+ * olmadığı için satırları hep "şu an sefer yok" yazıyor, gerçek kalkışları aşağı itiyordu.
+ * Hat bilgisi hiç gelmemiş durağa dokunulmaz (neyin geçtiğini bilmiyoruz).
+ */
+export function hatlariCikar<K, R extends { gtfsId: string }>(
+  liste: IndirilmisYakin<K, R>[],
+  cikar: (hat: R) => boolean,
+): IndirilmisYakin<K, R>[] {
+  return liste.flatMap((y) => {
+    const kalan = y.durak.routes.filter((h) => !cikar(h));
+    if (kalan.length === y.durak.routes.length) return [y];
+    if (kalan.length === 0 && y.durak.kalkislar.length === 0) return [];
+    return [{ ...y, durak: { ...y.durak, routes: kalan } }];
+  });
+}
+
+/**
  * Saatsiz hatları (minibüs, dolmuş) yakın durak listesine katlar ve seferi
  * görünmeyen durakları gizler.
  *

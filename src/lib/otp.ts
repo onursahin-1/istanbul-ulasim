@@ -42,7 +42,7 @@ import type { HamArac } from './arac-konum';
 import type { Duyuru } from './duyuru';
 import { isletmeciAdi } from './hat-adi';
 import { desenleriBirlestir, kardesKimlikleri } from './hat-tekil';
-import { aramayiIndir, ayniAdliSaatsizHatlar, saatsizHatlariKatla, yakinlariIndir, type Ebeveynli } from './istasyon';
+import { aramayiIndir, ayniAdliSaatsizHatlar, hatlariCikar, saatsizHatlariKatla, yakinlariIndir, type Ebeveynli } from './istasyon';
 import { yonAdi } from './metin';
 import { kapaliTurleriAyikla, minibussuzSuzgec, trafiksizSuzgec, vasitaSuzgeci, type VasitaTuru } from './vasita';
 import { gunuKaydir } from './onbellek';
@@ -261,8 +261,10 @@ export async function yakinDuraklariGetir(lat: number, lon: number, sinyal?: Abo
     3,
     (k: Kalkis) => `${k.trip?.gtfsId ?? ''}|${k.serviceDay ?? 0}|${k.scheduledDeparture ?? 0}`,
   );
-  // Minibüs ve dolmuş: OTP kalkışlarını vermiyor; hatlarını aynı adlı durağa katla, boş durakları gizle.
-  return saatsizHatlariKatla(indirilmis, saatsizHatMi) as YakinDurak[];
+  // Minibüsler yakın durak listesinde gösterilmiyor (bkz. hatlariCikar); durak ekranında duruyor.
+  const minibussuz = hatlariCikar(indirilmis, minibusHattiMi);
+  // Dolmuş: OTP kalkışlarını vermiyor; hatlarını aynı adlı durağa katla, boş durakları gizle.
+  return saatsizHatlariKatla(minibussuz, saatsizHatMi) as YakinDurak[];
 }
 
 /** Bir kalkışın mutlak anı (saniye); gerçek zamanlı varsa o, yoksa tarifedeki. */
@@ -897,6 +899,11 @@ export async function durakSaatleriGetir(
   const sonuc = ham ? { ...ham, desenler: desenleriBirlestir(ham.desenler ?? []) } : null;
   if (sonuc) void onbellegeYaz(`durak:${id}`, sonuc);
   return sonuc;
+}
+
+/** Minibüs hattı mı (taksi dolmuş hariç)? */
+function minibusHattiMi(h: Hat): boolean {
+  return isletmeciAdi(h.agency?.name) === 'Minibüs';
 }
 
 /** Minibüs ve dolmuş: sıklık tabanlı, OTP'den kalkış saati gelmiyor. */
