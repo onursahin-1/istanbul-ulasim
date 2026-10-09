@@ -10,6 +10,7 @@ import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View }
 import { Pressable } from '@/components/dokun';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Logo, logoKoseYaricapi } from '@/components/logo';
 import { useStiller } from '@/components/ulasim';
 import { OTP_ADRESI, sunucuBilgisiGetir, type SunucuBilgisi } from '@/lib/otp';
 import { poiBilgisi } from '@/lib/poi';
@@ -28,6 +29,8 @@ function isletmeciAdiDuzelt(ad: string): string {
   if (buyuk === 'TCDD') return 'TCDD Taşımacılık';
   return temiz;
 }
+
+const LOGO_BOYUTU = 76;
 
 function tarihYaz(saniye?: number | null): string {
   if (!saniye) return '—';
@@ -108,6 +111,15 @@ export default function HakkindaEkrani() {
           />
         }
       >
+        {/* Uygulamanın kimliği: logo, ad, sürüm (iPhone'daki uygulama bilgi ekranları gibi). */}
+        <View style={s.kimlik}>
+          <View style={[s.logoGolge, { borderRadius: logoKoseYaricapi(LOGO_BOYUTU) }]}>
+            <Logo boyut={LOGO_BOYUTU} />
+          </View>
+          <Text style={s.uygulamaAdi}>İstanbul Ulaşım</Text>
+          <Text style={s.surum}>Sürüm {Constants.expoConfig?.version ?? '—'}</Text>
+        </View>
+
         <Grup
           baslik="Rota sunucusu"
           dipnot={sunucuHatasi ?? undefined}
@@ -151,8 +163,7 @@ export default function HakkindaEkrani() {
               : undefined
           }
         >
-          <Satir etiket="Sürüm" deger={Constants.expoConfig?.version ?? '—'} />
-          <Satir etiket="Telif" deger="© 2026 Onur Şahin" />
+          <Satir etiket="Telif" deger="© 2026 Meryem Can, Onur Şahin" satirSayisi={2} />
           <Pressable
             onPress={yenile}
             disabled={yenileniyor}
@@ -201,12 +212,15 @@ function Satir({
   deger,
   son = false,
   altta = false,
+  satirSayisi = 1,
   children,
 }: {
   etiket: string;
   deger?: string;
   son?: boolean;
   altta?: boolean;
+  /** Sağdaki değer en çok kaç satıra yayılsın (dar ekranda uzun değer kesilmesin). */
+  satirSayisi?: number;
   children?: ReactNode;
 }) {
   const s = useStiller(stiller);
@@ -217,7 +231,7 @@ function Satir({
         (altta ? (
           <Text style={s.degerAltta}>{deger}</Text>
         ) : (
-          <Text style={s.deger} numberOfLines={1}>
+          <Text style={s.deger} numberOfLines={satirSayisi}>
             {deger}
           </Text>
         ))}
@@ -230,6 +244,17 @@ function Satir({
 const stiller = (t: Tema) =>
   StyleSheet.create({
     kok: { flex: 1, backgroundColor: t.zemin },
+    kimlik: { alignItems: 'center', paddingTop: 14, paddingBottom: 2 },
+    logoGolge: {
+      backgroundColor: '#0B827E',
+      shadowColor: '#065A5E',
+      shadowOpacity: t.koyu ? 0.5 : 0.28,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 6,
+    },
+    uygulamaAdi: { fontSize: 20, fontWeight: '700', color: t.yazi, marginTop: 12 },
+    surum: { fontSize: 13.5, color: t.soluk, marginTop: 2, fontVariant: ['tabular-nums'] },
     grup: { marginTop: 18 },
     grupBaslik: { fontSize: 12.5, color: t.soluk, paddingHorizontal: 32, paddingBottom: 6, letterSpacing: 0.3 },
     kutu: { marginHorizontal: 16, backgroundColor: t.yuzey, borderRadius: 12, overflow: 'hidden' },
