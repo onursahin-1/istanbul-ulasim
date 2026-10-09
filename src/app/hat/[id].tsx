@@ -69,6 +69,7 @@ import {
   saatsizHatMi,
   type HatDetayi,
 } from '@/lib/otp';
+import { hatPencereleri } from '@/lib/siklik-verisi';
 import { aracAdi, baslikYap, haritaRengi, hatRengi, useTema, yaziRengi, type Tema } from '@/lib/tema';
 import { secimTiki, vurus } from '@/lib/dokunsal';
 import { useCanliAralik, useNabizAkisi } from '@/lib/canli-aralik';
@@ -194,8 +195,25 @@ export default function HatEkrani() {
   }, [duraklar, gelinenDurak, durakAd]);
 
   // Tarife: gelinen durağın (yoksa ilk durağın) bu yöndeki bütün günkü kalkışları.
-  // Minibüs ve dolmuşun saati yok; onlarda tarife düğmesi çıkmıyor.
+  // Minibüs ve dolmuşun saati yok; onlarda yerine "Sefer sıklığı" düğmesi var.
   const tarifeVar = !!hat && !saatsizHatMi(hat);
+  // Minibüs ve dolmuş: saat yok ama sıklık var; aynı ekran durak seçmeden, yalnız sıklıkla açılır.
+  const siklikVar = !!hat && saatsizHatMi(hat) && !!hatPencereleri(hat.shortName, hat.longName);
+  const siklikAc = () => {
+    if (!hat) return;
+    ekranAc({
+      pathname: '/tarife',
+      params: {
+        siklik: '1',
+        baslik: baslikYap(hat.longName) || baslikYap(hat.shortName),
+        kisaAd: hat.shortName ?? '',
+        uzunAd: hat.longName ?? '',
+        mod: hat.mode ?? '',
+        renk: hat.color ?? '',
+        isletmeci: hat.agency?.name ?? '',
+      },
+    });
+  };
   const tarifeDuragi = isaretli >= 0 ? duraklar[isaretli] : duraklar[0];
   const tarifeAc = (d: { gtfsId: string; name: string } | undefined) => {
     if (!d || !secili || !hat) return;
@@ -219,6 +237,7 @@ export default function HatEkrani() {
         mod: hat.mode ?? '',
         renk: hat.color ?? '',
         isletmeci: hat.agency?.name ?? '',
+        uzunAd: hat.longName ?? '',
       },
     });
   };
@@ -486,6 +505,25 @@ export default function HatEkrani() {
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={s.tarifeBaslik} numberOfLines={1}>
                       {`${baslikYap(tarifeDuragi.name)} durağından tarife`}
+                    </Text>
+                    <Text style={s.tarifeAlt} numberOfLines={1}>
+                      Hafta içi, Cumartesi, Pazar · bütün gün
+                    </Text>
+                  </View>
+                  <Ikon ad="chevron-forward" boyut={17} renkKodu={tema.vurguYazi} />
+                </Pressable>
+              )}
+              {siklikVar && (
+                <Pressable
+                  style={s.tarifeDugme}
+                  onPress={siklikAc}
+                  accessibilityRole="button"
+                  accessibilityHint="Hafta içi, Cumartesi ve Pazar günü kaç dakikada bir kalktığı"
+                >
+                  <Ikon ad="time-outline" boyut={20} renkKodu={tema.vurguYazi} />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={s.tarifeBaslik} numberOfLines={1}>
+                      Sefer sıklığı
                     </Text>
                     <Text style={s.tarifeAlt} numberOfLines={1}>
                       Hafta içi, Cumartesi, Pazar · bütün gün

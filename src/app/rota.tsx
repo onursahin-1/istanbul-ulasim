@@ -834,7 +834,7 @@ export default function RotaEkrani() {
               <Text style={s.tercihBaslik}>Basamaksız güzergâh</Text>
               <Text style={s.tercihAlt}>
                 Merdivenli yollardan ve basamaklı araçlardan (T2, T3 nostaljik tramvay) kaçınılır; metro, Marmaray ve
-                modern tramvay istasyonları öne alınır. Otobüs ve vapurun erişim bilgisi yok: elenmez, geride sayılır.
+                modern tramvay istasyonları öne alınır. Metrobüs basamaksız sayılır; öbür otobüslerin ve vapurun erişim bilgisi yok: elenmez, geride sayılır.
               </Text>
             </View>
             <Switch

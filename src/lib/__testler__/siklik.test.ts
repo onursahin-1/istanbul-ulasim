@@ -5,10 +5,12 @@ import { describe, it } from 'node:test';
 
 import {
   dakikadanSaat,
+  gununPencereleri,
   istanbulAni,
   siklikBul,
   siklikDurumu,
   siklikOzeti,
+  siklikSimdi,
   siklikYaz,
   type Pencere,
 } from '../siklik';
@@ -84,5 +86,89 @@ describe('siklikBul', () => {
     const veri = { 'İSTOÇ-BAĞCILAR DEVLET HASTANESİ': HAT };
     assert.equal(siklikBul(veri, 'İstoç-Bağcılar Devlet Hastanesi '), HAT);
     assert.equal(siklikBul(veri, 'yok'), null);
+  });
+});
+
+describe('gununPencereleri', () => {
+  // F2 (Tünel), gerçek veri: hafta içi üç pencere, pazar tek.
+  const F2: Pencere[] = [
+    ['0000001', 450, 1365, 7],
+    ['1111100', 420, 476, 7],
+    ['1111100', 476, 1260, 5],
+    ['1111100', 1260, 1365, 7],
+  ];
+
+  it('seçilen günün pencereleri sıralı', () => {
+    assert.deepEqual(gununPencereleri(F2, 2), [
+      { bas: 420, bit: 476, aralik: 7 },
+      { bas: 476, bit: 1260, aralik: 5 },
+      { bas: 1260, bit: 1365, aralik: 7 },
+    ]);
+    assert.deepEqual(gununPencereleri(F2, 6), [{ bas: 450, bit: 1365, aralik: 7 }]);
+  });
+
+  it('o gün çalışmıyorsa boş', () => {
+    assert.deepEqual(gununPencereleri(F2, 5), []);
+    assert.deepEqual(gununPencereleri(null, 0), []);
+  });
+
+  it('aynı aralıkla bitişik pencereleri ve iki desenden gelen aynı pencereyi birleştirir', () => {
+    const P: Pencere[] = [
+      ['1111111', 600, 900, 10],
+      ['1111111', 360, 600, 10],
+      ['1111111', 900, 1200, 6],
+      ['1111111', 900, 1200, 8],
+    ];
+    assert.deepEqual(gununPencereleri(P, 0), [
+      { bas: 360, bit: 900, aralik: 10 },
+      { bas: 900, bit: 1200, aralik: 6 },
+    ]);
+  });
+});
+
+describe('siklikSimdi', () => {
+  const bugun = [
+    { bas: 420, bit: 476, aralik: 7 },
+    { bas: 476, bit: 1260, aralik: 5 },
+    { bas: 1260, bit: 1365, aralik: 7 },
+  ];
+
+  it('çalışırken aralık, sıradaki değişiklik ve son sefer', () => {
+    assert.deepEqual(siklikSimdi(bugun, [], 860), {
+      ana: 'Şu an her 5 dk',
+      ek: '21:00 sonrası her 7 dk · son sefer 22:45',
+      simdiki: 1,
+    });
+  });
+
+  it('son pencerede yalnız son sefer', () => {
+    assert.deepEqual(siklikSimdi(bugun, [], 1300), { ana: 'Şu an her 7 dk', ek: 'son sefer 22:45', simdiki: 2 });
+  });
+
+  it('başlamadan önce ilk sefer, aradaki boşlukta sonraki sefer', () => {
+    assert.equal(siklikSimdi(bugun, [], 300)?.ana, 'İlk sefer 07:00');
+    const bosluklu = [
+      { bas: 360, bit: 600, aralik: 10 },
+      { bas: 960, bit: 1200, aralik: 10 },
+    ];
+    assert.deepEqual(siklikSimdi(bosluklu, [], 700), {
+      ana: 'Sonraki sefer 16:00',
+      ek: 'her 10 dk · son sefer 20:00',
+      simdiki: -1,
+    });
+  });
+
+  it('bittiyse bitti; bugün hiç yoksa null', () => {
+    assert.equal(siklikSimdi(bugun, [], 1400)?.ana, 'Bugünlük seferler bitti');
+    assert.equal(siklikSimdi([], [], 600), null);
+  });
+
+  it('dünden gece yarısını aşan pencere sürüyorsa çalışıyor', () => {
+    const dun = [{ bas: 1380, bit: 1530, aralik: 15 }]; // 23:00 – 01:30
+    assert.deepEqual(siklikSimdi(bugun, dun, 30), {
+      ana: 'Şu an her 15 dk',
+      ek: '07:00 sonrası her 7 dk · son sefer 22:45',
+      simdiki: -1,
+    });
   });
 });

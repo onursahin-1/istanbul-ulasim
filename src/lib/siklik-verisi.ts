@@ -4,11 +4,16 @@
 
 import ham from '@/assets/veri/siklik.json';
 
-import { siklikBul, siklikDurumu, type SiklikDurumu, type SiklikVerisi } from './siklik';
+import { siklikBul, siklikDurumu, type Pencere, type SiklikDurumu, type SiklikVerisi } from './siklik';
 
 const VERI = ham as unknown as SiklikVerisi;
 
 /** Bir minibüs/dolmuş ya da sıklıkla çalışan raylı hattın şu anki sıklık durumu; veri yoksa null. */
 export function hatSikligi(kisaAd?: string | null, uzunAd?: string | null, simdiMs: number = Date.now()): SiklikDurumu | null {
   return siklikDurumu(siklikBul(VERI, kisaAd, uzunAd), simdiMs);
+}
+
+/** Hattın bütün sıklık pencereleri (tarife ekranı); veri yoksa null. */
+export function hatPencereleri(kisaAd?: string | null, uzunAd?: string | null): Pencere[] | null {
+  return siklikBul(VERI, kisaAd, uzunAd);
 }
