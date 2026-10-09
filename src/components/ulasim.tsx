@@ -22,6 +22,7 @@ import {
 
 import Reanimated, { FadeIn, FadeInUp, FadeOut, FadeOutUp } from 'react-native-reanimated';
 import { Pressable } from '@/components/dokun';
+import { gorselleriIndir, useYerelKaynak } from '@/lib/gorseller';
 import { KayanMetin } from '@/components/kayan-metin';
 import type { CanliBilgi, CanliSinif } from '@/lib/canli';
 import { tazelikYaz } from '@/lib/onbellek';
@@ -110,6 +111,28 @@ export function vapurLogosu(mode?: string | null, isletmeci?: string | null): Ha
   return VAPUR_LOGOLARI.sehirHatlari;
 }
 
+const METRO_LOGOSU: HatLogosu = { kaynak: require('@/assets/images/hat/metro.png'), oran: 0.87, zemin: null };
+
+/** Uygulamayla gelen bütün görseller: açılışta telefona indiriliyor (lib/gorseller). */
+const TUM_GORSELLER = [
+  SIMGELER.otobus,
+  SIMGELER.minibus,
+  LOGOLAR.marmaray.kaynak,
+  LOGOLAR.metrobus.kaynak,
+  METRO_LOGOSU.kaynak,
+  ...Object.values(VAPUR_LOGOLARI).map((l) => l.kaynak),
+] as number[];
+
+/** Görselleri telefona indirir; açılışta bir kez (kök düzen) çağrılır. */
+export function gorselleriHazirla(): Promise<void> {
+  return gorselleriIndir(TUM_GORSELLER);
+}
+
+/** Image, ama görselin telefondaki kopyasından (inmişse). */
+function YerelGorsel({ source, ...oz }: ComponentProps<typeof Image>) {
+  return <Image source={useYerelKaynak(source)} {...oz} />;
+}
+
 /**
  * Ayarlar › Vasıta türü tercihleri satırındaki simge: logosu olan türde logo (Metrobüs,
  * Metro, Marmaray), öbürlerinde araç simgesi. Kutular aynı boyda, adlar hizalı dursun.
@@ -125,7 +148,7 @@ type VasitaSimge =
 const VASITA_SIMGELERI: Record<VasitaTuru, VasitaSimge> = {
   otobus: { resim: SIMGELER.otobus },
   metrobus: { logo: LOGOLAR.metrobus },
-  metro: { logo: { kaynak: require('@/assets/images/hat/metro.png'), oran: 0.87, zemin: null } },
+  metro: { logo: METRO_LOGOSU },
   marmaray: { logo: LOGOLAR.marmaray },
   tramvay: { ikon: 'train-outline' },
   funikuler: { mci: 'gondola' },
@@ -153,7 +176,7 @@ export function VasitaSimgesi({ tur }: { tur: VasitaTuru }) {
   if ('resim' in simge) {
     return (
       <View style={stil.vasitaKutu}>
-        <Image source={simge.resim} style={{ width: 22, height: 22, tintColor: tema.vurgu }} resizeMode="contain" />
+        <YerelGorsel source={simge.resim} style={{ width: 22, height: 22, tintColor: tema.vurgu }} resizeMode="contain" />
       </View>
     );
   }
@@ -165,7 +188,7 @@ export function VasitaSimgesi({ tur }: { tur: VasitaTuru }) {
   return (
     <View style={stil.vasitaKutu}>
       <View style={zemin ? [stil.vasitaZemin, { backgroundColor: zemin }] : undefined}>
-        <Image
+        <YerelGorsel
           source={kaynak}
           style={{ width: Math.round(yukseklik * oran), height: Math.round(yukseklik) }}
           resizeMode="contain"
@@ -253,7 +276,7 @@ export function HatRozeti({
         ]}
         accessibilityLabel={kisaAd ?? undefined}
       >
-        <Image
+        <YerelGorsel
           source={logo.kaynak}
           style={{ width: en - pay, height: yukseklik - pay }}
           resizeMode="contain"
@@ -283,7 +306,7 @@ export function HatRozeti({
         ]}
         accessibilityLabel={[rozet, ...(ekHatlar ?? [])].join(' ya da ')}
       >
-        <Image
+        <YerelGorsel
           source={minibus ? SIMGELER.minibus : SIMGELER.otobus}
           style={{ width: simgeBoyu, height: simgeBoyu, tintColor: tema.vurgu }}
           accessibilityIgnoresInvertColors

@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AcilisAnimasyonu } from '@/components/logo';
+import { gorselleriHazirla } from '@/components/ulasim';
 import { bildirimleriHazirla } from '@/lib/bildirim';
 import { temaTercihiniYukle } from '@/lib/kayitlar';
 import { useTema } from '@/lib/tema';
@@ -19,6 +20,8 @@ temaTercihiniYukle();
 // tam o kareden başlar.
 SplashScreen.preventAutoHideAsync().catch(() => {});
 SplashScreen.setOptions({ fade: false });
+// Hat logoları ve simgeler açılış animasyonu sürerken telefona iniyor (bkz. lib/gorseller).
+gorselleriHazirla();
 
 /** Animasyon bir sebeple bitmezse (hata, takılma) katman en geç bu sürede kalkar. */
 const ACILIS_EN_GEC_MS = 4000;
