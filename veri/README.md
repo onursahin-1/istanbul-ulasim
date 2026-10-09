@@ -21,7 +21,8 @@ python marmaray-duzelt.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python eksik-hatlar.py C:\otp\osm-hatlar.json C:\otp\istanbul
 node metro-tarife-indir.mjs C:\otp\metro-tarife.json            # yalnız senin bilgisayarında (~10 dk)
 python metro-tarife-uygula.py C:\otp\metro-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
-python marmaray-tarife-uygula.py C:\otp\marmaray-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip  # dosya tarayıcıdan alınır (4c2)
+node marmaray-tarife-indir.mjs C:\otp\marmaray-tarife.json      # Edge görünmez açılır (~40 sn)
+python marmaray-tarife-uygula.py C:\otp\marmaray-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 node vapur-tarife-indir.mjs C:\otp\vapur-tarife.json            # yalnız senin bilgisayarında (<1 dk)
 python vapur-tarife-uygula.py C:\otp\vapur-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 node ozel-vapur-indir.mjs C:\otp\ozel-vapur-tarife.json       # yalnız senin bilgisayarında (<1 dk)
@@ -37,6 +38,35 @@ python dogrula.py C:\otp\istanbul                                          # sa�
 python ag-cikar.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip ..\assets\veri\ag.json
 python siklik-cikar.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip ..\assets\veri\siklik.json
 ```
+
+### Haftalık otomatik güncelleme
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\gorev-kur.ps1                  # pazartesi 04:30
+powershell -ExecutionPolicy Bypass -File .\gorev-kur.ps1 -Gun Sunday -Saat 05:00
+powershell -ExecutionPolicy Bypass -File .\gorev-kur.ps1 -SimdiCalistir    # kur ve hemen bir kez çalıştır
+powershell -ExecutionPolicy Bypass -File .\gorev-kur.ps1 -Kaldir
+```
+
+`gorev-kur.ps1` Windows Görev Zamanlayıcı'ya "Istanbul Ulasim - Haftalik veri" görevini kurar
+(senin kullanıcınla, oturum açıkken, yönetici izni ve parola istemeden; bilgisayar uykudaysa
+uyandırır). Görev `haftalik-guncelle.ps1`'i çalıştırır:
+
+1. OTP'yi durdurur; köprüye `POST /kapat` der (öğrenilenleri ve İBB istek bütçesini yazıp
+   kapanır; cevap vermezse zorla).
+2. `graph.obj`'u `C:\otp\yedekler\graph-onceki.obj`'a yedekler.
+3. `yenile.ps1 -Derle` (bütün tarifeler yeniden indirilir, ~25 dk).
+4. OTP'yi ve köprüyü küçültülmüş pencerelerde yeniden açar, ikisinin de cevap verdiğine bakar.
+
+Bir adım başarısız olursa ya da OTP yeni grafikle 15 dakikada cevap vermezse zip'ler
+(`yenile.ps1`'in yedeğinden) ve `graph.obj` geri konur, OTP eski veriyle açılır. Kaçırılan
+çalıştırma sonradan yapılmaz (gündüz uygulamayı kullanırken OTP kapanmasın); o hafta atlanır.
+TCDD tarifesi (4c2) elle alındığı için 120 günden eskiyse özete uyarı düşer.
+
+Kayıtlar `C:\otp\kayit\guncelleme\`: `son-guncelleme.txt` (tek satır özet),
+`guncelleme-<tarih>.log` (görevin adımları), `yenile-<tarih>.log` (bütün çıktı). Son 12
+çalıştırma ve son 4 zip yedeği tutulur. Güncelleme `assets\veri\ag.json` ve `siklik.json`'u
+değiştirebilir: `git status` ile bakıp commit'le.
 
 Yarıda kalmış bir zip'e yeniden çalıştırmak yerine `hazirla-gtfs.mjs` ile baştan
 üretmek gerekiyor. **Elle alınmış yedeklere güvenme**: `hazirla-gtfs.mjs` zaman
@@ -217,6 +247,7 @@ kalıyor. T6, M11 ve Marmaray TCDD'nin: bkz. 4c2.
 ## 4c2. TCDD tarifesi — Marmaray, M11, T6
 
 ```powershell
+node marmaray-tarife-indir.mjs C:\otp\marmaray-tarife.json
 python marmaray-tarife-uygula.py C:\otp\marmaray-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 ```
 
@@ -228,13 +259,19 @@ başlıyordu; gerçekte Halkalı'dan 05:58, Gebze'den 06:05).
 Kaynak TCDD Taşımacılık'ın Marmaray "Sefer Saatleri" sayfası
 (`tcddtasimacilik.gov.tr/marmaray/tr/sefersaatleri`): her trenin her istasyondaki saati.
 M11 (Gayrettepe–Halkalı) ve T6 (Sirkeci–Kazlıçeşme) da TCDD'nin ve aynı sayfada. Sayfanın
-arka ucu yalnız sitenin kendisine açık; veri, sayfa tarayıcıda açıkken sayfanın kendi
-yüklediği tarifeden alınıyor:
+arka ucu yalnız sitenin kendisine açık (kimlik bilgisi sitenin koduna gömülü); onu kullanmıyoruz.
+`marmaray-tarife-indir.mjs` bilgisayardaki Edge'i (yoksa Chrome) görünmez açıp sayfayı bir
+ziyaretçi gibi yüklüyor; sayfanın kendi yüklediği tarifeyi sayfanın içinde küçültüp DevTools
+protokolüyle alıyor. Ayrı istek atılmıyor, kurulacak bir şey yok (Edge Windows'la geliyor,
+WebSocket Node 22'de yerleşik). En az 300 sefer, Gebze, Gayrettepe ve Kazlıçeşme yoksa eski dosya
+yerinde kalıyor. `yenile.ps1` bunu her çalışmada deniyor (`-EskiTarife` hariç); olmazsa uyarı
+yazıp son indirilenle devam ediyor.
+
+Elle yedek yol (Edge yoksa ya da sayfa değiştiyse):
 
 1. Tarayıcıda `https://www.tcddtasimacilik.gov.tr/marmaray/tr/sefersaatleri` sayfasını aç.
 2. Geliştirici araçlarının konsoluna (F12 → Console) `marmaray-tarife-al.js` dosyasının
-   içeriğini yapıştır. Betik sayfanın tarifeyi yeniden yüklemesini sağlıyor, İstanbul'daki
-   banliyö seferlerini süzüyor ve `marmaray-tarife.json` olarak indiriyor.
+   içeriğini yapıştır. Aynı dönüşümü yapıp `marmaray-tarife.json` olarak indiriyor.
 3. Dosyayı `C:\otp\marmaray-tarife.json` yap.
 
 Dosya küçük (desenler ve "ilk kalkış + aralık × adet" koşuları, ~9 KB). 2026-10-09'da
@@ -361,8 +398,12 @@ bulunamıyor, Bağcılar'dan Taksim'e 15 km, 3 saatlik yürüyüş öneriliyordu
 2. `erisim-isaretle.py` bildiğimizi işaretliyor, bedeli yalnız bilinmeyenler ödesin:
    metro (M1A–M11), Marmaray, T1/T4/T5/T6 tramvayları ve F1/F3/F4 füniküleri erişilebilir
    (asansörlü istasyon, alçak taban ya da peron hizası); T2 ve T3 nostaljik tramvayları
-   erişilemez (basamaklı araç); F2 ve teleferikler bilinmiyor. Otobüs ve vapura
-   dokunulmuyor. Betik İETT'nin büyük dosyalarını belleğe almadan kopyalıyor.
+   erişilemez (basamaklı araç); F2 ve teleferikler bilinmiyor. Metrobüs (34, 34AS, 34BZ,
+   34C, 34G, 34Z…) peron hizasında biniş: seferleri ve istasyonları erişilebilir, İETT'nin
+   "engelli erişimine uygun değil" dediği yedi istasyon (Uzunçayır, Acıbadem, Altunizade,
+   Burhaniye, Ayvansaray - Eyüp Sultan, Bayrampaşa - Maltepe, Merter; iett.istanbul,
+   Metrobüs Hatları) erişilemez. Öbür otobüslere ve vapura dokunulmuyor. Betik İETT'nin
+   büyük dosyalarını belleğe almadan kopyalıyor.
 
 Eğim hesaba katılmıyor: OTP'ye yükseklik verisi verilmediği için yokuşlar düz sayılıyor.
 

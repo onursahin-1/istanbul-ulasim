@@ -10,7 +10,8 @@
 # Kaynak: TCDD Taşımacılık'ın Marmaray "Sefer Saatleri" sayfası
 # (https://www.tcddtasimacilik.gov.tr/marmaray/tr/sefersaatleri). Sayfa her trenin her
 # istasyondaki saatini gösteriyor; M11 (Gayrettepe–Halkalı) ve T6 (Sirkeci–Kazlıçeşme)
-# da TCDD'nin işlettiği hatlar ve aynı sayfada. Veriyi almak için bkz. marmaray-tarife-al.js.
+# da TCDD'nin işlettiği hatlar ve aynı sayfada. Veriyi marmaray-tarife-indir.mjs alıyor (elle
+# yedek yol: marmaray-tarife-al.js).
 #
 # Girdi biçimi (marmaray-tarife.json):
 #   istasyonlar  ["Ad|İl", …]

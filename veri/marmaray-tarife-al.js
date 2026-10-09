@@ -1,6 +1,9 @@
 // TCDD'nin Marmaray "Sefer Saatleri" sayfasının gösterdiği tarifeyi marmaray-tarife.json
 // olarak indirir (Marmaray, Halkalı–Bahçeşehir, M11, T6). Bkz. README 4c2.
 //
+// Elle yedek yol: normalde marmaray-tarife-indir.mjs bunu Edge'le kendisi yapıyor (yenile.ps1).
+// O çalışmazsa (Edge yok, sayfa değişti) bu dosya tarayıcı konsolunda aynı çıktıyı verir.
+//
 // Kullanım: tarayıcıda https://www.tcddtasimacilik.gov.tr/marmaray/tr/sefersaatleri sayfasını
 // aç, F12 → Console, bu dosyanın içeriğini yapıştır, Enter. Birkaç saniye sonra dosya iner.
 //
