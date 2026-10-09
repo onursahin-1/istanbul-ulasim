@@ -12,18 +12,35 @@ import { HataKutusu, HatRozeti, Ikon, ROZET_SUTUNU, useStiller, Yukleniyor } fro
 import { hatlariGetir, OtpHatasi, type HatOzeti } from '@/lib/otp';
 import { hatlariTekille, modSirasi } from '@/lib/hat-tekil';
 import { sadelestir } from '@/lib/poi';
-import { aracAdi, baslikYap, useTema, type Tema } from '@/lib/tema';
+import { aracAdi, baslikYap, metrobusMu, useTema, type Tema } from '@/lib/tema';
 import { ekranAc } from '@/lib/gezinti';
 import { useScrollToTop } from 'expo-router';
 import { secimTiki } from '@/lib/dokunsal';
 
 type Suzgec = { anahtar: string; ad: string; modlar: string[] | null };
 
+/**
+ * Metrobüs rota motorunda otobüs (BUS); hat kodundan ayrılıyor (34, 34AS, 34BZ…). Kendi
+ * süzgeci ve bölümü var, Otobüs süzgecinde görünmüyor.
+ */
+const METROBUS = 'METROBUS';
+
+function kategori(h: HatOzeti): string {
+  const mod = (h.mode ?? 'BUS').toUpperCase();
+  return mod === 'BUS' && metrobusMu(h.shortName) ? METROBUS : mod;
+}
+
+/** Bölüm sırası: Metrobüs Marmaray'dan hemen sonra, öbürleri rota motorunun sırasıyla. */
+function kategoriSirasi(k: string): number {
+  return k === METROBUS ? modSirasi('RAIL') + 0.5 : modSirasi(k);
+}
+
 const SUZGECLER: Suzgec[] = [
   { anahtar: 'tumu', ad: 'Tümü', modlar: null },
   { anahtar: 'metro', ad: 'Metro', modlar: ['SUBWAY'] },
   { anahtar: 'tramvay', ad: 'Tramvay', modlar: ['TRAM'] },
   { anahtar: 'tren', ad: 'Marmaray', modlar: ['RAIL'] },
+  { anahtar: 'metrobus', ad: 'Metrobüs', modlar: [METROBUS] },
   { anahtar: 'egimli', ad: 'Füniküler', modlar: ['FUNICULAR', 'CABLE_CAR', 'GONDOLA'] },
   { anahtar: 'vapur', ad: 'Vapur', modlar: ['FERRY'] },
   { anahtar: 'otobus', ad: 'Otobüs', modlar: ['BUS', 'TROLLEYBUS', 'COACH'] },
@@ -67,8 +84,7 @@ export default function HatlarEkrani() {
     const aranan = sadelestir(metin);
 
     const suzulmus = tekil.filter((h) => {
-      const mod = (h.mode ?? '').toUpperCase();
-      if (secili.modlar && !secili.modlar.includes(mod)) return false;
+      if (secili.modlar && !secili.modlar.includes(kategori(h))) return false;
       if (!aranan) return true;
       return sadelestir(`${h.shortName ?? ''} ${h.longName ?? ''}`).includes(aranan);
     });
@@ -78,18 +94,19 @@ export default function HatlarEkrani() {
 
     const gruplar = new Map<string, HatOzeti[]>();
     for (const h of suzulmus) {
-      const mod = (h.mode ?? 'BUS').toUpperCase();
-      if (!gruplar.has(mod)) gruplar.set(mod, []);
-      gruplar.get(mod)!.push(h);
+      const k = kategori(h);
+      if (!gruplar.has(k)) gruplar.set(k, []);
+      gruplar.get(k)!.push(h);
     }
 
     const liste: Satir[] = [];
     let sayac = 0;
-    const sirali = [...gruplar.entries()].sort((a, b) => modSirasi(a[0]) - modSirasi(b[0]));
+    const sirali = [...gruplar.entries()].sort((a, b) => kategoriSirasi(a[0]) - kategoriSirasi(b[0]));
     for (const [mod, grup] of sirali) {
       if (sayac >= sinir) break;
       grup.sort((a, b) => (a.shortName ?? '').localeCompare(b.shortName ?? '', 'tr', { numeric: true }));
-      liste.push({ tip: 'baslik', anahtar: `b-${mod}`, yazi: (aracAdi(mod) || 'Diğer').toLocaleUpperCase('tr') });
+      const ad = mod === METROBUS ? 'Metrobüs' : aracAdi(mod) || 'Diğer';
+      liste.push({ tip: 'baslik', anahtar: `b-${mod}`, yazi: ad.toLocaleUpperCase('tr') });
       for (const h of grup) {
         if (sayac >= sinir) break;
         liste.push({ tip: 'hat', anahtar: h.gtfsId, veri: h });
