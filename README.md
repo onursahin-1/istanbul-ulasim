@@ -54,6 +54,12 @@ cd C:\projeler\istanbul-ulasim\veri
 .\yenile.ps1 -EskiTarife -Derle # metro/vapur tarifelerini yeniden indirmeden
 ```
 
+Haftada bir kendiliğinden yapılması için (OTP ve köprüyü kapatıp kurar, yeniden açar):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\gorev-kur.ps1   # pazartesi 04:30; ayrıntı: veri/README.md
+```
+
 Ne zaman: İETT tarifesi değişince, mevsim değişince (yaz/kış), `assets/veri/ozel-gunler.json`
 güncellenince. İETT takvimi bitmeye yaklaşırsa kurulum onu kendiliğinden uzatıp uyarıyor;
 yine de İBB yeni dönemin verisini yayımlayınca yeniden çalıştırmak gerekiyor.

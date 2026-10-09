@@ -10,7 +10,7 @@
 # Kullanım (veri klasöründe):
 #   .\yenile.ps1                 veriyi kur (~20 dk: metro tarifesi indirmesi 10 dk sürüyor)
 #   .\yenile.ps1 -Derle          sonunda OTP grafiğini de derle (önce çalışan OTP'yi kapat)
-#   .\yenile.ps1 -EskiTarife     metro ve vapur tarifelerini indirme, son indirileni kullan
+#   .\yenile.ps1 -EskiTarife     metro, vapur ve TCDD tarifelerini indirme, son indirileni kullan
 #   .\yenile.ps1 -Python C:\Python312\python.exe   Python'u elle göster (bulunamazsa)
 #
 # Python 3 gerekiyor (yalnız standart kütüphane). Betik sırayla `py -3`, `python3`, `python`
@@ -82,6 +82,10 @@ function Adim([string]$ad, [scriptblock]$is) {
   $script:adim++
   Write-Host ""
   Write-Host "[$script:adim] $ad" -ForegroundColor Cyan
+  # Adımın başarısı çıkış koduyla ölçülüyor. Çıktı bir dosyaya yönlendirildiğinde (haftalık
+  # görev, haftalik-guncelle.ps1) Windows PowerShell 5.1 python/node/java'nın stderr satırlarını
+  # hata kaydına çeviriyor; 'Stop' altında zararsız bir uyarı bile kurulumu durdururdu.
+  $ErrorActionPreference = 'Continue'
   & $is
   if ($LASTEXITCODE -ne 0) {
     Write-Host "Adım başarısız: $ad (çıkış kodu $LASTEXITCODE). Kurulum durdu; yedekten dönmek için aşağıdaki klasöre bak." -ForegroundColor Red
@@ -107,6 +111,16 @@ if (-not $EskiTarife -or -not (Test-Path $metro)) {
   Adim "Metro İstanbul tarifesi indiriliyor (~10 dk)" { node metro-tarife-indir.mjs $metro }
 }
 Adim "Metro tarifesi işleniyor" { PythonCalistir metro-tarife-uygula.py $metro $ray }
+if (-not $EskiTarife) {
+  # TCDD'nin sayfası Edge'le görünmez açılıp tarifesi alınıyor (~40 sn). Olmazsa kurulum durmaz,
+  # son indirilen dosyayla devam edilir: Marmaray tarifesi seyrek değişiyor.
+  Write-Host ""
+  Write-Host "TCDD tarifesi indiriliyor (Marmaray, M11, T6; Edge görünmez açılıyor)" -ForegroundColor Cyan
+  & { $ErrorActionPreference = 'Continue'; node marmaray-tarife-indir.mjs $marmaray }
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "TCDD tarifesi indirilemedi; son indirilen kullanılacak. Elle: README 4c2." -ForegroundColor Yellow
+  }
+}
 if (Test-Path $marmaray) {
   Adim "TCDD tarifesi işleniyor (Marmaray, M11, T6)" { PythonCalistir marmaray-tarife-uygula.py $marmaray $ray }
 } else {

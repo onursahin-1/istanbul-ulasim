@@ -37,6 +37,8 @@
 //   /teshis?durak=ID       tanı: bu duraktan geçen hatların her aracı sayıldı mı, sayılmadıysa
 //                          neden; hatların taranma durumu; yakındaki hattı başka sanılan araçlar
 //   /durum                 insan için JSON özet (varış doğruluğu ölçümü `kalite`de)
+//   POST /kapat            öğrenilenleri yazıp kapanır (Ctrl+C ile aynı). Yalnız bu bilgisayardan
+//                          (127.0.0.1): haftalık güncelleme görevi köprüyü böyle durduruyor.
 //
 // Doğruluk ölçümü: kayit/kalite-YYYY-MM-DD.json, özet için `node kalite-rapor.mjs`.
 
@@ -576,6 +578,15 @@ createServer((istek, cevap) => {
   if (yol === '/duyurular') {
     return yanitla(cevap, Buffer.from(JSON.stringify(duyuruListesi)), 'application/json; charset=utf-8');
   }
+  if (yol === '/kapat' && istek.method === 'POST') {
+    // Köprü telefona açık (0.0.0.0); ağdaki başka bir cihaz kapatamasın.
+    if (!yereldenMi(istek)) {
+      cevap.writeHead(403);
+      return cevap.end();
+    }
+    yanitla(cevap, Buffer.from('{"kapaniyor":true}'), 'application/json; charset=utf-8');
+    return setTimeout(() => kapan('kapat isteği'), 100);
+  }
   if (yol === '/durum' || yol === '/') {
     durumuTazele();
     return yanitla(cevap, Buffer.from(JSON.stringify(durum, null, 2)), 'application/json; charset=utf-8');
@@ -603,11 +614,18 @@ nabizDongusu();
 setInterval(duyurulariTazele, DUYURU_ARALIGI);
 setInterval(kaydet, KAYIT_ARALIGI);
 
+function yereldenMi(istek) {
+  const adres = istek.socket.remoteAddress ?? '';
+  return adres === '127.0.0.1' || adres === '::1' || adres === '::ffff:127.0.0.1';
+}
+
+function kapan(neden) {
+  tarayici.dur();
+  kaydet();
+  console.log(`öğrenilenler kaydedildi, köprü kapanıyor (${neden})`);
+  process.exit(0);
+}
+
 for (const sinyal of ['SIGINT', 'SIGTERM']) {
-  process.on(sinyal, () => {
-    tarayici.dur();
-    kaydet();
-    console.log('öğrenilenler kaydedildi, köprü kapanıyor');
-    process.exit(0);
-  });
+  process.on(sinyal, () => kapan(sinyal));
 }

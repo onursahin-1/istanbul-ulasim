@@ -18,6 +18,7 @@ Sunucu `http://localhost:8082` adresinde üç uç nokta açar:
 | `/sefer-guncellemeleri` | GTFS-RT TripUpdate | `STOP_TIME_UPDATER` |
 | `/duyurular` | İETT hat duyuruları, JSON (15 dakikada bir tazelenir). BÜYÜK HARFLİ metinler cümle düzenine çevrilir, düşen Türkçe harfler geri konur (`yazim.mjs`); özgün metin `ham` alanında | uygulama doğrudan okur |
 | `/durum` | insan için JSON özet | — |
+| `POST /kapat` | öğrenilenleri yazıp kapanır (Ctrl+C gibi). Yalnız bu bilgisayardan (127.0.0.1); haftalık güncelleme görevi (`veri/haftalik-guncelle.ps1`) köprüyü böyle durduruyor | — |
 
 Ortam değişkenleri: `GTFS_ZIP` (varsayılan `C:\otp\istanbul\istanbul-iett-gtfs.zip`),
 `PORT` (8082 — 8080 OTP'nin, 8081 Expo'nun), `BUTCE` (saatte 80 istek; İBB'nin sınırı
