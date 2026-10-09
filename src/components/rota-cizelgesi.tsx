@@ -34,7 +34,8 @@ import { durakSaatleri } from '@/lib/bekleme';
 import { bacakCanli } from '@/lib/canli';
 import type { Bacak } from '@/lib/otp';
 import { sikliktanYazi, type SeferBilgisi } from '@/lib/sefer';
-import { aracAdi, baslikYap, hatEtiketi, hatRengi, useTema, type Tema } from '@/lib/tema';
+import { adinSonParcasi, metrobusYonu } from '@/lib/metrobus';
+import { aracAdi, baslikYap, hatEtiketi, hatRengi, metrobusMu, useTema, type Tema } from '@/lib/tema';
 import type { YuruyusAdimi } from '@/lib/yuruyus';
 import { istanbulSaatiYaz, mesafeYaz, saatYaz, saniyedenSaat, sureYaz } from '@/lib/zaman';
 
@@ -430,7 +431,13 @@ function AracKarti({
   const s = useStiller(stiller);
   const renk = hatRengi(b.route, tema);
   const durakSayisi = Math.max(liste.length - 1, 1);
-  const yon = b.headsign ? `${baslikYap(b.headsign)} yönü` : aracAdi(b.route?.mode ?? b.mode);
+  // Metrobüs rozeti yalnız logo: yön araç tabelasındaki gibi, kod (ve aynı yolu giden öbürleri) yanında.
+  const metrobus = metrobusMu(b.route?.shortName);
+  const yon = metrobus
+    ? `${metrobusYonu(b.headsign, adinSonParcasi(b.route?.longName))} yönü · ${[b.route?.shortName ?? '', ...(esdeger ?? [])].filter(Boolean).join(' / ')}`
+    : b.headsign
+      ? `${baslikYap(b.headsign)} yönü`
+      : aracAdi(b.route?.mode ?? b.mode);
   const saatler = oran && oran.length === liste.length ? durakSaatleri(oran, an(b, 'start'), an(b, 'end')) : null;
   const binisDk = Math.round((an(b, 'start') - Date.now()) / 60_000);
   const guzergahAdi = hatEtiketi(b.route?.shortName, b.route?.mode ?? b.mode, b.route?.agency?.name, b.route?.longName).ayrinti;

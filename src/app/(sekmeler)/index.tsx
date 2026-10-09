@@ -42,7 +42,8 @@ import {
   type Hat,
   type YakinDurak,
 } from '@/lib/otp';
-import { baslikYap, hatEtiketi, useTema, yonYaz, type Tema } from '@/lib/tema';
+import { adinSonParcasi, metrobusKalkislariniTopla, metrobusYonu } from '@/lib/metrobus';
+import { baslikYap, hatEtiketi, metrobusMu, useTema, yonYaz, type Tema } from '@/lib/tema';
 import { mesafeYaz } from '@/lib/zaman';
 import { siklikOzeti } from '@/lib/siklik';
 import { hatSikligi } from '@/lib/siklik-verisi';
@@ -373,8 +374,17 @@ export default function AnaEkran() {
                 <Text style={s.seferYok}>Yakın zamanda sefer yok</Text>
               )}
               {(() => {
-                const ilkIki = durak.kalkislar.slice(0, 2).map((k) => ({
+                // Metrobüs: aynı yere giden hatlardan (34BZ, 34G → Beylikdüzü) yalnız ilk gelen, yanında kodları.
+                const toplu = metrobusKalkislariniTopla(durak.kalkislar, (k) => ({
+                  kod: k.trip?.route?.shortName ?? '',
+                  yon: metrobusMu(k.trip?.route?.shortName)
+                    ? metrobusYonu(k.trip?.pattern?.headsign, k.headsign, adinSonParcasi(k.trip?.route?.longName))
+                    : '',
+                }));
+                const ilkIki = toplu.slice(0, 2).map(({ k, yon, kodlar }) => ({
                   k,
+                  yon,
+                  kodlar,
                   canli: kalkisCanli(k),
                   an: (k.serviceDay ?? 0) + (k.realtimeDeparture ?? k.scheduledDeparture ?? 0),
                 }));
@@ -389,14 +399,15 @@ export default function AnaEkran() {
                   !!a.k.trip?.route?.gtfsId &&
                   a.k.trip?.route?.gtfsId === b.k.trip?.route?.gtfsId &&
                   Math.abs(b.an - a.an) < ARKASINDA_SN;
-                return ilkIki.map(({ k, canli, an }, i) => (
+                return ilkIki.map(({ k, yon, kodlar, canli, an }, i) => (
                   <View key={i} style={s.sefer}>
                     <View style={s.seferRozet}>
                       <HatRozeti hat={k.trip?.route} />
                     </View>
                     <View style={s.seferMetin}>
                       <Text style={s.seferYon} numberOfLines={1}>
-                        {baslikYap(k.trip?.pattern?.headsign) || baslikYap(k.headsign)}
+                        {yon || baslikYap(k.trip?.pattern?.headsign) || baslikYap(k.headsign)}
+                        {!!kodlar && <Text style={s.seferKodlar}>{`  ${kodlar.join(' · ')}`}</Text>}
                       </Text>
                       {k.duruyorSn != null ? (
                         // Hattın tek görünen otobüsü uzun süredir duruyor (mola, park).
@@ -596,4 +607,5 @@ const stiller = (t: Tema) =>
   seferMetin: { flex: 1, minWidth: 0, justifyContent: 'center' },
   duranNot: { marginTop: 2, paddingVertical: 2 },
   seferYon: { fontSize: 13, color: t.soluk },
+  seferKodlar: { fontSize: 12, fontWeight: '700', color: t.soluk },
 });

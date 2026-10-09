@@ -219,6 +219,24 @@ export function tabelaRozetiMi(hat?: RozetHatti | string | null): boolean {
   return !tur || ['BUS', 'TROLLEYBUS', 'COACH'].includes(tur.toUpperCase());
 }
 
+/**
+ * Satırda birden çok hat kodu (metrobüs: "34BZ  34G"): hattın renginde küçük etiketler.
+ * Metrobüs rozeti yalnız logo; aynı yere giden hatlar tek satırda toplanınca kodlar burada.
+ */
+export function KodEtiketleri({ kodlar, hat }: { kodlar: string[]; hat: RozetHatti }) {
+  const tema = useTema();
+  const renk = rozetRenkleri(hat, tema);
+  return (
+    <View style={stil.kodlar} accessible={false}>
+      {kodlar.map((k) => (
+        <Text key={k} style={[stil.kod, { backgroundColor: renk.kutu, color: renk.kutuYazi }]}>
+          {k}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
 export function HatRozeti({
   hat,
   kucuk = false,
@@ -929,6 +947,17 @@ const stil = StyleSheet.create({
   vasitaZemin: { borderRadius: 6, padding: 2.5 },
   logoRozet: { alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start', overflow: 'hidden' },
   logoCerceve: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.9)' },
+  kodlar: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 4 },
+  kod: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 5,
+    overflow: 'hidden',
+    fontVariant: ['tabular-nums'],
+  },
   daire: { alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start' },
   daireYazi: { fontWeight: '800', letterSpacing: -0.3, includeFontPadding: false },
   rozetYazi: { fontWeight: '700', fontSize: 12.5, paddingHorizontal: 8, maxWidth: 110 },

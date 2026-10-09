@@ -23,6 +23,7 @@ import {
   YaklasmaSeridi,
   DuranNotu,
   DuruyorDakika,
+  KodEtiketleri,
 } from '@/components/ulasim';
 import { FavoriSimgesi } from '@/components/hareketli-simgeler';
 import { IskeletSatirlari } from '@/components/iskelet';
@@ -39,6 +40,7 @@ import {
 import { duruyorMu, duruyorYaz, gosterilecekAraclar, satirsizAraclar, uzakSatirlariAyikla } from '@/lib/bekleme';
 import { canliBilgi, kalkisCanli } from '@/lib/canli';
 import { metrobusMu, trKucuk } from '@/lib/metin';
+import { adinSonParcasi, metrobusSatirlariniBirlestir, metrobusYonu } from '@/lib/metrobus';
 import { siklikYaz } from '@/lib/siklik';
 import { hatSikligi } from '@/lib/siklik-verisi';
 import { favoriDegistir, useKayitlar } from '@/lib/kayitlar';
@@ -322,7 +324,10 @@ export default function DurakEkrani() {
           desen: d.pattern?.code ?? '',
           sonrakiDurak: sira >= 0 ? baslikYap(desenDuraklari[sira + 1]?.name) : '',
           hat: d.pattern?.route ?? null,
-          yon: baslikYap(d.pattern?.headsign) || baslikYap(d.pattern?.route?.longName),
+          // Metrobüste araç tabelasındaki yer ("B.SONDURAK" → Beylikdüzü); tabela boşsa son durak.
+          yon: metrobusMu(d.pattern?.route?.shortName)
+            ? metrobusYonu(d.pattern?.headsign, desenDuraklari[desenDuraklari.length - 1]?.name, adinSonParcasi(d.pattern?.route?.longName))
+            : baslikYap(d.pattern?.headsign) || baslikYap(d.pattern?.route?.longName),
           // Minibüs ve dolmuşta rozet yalnızca araç tipini yazıyor; güzergâh buraya düşüyor.
           guzergah: hatEtiketi(
             d.pattern?.route?.shortName,
@@ -348,7 +353,7 @@ export default function DurakEkrani() {
         desen: '',
         sonrakiDurak: '',
         hat,
-        yon: baslikYap(adParcalari[adParcalari.length - 1]),
+        yon: metrobusMu(hat.shortName) ? metrobusYonu(adParcalari[adParcalari.length - 1]) : baslikYap(adParcalari[adParcalari.length - 1]),
         guzergah: hatEtiketi(hat.shortName, hat.mode, hat.agency?.name, hat.longName).ayrinti,
         kalkislar: ana.map(aracKalkisi),
         yaklasan: { otobus: aracVarisindanOtobus(ana[0]), kalan: ana[0].kalanDurak },
@@ -365,9 +370,10 @@ export default function DurakEkrani() {
       }
     }
     const hatKodu = (h: Hat | null) => (h?.shortName ?? '').trim().toLocaleUpperCase('tr-TR');
-    return uzakSatirlariAyikla(liste.map((x) => ({ ...x, hatKodu: hatKodu(x.hat), ilkDakika: x.kalkislar[0].dakika }))).sort(
-      (a, b) => a.kalkislar[0].dakika - b.kalkislar[0].dakika,
-    );
+    // Metrobüs: aynı yere giden hatlar (34BZ, 34G → Beylikdüzü) tek satır, araç tabelası gibi.
+    return metrobusSatirlariniBirlestir(
+      uzakSatirlariAyikla(liste.map((x) => ({ ...x, hatKodu: hatKodu(x.hat), ilkDakika: x.kalkislar[0].dakika }))),
+    ).sort((a, b) => a.kalkislar[0].dakika - b.kalkislar[0].dakika);
   }, [durak, aracVarislari]);
 
   // Gündüz seferleri sıklıkla tanımlı hatlar (Marmaray, M7, M11, T5, T6 …): OTP bunların
@@ -375,7 +381,15 @@ export default function DurakEkrani() {
   const siklikliHatlar = useMemo(
     () =>
       hatlar
-        .filter((h) => !yonler.some((y) => y.hat?.gtfsId === h.gtfsId))
+        .filter(
+          (h) =>
+            !yonler.some(
+              (y) =>
+                y.hat?.gtfsId === h.gtfsId ||
+                // Birleşik metrobüs satırı öbür hatları da taşıyor (34BZ satırında 34G).
+                !!y.kodlar?.includes((h.shortName ?? '').trim().toLocaleUpperCase('tr-TR')),
+            ),
+        )
         .map((h) => ({ hat: h, metin: siklikYaz(hatSikligi(h.shortName, h.longName)) }))
         .filter((x): x is { hat: Hat; metin: string } => !!x.metin),
     [hatlar, yonler],
@@ -553,7 +567,7 @@ export default function DurakEkrani() {
                   }
                   accessibilityRole="button"
                   accessibilityLabel={[
-                    y.hat?.shortName ?? '',
+                    y.kodlar ? `Metrobüs ${y.kodlar.join(', ')}` : y.hat?.shortName ?? '',
                     y.yon,
                     y.kalkislar[0].duruyorSn != null
                       ? `otobüs ${duruyorYaz(y.kalkislar[0].duruyorSn)} duruyor`
@@ -576,6 +590,7 @@ export default function DurakEkrani() {
                         {y.guzergah}
                       </Text>
                     )}
+                    {!!y.kodlar && y.hat && <KodEtiketleri kodlar={y.kodlar} hat={y.hat} />}
                     {y.kalkislar[0].duruyorSn != null ? null : y.kalkislar[0].canli ? (
                       <CanliAciklama an={y.kalkislar[0].an} />
                     ) : canliVar ? (
