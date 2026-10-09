@@ -36,6 +36,14 @@ export const ILGI_TAZELIK_MS = 10 * 60_000;
 export const KALICI_OMRU_MS = 30 * 24 * 3_600_000;
 export const KALICI_CARPAN = 5;
 
+/**
+ * "Hattın son taramasında yok → görevde değil" kararı yalnız bu kadar taze bir taramayla
+ * verilir. Bilgisayar iki gün uykuda kalıp köprü uyanınca hatların son taraması gece
+ * 01:00'deki (1 araçlı) taramaydı; o taramada olmayan 93 otobüs, hatlar yeniden taranana
+ * kadar "görevde değil" sayılıp gizlendi (Göztepe Meydanı, 2026-10-09 17:15).
+ */
+export const GOREV_TAZE_MS = 30 * 60_000;
+
 /** Bu kadar süre taramada görülmeyen aracın hat bilgisi unutulur. */
 export const HAT_OMRU_MS = 7 * 24 * 3_600_000;
 
@@ -244,9 +252,9 @@ export class Tarayici {
   }
 
   /** Bir aracın bilinen hattı ve (varsa) son görülen güzergâhı; bilinmiyorsa null. */
-  bilgi(kapiNo) {
+  bilgi(kapiNo, simdi = Date.now()) {
     const k = this.atama.get(kapiNo);
-    return k ? { ...k, gorevde: this.gorevdeMi(k) } : null;
+    return k ? { ...k, gorevde: this.gorevdeMi(k, simdi) } : null;
   }
 
   /**
@@ -255,12 +263,13 @@ export class Tarayici {
    * taramada listede olmuyor. Araç → hat bilgisi bir hafta saklandığı için bu otobüsler
    * eskiden "geliyor" ya da "duruyor" diye görünmeye devam ediyordu (Göztepe Meydanı
    * 00:36: 97GE'nin son taramasında yalnız A-1725 vardı, 89C'nin dördü; garajdaki ve
-   * seferi biten onlarca otobüs hâlâ hatlarında sayılıyordu). Hat hiç taranmadıysa ya da
-   * tarama zamanı bilinmiyorsa (eski kayıt) karar verilmez: true.
+   * seferi biten onlarca otobüs hâlâ hatlarında sayılıyordu). Hat hiç taranmadıysa, tarama
+   * zamanı bilinmiyorsa (eski kayıt) ya da son tarama GOREV_TAZE_MS'den eskiyse karar
+   * verilmez: true.
    */
-  gorevdeMi(k) {
+  gorevdeMi(k, simdi = Date.now()) {
     const d = this.hatDurumu.get(k.tarananHat ?? k.hat);
-    if (!d || !Number.isFinite(d.sonTarama)) return true;
+    if (!d || !Number.isFinite(d.sonTarama) || simdi - d.sonTarama > GOREV_TAZE_MS) return true;
     return k.an >= d.sonTarama;
   }
 

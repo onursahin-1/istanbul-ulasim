@@ -106,13 +106,13 @@ describe('görevde mi (hattın son taramasında var mı)', () => {
     const an = Date.UTC(2026, 9, 7, 21, 0, 0);
     const arac = (kapiNo) => ({ kapiNo, hat: '97GE', guzergah: '97GE_D_D0', yakinDurak: '', zaman: '' });
     t.isle('97GE', [arac('A-1725'), arac('A-1523')], an);
-    assert.equal(t.bilgi('A-1523').gorevde, true);
+    assert.equal(t.bilgi('A-1523', an).gorevde, true);
     t.isle('97GE', [arac('A-1725')], an + 20 * 60_000);
-    assert.equal(t.bilgi('A-1725').gorevde, true);
-    assert.equal(t.bilgi('A-1523').gorevde, false, 'garaja çekildi');
-    assert.equal(t.bilgi('A-1523').hat, '97GE', 'hattı unutulmaz (sabah yine çıkabilir)');
+    assert.equal(t.bilgi('A-1725', an + 21 * 60_000).gorevde, true);
+    assert.equal(t.bilgi('A-1523', an + 21 * 60_000).gorevde, false, 'garaja çekildi');
+    assert.equal(t.bilgi('A-1523', an + 21 * 60_000).hat, '97GE', 'hattı unutulmaz (sabah yine çıkabilir)');
     t.isle('97GE', [arac('A-1523')], an + 9 * 3_600_000);
-    assert.equal(t.bilgi('A-1523').gorevde, true);
+    assert.equal(t.bilgi('A-1523', an + 9 * 3_600_000).gorevde, true);
   });
 
   it('başarısız sorgu (hata) görevden düşürmez; tarama zamanı bilinmeyen eski kayıtta karar yok', () => {
@@ -121,9 +121,20 @@ describe('görevde mi (hattın son taramasında var mı)', () => {
     t.isle('89C', [{ kapiNo: 'T1005', hat: '89C', guzergah: '89C_D_D0' }], an);
     // Hata yolu yalnız sonBakilan'ı ilerletiyor (basla()); sonTarama değişmez.
     t.hatDurumu.get('89C').sonBakilan = an + 10 * 60_000;
-    assert.equal(t.bilgi('T1005').gorevde, true);
+    assert.equal(t.bilgi('T1005', an + 11 * 60_000).gorevde, true);
     const u = new Tarayici(null);
     u.yukle({ atama: { T1001: { hat: '89C', an: Date.now() - 60_000 } }, hatDurumu: { '89C': { sonBakilan: Date.now(), aracSayisi: 4 } } });
     assert.equal(u.bilgi('T1001').gorevde, true);
+  });
+});
+
+describe('görevde mi: bayat tarama', () => {
+  it('hattın son taraması yarım saatten eskiyse karar verilmez (bilgisayar uykudan uyandı)', () => {
+    const t = new Tarayici(null);
+    const gece = Date.UTC(2026, 9, 7, 22, 56, 0); // 01:56 İstanbul
+    t.isle('141M', [{ kapiNo: 'A-1719', hat: '141M', guzergah: '141M_D_D0' }], gece);
+    t.isle('141M', [{ kapiNo: 'A-1724', hat: '141M', guzergah: '141M_D_D0' }], gece + 60_000);
+    assert.equal(t.bilgi('A-1719', gece + 2 * 60_000).gorevde, false, 'taze tarama: görevde değil');
+    assert.equal(t.bilgi('A-1719', gece + 39 * 3_600_000).gorevde, true, '39 saat sonra: bilinmiyor');
   });
 });
