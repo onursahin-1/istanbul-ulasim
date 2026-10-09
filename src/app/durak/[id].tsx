@@ -1,7 +1,7 @@
 // 4 · Durak detayı: konum, geçen hatlar ve yaklaşan seferler.
 
 import { useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { Pressable } from '@/components/dokun';
@@ -68,6 +68,36 @@ const YENILEME_ARALIGI = 30_000;
 const SATIR_YERLESIMI = LinearTransition.springify().damping(20).stiffness(180);
 /** Açılışta satırlar sırayla gelir; bu süreden sonra yeni gelen satır yalnız belirir. */
 const ACILIS_MS = 1200;
+
+/**
+ * Satırın altındaki saatler. Canlı olanlar (köprünün gördüğü otobüs) yeşil ve dakikasıyla:
+ * "● 01:59 (43 dk)". Önceden ikinci canlı otobüs tarife saatleriyle aynı gri yazılıyordu;
+ * Keşfet'te "43 dk" diye görünen otobüs burada yok sanılıyordu. Tarife saatleri gri kalır.
+ */
+function SonrakiSaatler({
+  kalkislar,
+  ayrac,
+}: {
+  kalkislar: { saniye: number; an: number; canli?: unknown }[];
+  ayrac: string;
+}) {
+  const tema = useTema();
+  return kalkislar.map((k, i) => {
+    const g = kalkisGosterimi(k.an);
+    return (
+      <Fragment key={i}>
+        {i > 0 && ayrac}
+        {k.canli ? (
+          <Text style={{ color: tema.vurgu, fontWeight: '600' }}>
+            {`● ${saniyedenSaat(k.saniye)}${g.birim ? ` (${g.metin} ${g.birim})` : ''}`}
+          </Text>
+        ) : (
+          saniyedenSaat(k.saniye)
+        )}
+      </Fragment>
+    );
+  });
+}
 
 export default function DurakEkrani() {
   const kenar = useSafeAreaInsets();
@@ -583,12 +613,12 @@ export default function DurakEkrani() {
                       y.kalkislar.length > 1 && (
                         <Text style={s.seferSaat}>
                           {y.kalkislar[0].duruyorSn != null ? 'tarifede sonra ' : 'sonra '}
-                          {y.kalkislar.slice(1, 3).map((k) => saniyedenSaat(k.saniye)).join(' · ')}
+                          <SonrakiSaatler kalkislar={y.kalkislar.slice(1, 3)} ayrac=" · " />
                         </Text>
                       )
                     ) : (
                       <Text style={s.seferSaat}>
-                        {y.kalkislar.slice(0, 3).map((k) => saniyedenSaat(k.saniye)).join('  ·  ')}
+                        <SonrakiSaatler kalkislar={y.kalkislar.slice(0, 3)} ayrac="  ·  " />
                       </Text>
                     )}
                   </View>
