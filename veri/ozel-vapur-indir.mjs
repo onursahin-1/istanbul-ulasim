@@ -315,7 +315,14 @@ export function turyolTablosu(sayfa) {
   return { gunler, notlar };
 }
 
-async function turyolIndir() {
+/**
+ * @param onceki önceki indirme: sitenin tek bir iskele çiftinde çöktüğü olur (Ekim 2026'da
+ *   Burgazada → 107 "Object reference not set…" ile HTTP 500 veriyordu). O çift için
+ *   önceki indirmedeki saatler kullanılır, yoksa atlanır; bütün Turyol indirmesi düşmez.
+ */
+async function turyolIndir(onceki) {
+  const eskiCiftler = Array.isArray(onceki?.turyol) ? onceki.turyol : [];
+  let hataSayisi = 0;
   const ana = await (await getir(`${TURYOL}/Home/Tarifeler`)).text();
   const kalkislar = turyolKalkislari(ana).filter((k) => TURYOL_GRUPLARI.has(k.grup));
   if (!kalkislar.length) throw new Error('Turyol: kalkış iskelesi listesi bulunamadı (sayfa biçimi değişmiş olabilir).');
@@ -336,9 +343,18 @@ async function turyolIndir() {
     ).json();
     for (const v of varislar.filter((x) => x.Key)) {
       const govde = new URLSearchParams({ MainHatTuruId: k.grup, TarifeKalkisId: k.deger, TarifeVarisId: String(v.Key) });
-      const sayfa = await (await getir(`${TURYOL}/Home/Tarifeler`, { method: 'POST', body: govde })).text();
-      const tablo = turyolTablosu(sayfa);
       const varis = String(v.Value).replace(/\s*İskele\s*$/i, '').trim();
+      let sayfa;
+      try {
+        sayfa = await (await getir(`${TURYOL}/Home/Tarifeler`, { method: 'POST', body: govde }, 2)).text();
+      } catch (hata) {
+        hataSayisi++;
+        const eski = eskiCiftler.find((c) => c.grup === k.grup && c.kalkis === k.ad && c.varis === varis);
+        console.log(`  UYARI: Turyol ${k.ad} → ${varis} indirilemedi (${hata.message.replace(/^\S+: /, '')}); ${eski ? 'önceki indirme kullanılıyor' : 'atlandı'}`);
+        if (eski) ciftler.push(eski);
+        continue;
+      }
+      const tablo = turyolTablosu(sayfa);
       if (!tablo) {
         console.log(`  Turyol ${k.ad} → ${varis}: tarife yok, atlandı`);
         continue;
@@ -350,6 +366,8 @@ async function turyolIndir() {
       console.log(`  Turyol ${k.grup === '3' ? 'Adalar' : 'şehir'} ${k.ad} → ${varis}: ${sayilar}`);
     }
   }
+  if (!ciftler.length) throw new Error(`Turyol: hiçbir iskele çiftinin tarifesi alınamadı (${hataSayisi} hata)`);
+  if (hataSayisi) console.log(`  Turyol: ${hataSayisi} çift indirilemedi, geri kalanı güncel`);
   return ciftler;
 }
 
@@ -374,7 +392,7 @@ async function denturIndir() {
  */
 async function kaynak(ad, indir, onceki) {
   try {
-    return { veri: await indir(), eski: false };
+    return { veri: await indir(onceki), eski: false };
   } catch (hata) {
     console.log(`  UYARI: ${ad} indirilemedi: ${hata.message}`);
     if (onceki?.[ad.toLowerCase()]?.length) {
