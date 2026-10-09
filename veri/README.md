@@ -21,6 +21,7 @@ python marmaray-duzelt.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 python eksik-hatlar.py C:\otp\osm-hatlar.json C:\otp\istanbul
 node metro-tarife-indir.mjs C:\otp\metro-tarife.json            # yalnız senin bilgisayarında (~10 dk)
 python metro-tarife-uygula.py C:\otp\metro-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
+python marmaray-tarife-uygula.py C:\otp\marmaray-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip  # dosya tarayıcıdan alınır (4c2)
 node vapur-tarife-indir.mjs C:\otp\vapur-tarife.json            # yalnız senin bilgisayarında (<1 dk)
 python vapur-tarife-uygula.py C:\otp\vapur-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 node ozel-vapur-indir.mjs C:\otp\ozel-vapur-tarife.json       # yalnız senin bilgisayarında (<1 dk)
@@ -194,8 +195,9 @@ adı tutan durak dört kat yakın sayılır) ve sırayla bağlanıyor; M2'nin Sa
 mekiği M2A'ya, M7'nin onarım nedeniyle bölünmüş işletmesi M7'nin duraklarına düşüyor.
 Eski seferlerin uğramadığı istasyon (M7 Yeşilpınar) beslemedeki aynı adlı durağa, o da
 yoksa servisin konumuyla yeni bir `mi-` durağına bağlanıyor. Servisin koordinatsız verdiği
-istasyonlar (M5'in Sultanbeyli uzantısı) atlanıyor. Servisin boş döndüğü yönler eski
-tarifesiyle kalıyor. Metro İstanbul'un güncel işletme duyuruları (onarım, bölünmüş hat)
+istasyonlar (M5'in Sultanbeyli uzantısı: 0, 0) hattın beslemedeki aynı adlı durağının
+konumunu alıyor (uzantıyı `istasyon-tamamla.py` OSM'den ekliyor); eskiden atlanıyordu ve M5
+seferleri Samandıra'da bitiyordu. Servisin boş döndüğü yönler eski tarifesiyle kalıyor. Metro İstanbul'un güncel işletme duyuruları (onarım, bölünmüş hat)
 çıktının sonunda yazılıyor.
 
 Servisin iki tuhaflığı düzeltiliyor: son istasyona bir öncekinin saati yazılıyor (iki
@@ -204,10 +206,49 @@ yol süresi ekleniyor; T3 ringinde saat listeleri gidiş yönünün tersine sır
 sırasıyla ve servisin konumlarıyla kuruluyor (beslemedeki T3 durakları yanlış adlı).
 Servis bazı istasyonların listesini sırasız veriyor (M1A Cumartesi); listeler sıralanıp
 öyle eşleniyor. Aradaki istasyonlarda aynı dakika olduğu gibi kalıyor (saatler dakikaya
-yuvarlı); eskiden bir dakika eklenip tarife Metro İstanbul'unkinden kayıyordu.
+yuvarlı); eskiden bir dakika eklenip tarife Metro İstanbul'unkinden kayıyordu. Ama üç ve daha
+çok ardışık istasyon aynı dakikadaysa (servis M5'in doğu ucunda saatleri kopyalamış:
+Sancaktepe'den Sultanbeyli'ye beş istasyon 07:19) zincir, dışındaki en yakın istasyondan
+yol süreleriyle yeniden saatleniyor.
 
-T2 (İETT), T6, M11 ve Marmaray (TCDD), F2 (İETT) ve F3 Metro İstanbul servisinde yok;
-onlar beslemedeki (ya da `eksik-hatlar.py`'nin eklediği) tarifeleriyle kalıyor.
+T2 (İETT), F2 (İETT) ve F3 Metro İstanbul servisinde yok; beslemedeki tarifeleriyle
+kalıyor. T6, M11 ve Marmaray TCDD'nin: bkz. 4c2.
+
+## 4c2. TCDD tarifesi — Marmaray, M11, T6
+
+```powershell
+python marmaray-tarife-uygula.py C:\otp\marmaray-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
+```
+
+Bu hatlar beslemede yalnız sıklıkla tanımlıydı ("06:00–24:00 her 15 dk"). OTP rota kurarken
+bunları kullanıyor ama durak kalkışlarında döndürmüyor; uygulamanın Tarife ekranı "bu
+duraktan bu yöne sefer yok" diyordu. Saatler de tahmindi (Marmaray'ın iki yönü 06:00'da
+başlıyordu; gerçekte Halkalı'dan 05:58, Gebze'den 06:05).
+
+Kaynak TCDD Taşımacılık'ın Marmaray "Sefer Saatleri" sayfası
+(`tcddtasimacilik.gov.tr/marmaray/tr/sefersaatleri`): her trenin her istasyondaki saati.
+M11 (Gayrettepe–Halkalı) ve T6 (Sirkeci–Kazlıçeşme) da TCDD'nin ve aynı sayfada. Sayfanın
+arka ucu yalnız sitenin kendisine açık; veri, sayfa tarayıcıda açıkken sayfanın kendi
+yüklediği tarifeden alınıyor:
+
+1. Tarayıcıda `https://www.tcddtasimacilik.gov.tr/marmaray/tr/sefersaatleri` sayfasını aç.
+2. Geliştirici araçlarının konsoluna (F12 → Console) `marmaray-tarife-al.js` dosyasının
+   içeriğini yapıştır. Betik sayfanın tarifeyi yeniden yüklemesini sağlıyor, İstanbul'daki
+   banliyö seferlerini süzüyor ve `marmaray-tarife.json` olarak indiriyor.
+3. Dosyayı `C:\otp\marmaray-tarife.json` yap.
+
+Dosya küçük (desenler ve "ilk kalkış + aralık × adet" koşuları, ~9 KB). 2026-10-09'da
+alınan: Marmaray 148 + 4 (cuma-cumartesi gecesi), kısa dönüş (Ataköy–Pendik) 139, M11 152,
+T6 83, Halkalı–Bahçeşehir 4 sefer — TCDD'nin "günde 148 + 139 sefer" sayılarıyla aynı.
+
+Eşleme: istasyon adları hat hat beslemedeki duraklara bağlanıyor ("Pendik MR", "Marmaray
+Üsküdar" gibi adlar sadeleştirilerek). "Makas" noktaları ve T6'nın beslemede olmayan
+Samatya ve Kadırga'sı (tek hatlı kesimdeki geçiş noktaları) atlanıyor. Hat seçimi: M11'e ya
+da T6'ya özgü istasyonu olan desen o hatta, Bahçeşehir kolundaki Marmaray2'ye, iki ucu
+Ataköy–Pendik içindeki Marmaray1'e (kısa dönüş), geri kalanı Marmaray'a. Bu beş hattın
+eski seferleri (sıklık tanımlıları dahil) siliniyor; betik yeniden çalıştırılabilir.
+`marmaray-duzelt.py` ve `istasyon-tamamla.py`'nin M11'i hâlâ gerekli: duraklar ve çizgiler
+onlardan geliyor, bu betik yalnız seferleri değiştiriyor.
 
 Betik yeniden çalıştırılabilir ama eski yol sürelerini beslemeden okuduğu için en iyisi
 `eksik-hatlar.py` çıktısı üzerinde çalıştırmak (yedeği `C:\otp\yedekler`'de tut).

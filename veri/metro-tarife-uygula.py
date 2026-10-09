@@ -282,6 +282,49 @@ def ring_satirlari(istasyon, kalkislar, gun_adi):
     return [(sirali[0], servis_dakikalari(ilk))] + [(i, []) for i in sirali[1:]]
 
 
+def esit_zinciri_onar(sefer, ara, konum):
+    """Üç ve daha çok ardışık istasyonun aynı dakikada göründüğü zincirleri yeniden saatler.
+
+    Servis M5'in doğu ucunda saatleri kopyalamış: Üsküdar→Sultanbeyli yönünde Sancaktepe,
+    Samandıra, Veysel Karani, Hasanpaşa ve Sultanbeyli aynı dakika (07:19); öbür yönde
+    Sultanbeyli, Hasanpaşa, Veysel Karani 06:41 ve üç istasyon sonra Sarıgazi 06:45. Oysa
+    Sultanbeyli–Sarıgazi ~8 km. Hattın geri kalanı tutarlı (dakikaya yuvarlı ama tek tük
+    eşitlik), bu yüzden zincir dışındaki en yakın istasyon doğru sayılır ve zincir oradan
+    yol süreleriyle saatlenir: zincir seferin başındaysa ilk güvenilir istasyondan geriye,
+    değilse son güvenilir istasyondan ileriye. Yol süresi beslemedeki eski seferlerden
+    (ara), yoksa mesafeden (~40 km/sa, duraklama dahil).
+    """
+    n = len(sefer)
+    supheli = [False] * n
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and sefer[j + 1][1] == sefer[i][1]:
+            j += 1
+        if j - i + 1 >= 3:
+            for k in range(i, j + 1):
+                supheli[k] = True
+        i = j + 1
+    if not any(supheli) or all(supheli):
+        return sefer
+
+    def sure(a, b):
+        if (a, b) in ara:
+            return ara[(a, b)]
+        if a in konum and b in konum:
+            return max(1, round(mesafe(konum[a], konum[b]) / 11 / 60 + 0.5))
+        return 2
+
+    sonuc = list(sefer)
+    ilk_guvenilir = supheli.index(False)
+    for k in range(ilk_guvenilir - 1, -1, -1):
+        sonuc[k] = (sonuc[k][0], sonuc[k + 1][1] - sure(sonuc[k][0], sonuc[k + 1][0]))
+    for k in range(ilk_guvenilir + 1, n):
+        if supheli[k]:
+            sonuc[k] = (sonuc[k][0], sonuc[k - 1][1] + sure(sonuc[k - 1][0], sonuc[k][0]))
+    return sonuc
+
+
 def saatleri_duzelt(sefer, ara):
     """Son istasyonun varış saatini düzeltir; aradaki istasyonlara dokunmaz.
 
@@ -334,6 +377,15 @@ def main(json_yolu, zip_yolu):
             rapor.append((ad, 'beslemede yok', 0))
             continue
         hat_desenleri = desenler(tablolar, adaylar)
+        # Servis bazı istasyonların konumunu vermiyor (M5'in Sultanbeyli uzantısı: 0, 0).
+        # Bunlar eskiden eleniyordu ve seferler Samandıra'da bitiyordu; konum, hattın
+        # beslemedeki aynı adlı durağından (uzantıyı istasyon-tamamla.py OSM'den ekliyor) alınır.
+        hat_duraklari = {d for de in hat_desenleri for d in de[3] if d in konum}
+        for i in hat['istasyonlar']:
+            if not (i.get('lat') and i.get('lon')):
+                ayni = next((d for d in sorted(hat_duraklari) if ad_benzer(i['ad'], adlar.get(d, ''))), None)
+                if ayni:
+                    i['lat'], i['lon'] = konum[ayni]
         istasyon = {i['id']: i for i in hat['istasyonlar'] if math.isfinite(i.get('lat') or float('nan'))}
         ara = ara_sureleri(tablolar, {t['trip_id'] for t in tablolar['trips.txt'] if t['route_id'] in adaylar})
         for yon in hat['yonler']:
@@ -395,6 +447,8 @@ def main(json_yolu, zip_yolu):
                     seferler = [[(d, t0 + round(k * ara_dk)) for k, d in enumerate(zincir)] for t0 in satirlar[0][1]]
                 else:
                     seferler = seferleri_kur([(duraklar[j], satirlar[j][1]) for j in range(len(satirlar)) if duraklar[j]])
+                if ad not in SIRAYA_GORE:
+                    seferler = [esit_zinciri_onar(sf, ara, konum) for sf in seferler]
                 seferler = [saatleri_duzelt(sf, ara) for sf in seferler]
                 for k, sefer in enumerate(seferler):
                     tid = f"mi-{hat['id']}-{yon['id']}-{gun_adi}-{k}"

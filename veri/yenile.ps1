@@ -35,6 +35,7 @@ $iett = Join-Path $ist 'istanbul-iett-gtfs.zip'
 $osm = Join-Path $Otp 'osm-hatlar.json'
 $metro = Join-Path $Otp 'metro-tarife.json'
 $vapur = Join-Path $Otp 'vapur-tarife.json'
+$marmaray = Join-Path $Otp 'marmaray-tarife.json'
 $ozelVapur = Join-Path $Otp 'ozel-vapur-tarife.json'
 $kiyi = Join-Path $Otp 'osm-kiyi.json'
 $baslangic = Get-Date
@@ -106,6 +107,11 @@ if (-not $EskiTarife -or -not (Test-Path $metro)) {
   Adim "Metro İstanbul tarifesi indiriliyor (~10 dk)" { node metro-tarife-indir.mjs $metro }
 }
 Adim "Metro tarifesi işleniyor" { PythonCalistir metro-tarife-uygula.py $metro $ray }
+if (Test-Path $marmaray) {
+  Adim "TCDD tarifesi işleniyor (Marmaray, M11, T6)" { PythonCalistir marmaray-tarife-uygula.py $marmaray $ray }
+} else {
+  Write-Host "TCDD tarifesi yok ($marmaray); Marmaray, M11 ve T6 sıklıkla kalacak. Bkz. README 4c2." -ForegroundColor Yellow
+}
 if (-not $EskiTarife -or -not (Test-Path $vapur)) {
   Adim "Şehir Hatları tarifesi indiriliyor" { node vapur-tarife-indir.mjs $vapur }
 }
