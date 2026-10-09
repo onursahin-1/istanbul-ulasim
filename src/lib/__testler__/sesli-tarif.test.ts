@@ -104,6 +104,23 @@ describe('sesliDuyurular: raylı istasyona son yaklaşma', () => {
   });
 });
 
+describe('sesliDuyurular: raylı istasyona giderken yoldan çıkınca', () => {
+  it('dönüşler yerine istasyonun yönü; yola dönünce unutulur', () => {
+    const istasyon = { hedefAdi: 'Mahmutbey istasyonu' };
+    const cumleler = akis([
+      yuruyus({ simdiki: 0, sonrakine: 300, rotadan: 5 }, istasyon),
+      yuruyus({ simdiki: 0, sonrakine: 15, rotadan: 60 }, { ...istasyon, istasyonYonu: { metre: 260, yer: 'kuzeydoğuda' } }),
+      yuruyus({ simdiki: 0, sonrakine: 15, rotadan: 70 }, { ...istasyon, istasyonYonu: { metre: 240, yer: 'kuzeydoğuda' } }),
+      yuruyus({ simdiki: 0, sonrakine: 15, rotadan: 5 }, istasyon),
+    ]);
+    assert.deepEqual(cumleler, [
+      'Mahmutbey istasyonu yönünde 650 metre yürü, yaklaşık 8 dakika.',
+      'Rotadan çıktın. Mahmutbey istasyonu kuzeydoğuda, 250 metre.',
+      'Şimdi sağa dön, Bağdat Caddesi.',
+    ]);
+  });
+});
+
 describe('sesliDuyurular: araçta', () => {
   const arac = (ek: Partial<SesGirdisi>): SesGirdisi => ({
     adim: 1,

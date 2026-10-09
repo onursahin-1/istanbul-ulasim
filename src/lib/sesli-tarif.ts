@@ -38,6 +38,11 @@ export type SesGirdisi = {
    * dönüşler söylenmez, bir kez "herhangi bir girişten gir" denir.
    */
   sonYaklasma?: number | null;
+  /**
+   * Raylı istasyona giderken yoldan çıkıldı: istasyona kuş uçuşu metre ve yönün adı
+   * ("kuzeydoğuda"). Dönüşler söylenmez (yol yeniden çiziliyor), istasyonun yönü söylenir.
+   */
+  istasyonYonu?: { metre: number; yer: string } | null;
   // Araçta:
   /** "89T otobüsüne bin" */
   binme?: string;
@@ -86,6 +91,10 @@ export function sesliDuyurular(g: SesGirdisi, soylenen: ReadonlySet<string>): { 
 
     if (g.sonYaklasma != null) {
       ekle(k('istasyon'), `${g.hedefAdi ?? 'İstasyon'} ${mesafeSoyle(g.sonYaklasma)} ileride. Herhangi bir girişten gir.`);
+      return { soyle, unut };
+    }
+    if (g.istasyonYonu) {
+      ekle(k('sapma'), `Rotadan çıktın. ${g.hedefAdi ?? 'İstasyon'} ${g.istasyonYonu.yer}, ${mesafeSoyle(g.istasyonYonu.metre)}.`, true);
       return { soyle, unut };
     }
     const yer = g.yer;

@@ -53,6 +53,7 @@ import {
   NabizNoktasi,
   useStiller,
   YaklasmaSeridi,
+  type IkonAdi,
 } from '@/components/ulasim';
 import type { YerlesikArac } from '@/lib/arac-konum';
 import { kalanYaz, yasYaz } from '@/lib/arac-konum';
@@ -75,6 +76,7 @@ import {
   SAPMA_M,
   SIMDI_M,
   sonYaklasmaMetresi,
+  yonYeri,
   yolaCikisAni,
   yuruyusKonumu,
   type Adim,
@@ -133,10 +135,31 @@ export type YolTarifiVerisi = {
  * (yolculuk.ts, sonYaklasmaMetresi); değilse null.
  */
 function istasyonaYaklasma(v: YolTarifiVerisi, bacak: number): number | null {
+  const istasyon = istasyonHedefi(v, bacak);
+  return istasyon ? sonYaklasmaMetresi(v.konum, istasyon, true) : null;
+}
+
+/** Yürüme bacağı raylı istasyonda bitiyorsa istasyonun noktası; değilse null. */
+function istasyonHedefi(v: YolTarifiVerisi, bacak: number): Nokta | null {
   const b = v.bacaklar[bacak];
   const sonraki = v.bacaklar[bacak + 1];
-  if (!b?.to.stop || !sonraki?.transitLeg) return null;
-  return sonYaklasmaMetresi(v.konum, { latitude: b.to.lat, longitude: b.to.lon }, rayliMod(sonraki.route?.mode ?? sonraki.mode));
+  if (!b?.to.stop || !sonraki?.transitLeg || !rayliMod(sonraki.route?.mode ?? sonraki.mode)) return null;
+  return { latitude: b.to.lat, longitude: b.to.lon };
+}
+
+/**
+ * Raylı istasyona yürürken (son yaklaşmadan önce) yoldan çıkıldıysa istasyona kuş uçuşu metre
+ * ve yönün adı ("kuzeydoğuda"); değilse null. Yol yeniden çizilene kadar eski "Sağa dön" yerine.
+ */
+function istasyonYonuGerekli(
+  v: YolTarifiVerisi,
+  bacak: number,
+  rotadan: number | null | undefined,
+): { istasyon: Nokta; metre: number; yon: number } | null {
+  const istasyon = istasyonHedefi(v, bacak);
+  if (!istasyon || !v.konum || rotadan == null || rotadan <= SAPMA_M) return null;
+  if (sonYaklasmaMetresi(v.konum, istasyon, true) != null) return null;
+  return { istasyon, metre: mesafeMetre(v.konum, istasyon), yon: yonAcisi(v.konum, istasyon) };
 }
 
 /** İstasyon içi tarif satırlarının özeti: "asansör, alt geçit". */
@@ -403,7 +426,11 @@ export function useSesliTarif(v: YolTarifiVerisi | null, acik: boolean, cinsiyet
       g.hedefAdi = b.to.stop ? `${baslikYap(b.to.name)} ${bitisSozcugu(v.bacaklar, a.bacak).ad}` : 'varış noktası';
       g.toplamMetre = b.distance;
       g.toplamDakika = b.duration != null ? b.duration / 60 : null;
-      if (v.durum.faz === 'yuru') g.sonYaklasma = istasyonaYaklasma(v, a.bacak);
+      if (v.durum.faz === 'yuru') {
+        g.sonYaklasma = istasyonaYaklasma(v, a.bacak);
+        const sapma = istasyonYonuGerekli(v, a.bacak, g.yer?.rotadan);
+        if (sapma) g.istasyonYonu = { metre: sapma.metre, yer: yonYeri(sapma.yon) };
+      }
     } else {
       g.hat = b.route?.shortName ?? '';
       g.binme = binmeIfadesi(b.route?.mode ?? b.mode, b.route?.agency?.name);
@@ -1365,8 +1392,11 @@ function TarifKutusu({
   // Raylı istasyona son yaklaşma: dönüş dönüş tarif yerine "İstasyona gir · herhangi bir
   // girişten" (rota motoru tek bir girişi seçiyor; öbür girişe giden takılı kalıyordu).
   const yaklasma = simdiki && v.durum.faz === 'yuru' ? istasyonaYaklasma(v, bacak) : null;
-  const sonraki = yer && yaklasma == null ? tarif[yer.simdiki + 1] : undefined;
-  const simdi = !!yer && yaklasma == null && yer.sonrakine <= SIMDI_M;
+  // Raylı istasyona giderken yoldan çıkıldı (son yaklaşmadan önce): yol yeniden çizilene kadar
+  // eski dönüş yerine istasyonun yönü.
+  const sapma = simdiki && v.durum.faz === 'yuru' && yaklasma == null ? istasyonYonuGerekli(v, bacak, yer?.rotadan) : null;
+  const sonraki = yer && yaklasma == null && !sapma ? tarif[yer.simdiki + 1] : undefined;
+  const simdi = !!yer && yaklasma == null && !sapma && yer.sonrakine <= SIMDI_M;
 
   // Manevraya gelince kısa bir titreşim: telefona bakmadan "şimdi dön" anlaşılsın.
   const titredi = useRef('');
@@ -1441,31 +1471,57 @@ function TarifKutusu({
           {yer.rotadan > SAPMA_M && (
             <View style={[s.kutu, s.kutuDikkat, { marginTop: 0 }]}>
               <Ikon ad="alert-circle-outline" boyut={16} renkKodu={tema.uyari} />
-              <Text style={s.kutuYazi}>{`Rotadan ${mesafeYaz(yer.rotadan)} uzaklaştın; haritadaki kesikli çizgiye dön.`}</Text>
+              <Text style={s.kutuYazi}>
+                {sapma
+                  ? 'Rotadan çıktın; yol bulunduğun yerden yeniden çiziliyor.'
+                  : `Rotadan ${mesafeYaz(yer.rotadan)} uzaklaştın; haritadaki kesikli çizgiye dön.`}
+              </Text>
             </View>
           )}
-          <View style={s.manevra}>
-            <View style={[s.manevraSimge, simdi && { backgroundColor: tema.uyari }]}>
-              <Ikon ad={sonraki ? DONUS_SIMGELERI[sonraki.donus] : 'flag'} boyut={20} renkKodu={tema.vurguYazi} />
+          {sapma ? (
+            <View style={s.manevra}>
+              <View style={s.manevraSimge}>
+                {v.cihazYonu ? (
+                  <DonenOk yon={sapma.yon} cihazYonu={v.cihazYonu} ad="arrow-up" fark={0} renk={tema.vurguYazi} boyut={20} />
+                ) : (
+                  <Ikon ad="compass-outline" boyut={20} renkKodu={tema.vurguYazi} />
+                )}
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={s.manevraMesafe}>{mesafeYaz(sapma.metre)}</Text>
+                <Text style={s.manevraYazi} numberOfLines={1}>
+                  İstasyon bu yönde
+                </Text>
+                <Text style={s.manevraSokak} numberOfLines={1}>
+                  {`${baslikYap(b.to.name)} · ${yonYeri(sapma.yon)}`}
+                </Text>
+              </View>
             </View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={[s.manevraMesafe, simdi && { color: tema.uyari }]}>
-                {simdi ? 'Şimdi' : `${mesafeYaz(yer.sonrakine)} sonra`}
-              </Text>
-              <Text style={s.manevraYazi} numberOfLines={1}>
-                {sonraki ? sonraki.eylem : 'Vardın'}
-              </Text>
-              <Text style={s.manevraSokak} numberOfLines={1}>
-                {sonraki ? sonraki.sokak || ' ' : varisAdi}
-              </Text>
+          ) : (
+            <View style={s.manevra}>
+              <View style={[s.manevraSimge, simdi && { backgroundColor: tema.uyari }]}>
+                <Ikon ad={sonraki ? DONUS_SIMGELERI[sonraki.donus] : 'flag'} boyut={20} renkKodu={tema.vurguYazi} />
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[s.manevraMesafe, simdi && { color: tema.uyari }]}>
+                  {simdi ? 'Şimdi' : `${mesafeYaz(yer.sonrakine)} sonra`}
+                </Text>
+                <Text style={s.manevraYazi} numberOfLines={1}>
+                  {sonraki ? sonraki.eylem : 'Vardın'}
+                </Text>
+                <Text style={s.manevraSokak} numberOfLines={1}>
+                  {sonraki ? sonraki.sokak || ' ' : varisAdi}
+                </Text>
+              </View>
             </View>
-          </View>
+          )}
         </>
       )}
       <View onLayout={(e) => setUstY(e.nativeEvent.layout.y)}>
         {tarif.map((t, i) => {
           const gecildi = !!yer && i < yer.simdiki;
-          const burada = !!yer && i === yer.simdiki;
+          // Yoldan çıkılınca hiçbir satır "buradasın" değil.
+          const burada = !!yer && !sapma && i === yer.simdiki;
           return (
             <View key={i} style={[s.tarifListeSatir, burada && s.tarifBurada]}>
               <Ikon ad={DONUS_SIMGELERI[t.donus]} boyut={14} renkKodu={burada ? tema.vurgu : tema.soluk} />
@@ -1494,13 +1550,37 @@ function TarifKutusu({
 function IstasyonYonu({ yon, cihazYonu }: { yon: number; cihazYonu: SharedValue<number> }) {
   const tema = useTema();
   const s = useStiller(stiller);
-  const donus = useAnimatedStyle(() => ({ transform: [{ rotate: `${yon - cihazYonu.get() - 45}deg` }] }));
   return (
     <View style={s.yonOku} accessibilityLabel="İstasyonun yönü">
-      <Animated.View style={donus}>
-        <Ikon ad="navigate" boyut={18} renkKodu={tema.vurgu} />
-      </Animated.View>
+      <DonenOk yon={yon} cihazYonu={cihazYonu} ad="navigate" fark={45} renk={tema.vurgu} boyut={18} />
     </View>
+  );
+}
+
+/**
+ * Telefonun baktığı yöne göre bir hedefi gösteren simge. `yon` hedefin yönü (kuzeyden derece),
+ * `fark` simgenin kendi baktığı yön ("navigate" 45°, "arrow-up" 0°).
+ */
+function DonenOk({
+  yon,
+  cihazYonu,
+  ad,
+  fark,
+  renk,
+  boyut,
+}: {
+  yon: number;
+  cihazYonu: SharedValue<number>;
+  ad: IkonAdi;
+  fark: number;
+  renk: string;
+  boyut: number;
+}) {
+  const donus = useAnimatedStyle(() => ({ transform: [{ rotate: `${yon - cihazYonu.get() - fark}deg` }] }));
+  return (
+    <Animated.View style={donus}>
+      <Ikon ad={ad} boyut={boyut} renkKodu={renk} />
+    </Animated.View>
   );
 }
 

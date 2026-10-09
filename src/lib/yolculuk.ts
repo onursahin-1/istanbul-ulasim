@@ -943,6 +943,12 @@ export function yuruyusKonumu(
   };
 }
 
+const YON_ADLARI = ['kuzeyde', 'kuzeydoğuda', 'doğuda', 'güneydoğuda', 'güneyde', 'güneybatıda', 'batıda', 'kuzeybatıda'];
+/** Yön açısının (kuzeyden saat yönünde derece) adı: 45 → "kuzeydoğuda". */
+export function yonYeri(derece: number): string {
+  return YON_ADLARI[Math.round((((derece % 360) + 360) % 360) / 45) % 8];
+}
+
 /** Bu kadar yaklaşınca manevra "şimdi" yazılır. */
 export const SIMDI_M = 15;
 /** Yürüme çizgisinden bu kadar uzaklaşınca "rotadan çıktın" uyarısı. */
@@ -977,6 +983,12 @@ export const YENIDEN_CIZ_M = 25;
 export const YENIDEN_CIZ_DOGRULUK_M = 35;
 /** İki yeniden çizim arası en az bu kadar. */
 export const YENIDEN_CIZ_ARA_MS = 15_000;
+/**
+ * Raylı istasyona yürürken konum YENIDEN_CIZ_DOGRULUK_M'den kötü olsa da (istasyon çevresi,
+ * yüksek binalar: 35–50 m) sapma doğruluktan bu kadar büyükse yol yeniden çizilir. Mahmutbey
+ * M3 kaydında konum 31–45 m geldiği için yolcu soldan giderken yol hiç yeniden çizilmedi.
+ */
+export const YENIDEN_CIZ_DOGRULUK_PAYI_M = 15;
 
 export type YenidenCizimGirdisi = {
   durum: YolculukDurumu | null;
@@ -992,18 +1004,24 @@ export type YenidenCizimGirdisi = {
   simdi: number;
   /** Son yeniden çizimin zamanı; hiç çizilmediyse null. */
   sonCizim: number | null;
+  /** Yürüyüşün sonunda metro, Marmaray, tramvay, füniküler (bitis istasyonun noktası). */
+  rayli?: boolean;
 };
 
 /** Yürüyüş bulunulan yerden yeniden çizilmeli mi. */
 export function yenidenCizilmeli(g: YenidenCizimGirdisi): boolean {
   if (!g.durum || g.durum.faz !== 'yuru' || g.adim?.tur !== 'yuru') return false;
-  if (g.dogruluk != null && g.dogruluk > YENIDEN_CIZ_DOGRULUK_M) return false;
+  // Raylı istasyonda kötü konumla da çizilir, ama yalnız sapma doğruluğu açıkça aşınca.
+  const kotu = g.dogruluk != null && g.dogruluk > YENIDEN_CIZ_DOGRULUK_M;
+  if (kotu && !g.rayli) return false;
   if (g.sonCizim != null && g.simdi - g.sonCizim < YENIDEN_CIZ_ARA_MS) return false;
-  // Durağa varmak üzereyken yeni yol çizmenin anlamı yok.
-  if (mesafeMetre(g.konum, g.bitis) <= VARIS_M) return false;
+  // Durağa varmak üzereyken yeni yol çizmenin anlamı yok. İstasyona son yaklaşmada tarif
+  // "herhangi bir girişten gir"e dönüyor; tek girişe giden yol çizilmez.
+  if (mesafeMetre(g.konum, g.bitis) <= (g.rayli ? SON_YAKLASMA_M : VARIS_M)) return false;
   if (g.cizgi.length < 2) return true;
-  if (g.ilkKonum && mesafeMetre(g.konum, g.cizgi[0]) > BASLANGIC_KAYMA_M) return true;
-  return cizgiyeUzaklik(g.konum, g.cizgi) > YENIDEN_CIZ_M;
+  const esik = kotu ? g.dogruluk! + YENIDEN_CIZ_DOGRULUK_PAYI_M : YENIDEN_CIZ_M;
+  if (g.ilkKonum && !kotu && mesafeMetre(g.konum, g.cizgi[0]) > BASLANGIC_KAYMA_M) return true;
+  return cizgiyeUzaklik(g.konum, g.cizgi) > esik;
 }
 
 // ---------------------------------------------------------------- durak, istasyon, iskele

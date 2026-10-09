@@ -555,15 +555,14 @@ export default function RotaDetayEkrani() {
         dogruluk,
         simdi: Date.now(),
         sonCizim: c.son,
+        // Raylı istasyona yürürken: kötü konumla da çizilir, son yaklaşmada çizilmez (yolculuk.ts).
+        rayli: !!adim && rayliMi(bacaklar[adim.bacak + 1]),
       });
       // İlk konum, doğruluğu yeterli ilk konumla tüketiliyor; kaba bir ilk konum hakkı yakmasın.
       if (dogruluk == null || dogruluk <= KOTU_DOGRULUK_M) c.ilkKonum = false;
-      // İstasyona son yaklaşmada yol çizilmez: tarif "herhangi bir girişten gir"e döndü.
-      const yaklasma =
-        adim && sonYaklasmaMetresi(nokta, ozetler[adim.bacak].bitis, rayliMi(bacaklar[adim.bacak + 1])) != null;
-      if (karar && adim && !yaklasma) yuruyusuYenidenCiz(nokta, adim.bacak);
+      if (karar && adim) yuruyusuYenidenCiz(nokta, adim.bacak);
     },
-    [adimlar, ozetler, cizgiler, yuruyusuYenidenCiz],
+    [adimlar, ozetler, cizgiler, bacaklar, yuruyusuYenidenCiz],
   );
   // Konum aboneliği yolculuk başında kuruluyor; güzergâh sonradan değişince (yeniden çizim)
   // abonelik eski adım listesiyle kalmasın diye her zaman güncel işleyiciyi çağırıyor.

@@ -23,6 +23,7 @@ import {
   YENIDEN_CIZ_ARA_MS,
   istasyonAlaninda,
   sonYaklasmaMetresi,
+  yonYeri,
   ISTASYON_ALANI_KAYIP_MS,
   type BacakOzeti,
   type KonumOrnegi,
@@ -233,6 +234,20 @@ describe('yenidenCizilmeli', () => {
     assert.equal(yenidenCizilmeli({ ...sapmis, sonCizim: temel.simdi - YENIDEN_CIZ_ARA_MS }), true);
     assert.equal(yenidenCizilmeli({ ...temel, ilkKonum: true, konum: yanda(0.0027, 0.0003) }), false);
   });
+  it('raylı istasyona giderken kötü konumda da çizilir, ama yalnız sapma doğruluktan 15 m büyükse', () => {
+    // Çizgiden ~42 m doğuda, istasyona ~250 m; doğruluk 40 m.
+    const sapmis = { ...temel, konum: yanda(0.0005, 0.0005), dogruluk: 40 };
+    assert.equal(yenidenCizilmeli(sapmis), false, 'otobüs durağına: kötü konumda hiç');
+    assert.equal(yenidenCizilmeli({ ...sapmis, rayli: true }), false, '42 m < 40 + 15');
+    assert.equal(yenidenCizilmeli({ ...sapmis, rayli: true, konum: yanda(0.0005, 0.0008) }), true, '~67 m');
+    // İyi konumda eşik eskisi gibi 25 m.
+    assert.equal(yenidenCizilmeli({ ...sapmis, rayli: true, dogruluk: 10 }), true);
+  });
+  it('raylı istasyona son 150 m\'de çizilmez (tarif "herhangi bir girişten gir")', () => {
+    const sonda = { ...temel, konum: yanda(0.0016, 0.0005), rayli: true };
+    assert.equal(yenidenCizilmeli(sonda), false);
+    assert.equal(yenidenCizilmeli({ ...sonda, rayli: false }), true);
+  });
   it('araçtayken ya da beklerken çizilmez', () => {
     const sapmis = { ...temel, konum: yanda(0.0015, 0.0005) };
     assert.equal(yenidenCizilmeli({ ...sapmis, durum: { ...temel.durum, faz: 'bekle' } }), false);
@@ -350,5 +365,15 @@ describe('raylı istasyona yürürken (girişi yolcu seçer)', () => {
     // İyi konumla alandan çıkınca unutulur.
     const cikti = durumuIlerlet(girdi, n(-0.002), ADIMLAR, METRO, { iz: [ornek(0, -0.002), ornek(5, -0.0008), ornek(20, -0.002)] });
     assert.equal(cikti.istasyonAlani, undefined);
+  });
+});
+
+describe('yonYeri', () => {
+  it('sekiz yön', () => {
+    assert.equal(yonYeri(0), 'kuzeyde');
+    assert.equal(yonYeri(40), 'kuzeydoğuda');
+    assert.equal(yonYeri(359), 'kuzeyde');
+    assert.equal(yonYeri(-90), 'batıda');
+    assert.equal(yonYeri(200), 'güneyde');
   });
 });
