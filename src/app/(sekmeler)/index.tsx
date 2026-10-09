@@ -61,7 +61,7 @@ const YENILEME_ARALIGI = 30_000;
 function saatsizGruplari(hatlar: Hat[]): { tur: string; hatlar: Hat[]; adlar: string[] }[] {
   const gruplar = new Map<string, { tur: string; hatlar: Hat[]; adlar: string[] }>();
   for (const h of hatlar) {
-    const e = hatEtiketi(h.shortName, h.mode, h.agency?.name);
+    const e = hatEtiketi(h.shortName, h.mode, h.agency?.name, h.longName);
     const g = gruplar.get(e.rozet) ?? { tur: e.rozet, hatlar: [], adlar: [] };
     const ad = e.ayrinti || e.rozet;
     if (!g.adlar.includes(ad)) {
@@ -427,7 +427,7 @@ export default function AnaEkran() {
                     <View style={s.saatsizNot}>
                       <Ikon ad="time-outline" boyut={11} renkKodu={tema.soluk} />
                       <Text style={s.saatsizYazi} numberOfLines={1}>
-                        {`${g.adlar.length} hat · ${siklikOzeti(g.hatlar.map((h) => hatSikligi(h.shortName))) ?? 'saat bilgisi yok'}`}
+                        {`${g.adlar.length} hat · ${siklikOzeti(g.hatlar.map((h) => hatSikligi(h.shortName, h.longName))) ?? 'saat bilgisi yok'}`}
                       </Text>
                     </View>
                   </View>

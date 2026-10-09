@@ -433,7 +433,7 @@ function AracKarti({
   const yon = b.headsign ? `${baslikYap(b.headsign)} yönü` : aracAdi(b.route?.mode ?? b.mode);
   const saatler = oran && oran.length === liste.length ? durakSaatleri(oran, an(b, 'start'), an(b, 'end')) : null;
   const binisDk = Math.round((an(b, 'start') - Date.now()) / 60_000);
-  const guzergahAdi = hatEtiketi(b.route?.shortName, b.route?.mode ?? b.mode, b.route?.agency?.name).ayrinti;
+  const guzergahAdi = hatEtiketi(b.route?.shortName, b.route?.mode ?? b.mode, b.route?.agency?.name, b.route?.longName).ayrinti;
   return (
     <Animated.View layout={YERLESIM} style={[s.kart, acik && s.kartAcik]}>
       <Pressable

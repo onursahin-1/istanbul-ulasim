@@ -27,6 +27,14 @@ describe('hatEtiketi', () => {
     assert.ok(e.ayrinti.length > 20, 'güzergâh metni korunmalı');
   });
 
+  it('kodlu minibüste kodu rozete, güzergâhı alt satıra yazar', () => {
+    const e = hatEtiketi('A43', 'BUS', 'Minibus', 'AVCILAR - BAĞLARÇEŞME');
+    assert.equal(e.rozet, 'A43');
+    assert.match(e.ayrinti, /Avcılar/);
+    // Kodlu otobüste uzun ad alt satıra inmez (rozet zaten hattı anlatıyor).
+    assert.deepEqual(hatEtiketi('34G', 'BUS', 'İETT', 'SÖĞÜTLÜÇEŞME - BEYLİKDÜZÜ'), { rozet: '34G', ayrinti: '' });
+  });
+
   it('taksi dolmuşu minibüsten ayırır', () => {
     const uzun = 'ÜSKÜDAR-ÜMRANİYE-TAVUKÇUYOLU-ALEMDAĞ';
     assert.equal(hatEtiketi(uzun, 'BUS', 'Taksi Dolmus').rozet, 'Dolmuş');

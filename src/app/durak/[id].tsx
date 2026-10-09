@@ -294,8 +294,12 @@ export default function DurakEkrani() {
           hat: d.pattern?.route ?? null,
           yon: baslikYap(d.pattern?.headsign) || baslikYap(d.pattern?.route?.longName),
           // Minibüs ve dolmuşta rozet yalnızca araç tipini yazıyor; güzergâh buraya düşüyor.
-          guzergah: hatEtiketi(d.pattern?.route?.shortName, d.pattern?.route?.mode, d.pattern?.route?.agency?.name)
-            .ayrinti,
+          guzergah: hatEtiketi(
+            d.pattern?.route?.shortName,
+            d.pattern?.route?.mode,
+            d.pattern?.route?.agency?.name,
+            d.pattern?.route?.longName,
+          ).ayrinti,
           kalkislar,
           yaklasan: yaklasanArac ?? yaklasan,
           duranNot,
@@ -315,7 +319,7 @@ export default function DurakEkrani() {
         sonrakiDurak: '',
         hat,
         yon: baslikYap(adParcalari[adParcalari.length - 1]),
-        guzergah: hatEtiketi(hat.shortName, hat.mode, hat.agency?.name).ayrinti,
+        guzergah: hatEtiketi(hat.shortName, hat.mode, hat.agency?.name, hat.longName).ayrinti,
         kalkislar: ana.map(aracKalkisi),
         yaklasan: { otobus: aracVarisindanOtobus(ana[0]), kalan: ana[0].kalanDurak },
         duranNot: duran && !duruyorMu(ana[0]) ? { kalan: duran.kalanDurak, sn: duran.duruyorSn ?? 0 } : null,
@@ -342,7 +346,7 @@ export default function DurakEkrani() {
     () =>
       hatlar
         .filter((h) => !yonler.some((y) => y.hat?.gtfsId === h.gtfsId))
-        .map((h) => ({ hat: h, metin: siklikYaz(hatSikligi(h.shortName)) }))
+        .map((h) => ({ hat: h, metin: siklikYaz(hatSikligi(h.shortName, h.longName)) }))
         .filter((x): x is { hat: Hat; metin: string } => !!x.metin),
     [hatlar, yonler],
   );
@@ -634,7 +638,7 @@ export default function DurakEkrani() {
               <View style={{ gap: 4 }}>
                 <Text style={s.altBaslik}>MİNİBÜS VE DOLMUŞ</Text>
                 {saatsiz.map((h) => {
-                  const guzergah = hatEtiketi(h.shortName, h.mode, h.agency?.name).ayrinti;
+                  const guzergah = hatEtiketi(h.shortName, h.mode, h.agency?.name, h.longName).ayrinti;
                   return (
                     <Pressable
                       key={h.gtfsId}
@@ -656,7 +660,7 @@ export default function DurakEkrani() {
                           {guzergah || baslikYap(h.shortName)}
                         </Text>
                         <Text style={s.seferSaat}>
-                          {siklikYaz(hatSikligi(h.shortName)) ??
+                          {siklikYaz(hatSikligi(h.shortName, h.longName)) ??
                             'Saat bilgisi yok · sık aralıklarla çalışır'}
                         </Text>
                       </View>

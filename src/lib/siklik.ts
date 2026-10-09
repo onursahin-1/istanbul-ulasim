@@ -25,9 +25,15 @@ export function istanbulAni(simdiMs: number): { gun: number; dakika: number } {
 }
 
 /** Hattın kısa adından pencereleri. Bulunamazsa null. */
-export function siklikBul(veri: SiklikVerisi, kisaAd?: string | null): Pencere[] | null {
+export function siklikBul(veri: SiklikVerisi, kisaAd?: string | null, uzunAd?: string | null): Pencere[] | null {
   if (!kisaAd) return null;
-  return veri[trBuyuk(kisaAd).trim()] ?? null;
+  const kisa = trBuyuk(kisaAd).trim();
+  // Kodlu minibüste kodun birden çok güzergâhı var: önce "KOD|GÜZERGÂH" (veri/siklik-cikar.py).
+  if (uzunAd) {
+    const tam = veri[`${kisa}|${trBuyuk(uzunAd).trim()}`];
+    if (tam) return tam;
+  }
+  return veri[kisa] ?? null;
 }
 
 /**

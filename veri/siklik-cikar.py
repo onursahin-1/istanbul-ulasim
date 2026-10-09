@@ -73,13 +73,20 @@ def main(zip_yolu, cikti):
             maske = takvim.get(t['service_id'])
             if not maske or '1' not in maske:
                 continue
-            ad = buyuk(hatlar[t['route_id']]['route_short_name'])
+            rota = hatlar[t['route_id']]
+            ad = buyuk(rota['route_short_name'])
             bas, bit = dakika(f['start_time']), dakika(f['end_time'])
             aralik = max(1, round(int(f['headway_secs']) / 60))
-            h = izgara[(ad, maske)]
-            for m in range(bas, bit):
-                if m not in h or aralik < h[m]:
-                    h[m] = aralik
+            # Kodlu minibüste (minibus-kod.py) bir kodun birden çok güzergâhı var: kod tek
+            # başına hepsinin birleşimi, "KOD|GÜZERGÂH" yalnız o güzergâh (uygulama önce bunu arar).
+            anahtarlar = [ad]
+            if (rota.get('route_desc') or '').startswith('minibus-kod:'):
+                anahtarlar.append(f"{ad}|{buyuk(rota['route_long_name'])}")
+            for anahtar in anahtarlar:
+                h = izgara[(anahtar, maske)]
+                for m in range(bas, bit):
+                    if m not in h or aralik < h[m]:
+                        h[m] = aralik
 
     sonuc = collections.defaultdict(list)
     for (ad, maske), h in izgara.items():

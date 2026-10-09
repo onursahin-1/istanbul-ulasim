@@ -944,7 +944,7 @@ function IskeletKart() {
 }
 
 function hatYazisi(bacak: Guzergah['legs'][number]): string {
-  const e = hatEtiketi(bacak.route?.shortName, bacak.route?.mode ?? bacak.mode, bacak.route?.agency?.name);
+  const e = hatEtiketi(bacak.route?.shortName, bacak.route?.mode ?? bacak.mode, bacak.route?.agency?.name, bacak.route?.longName);
   return [e.rozet, e.ayrinti].filter(Boolean).join(' · ');
 }
 

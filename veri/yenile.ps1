@@ -1,5 +1,5 @@
 ﻿# Bütün veriyi tek komutla baştan kurar: İBB'nin güncel İETT verisi, Metro İstanbul, Şehir
-# Hatları, Turyol ve Dentur'un güncel tarifeleri, erişim işaretleri, tatiller, istasyon birleştirme,
+# Hatları, Turyol ve Dentur'un güncel tarifeleri, minibüs hat kodları, erişim işaretleri, tatiller, istasyon birleştirme,
 # uygulamanın harita ve sıklık dosyaları; istenirse OTP grafiği de.
 #
 # Ne zaman: İETT tarifesi değişince, mevsim değişince (yaz/kış tarifesi), M7 onarımı gibi
@@ -10,7 +10,7 @@
 # Kullanım (veri klasöründe):
 #   .\yenile.ps1                 veriyi kur (~20 dk: metro tarifesi indirmesi 10 dk sürüyor)
 #   .\yenile.ps1 -Derle          sonunda OTP grafiğini de derle (önce çalışan OTP'yi kapat)
-#   .\yenile.ps1 -EskiTarife     metro, vapur ve TCDD tarifelerini indirme, son indirileni kullan
+#   .\yenile.ps1 -EskiTarife     metro, vapur, TCDD tarifelerini ve minibüs kodlarını indirme, son indirileni kullan
 #   .\yenile.ps1 -Python C:\Python312\python.exe   Python'u elle göster (bulunamazsa)
 #
 # Python 3 gerekiyor (yalnız standart kütüphane). Betik sırayla `py -3`, `python3`, `python`
@@ -37,6 +37,7 @@ $metro = Join-Path $Otp 'metro-tarife.json'
 $vapur = Join-Path $Otp 'vapur-tarife.json'
 $marmaray = Join-Path $Otp 'marmaray-tarife.json'
 $ozelVapur = Join-Path $Otp 'ozel-vapur-tarife.json'
+$minibus = Join-Path $Otp 'minibus-hatlari.geojson'
 $kiyi = Join-Path $Otp 'osm-kiyi.json'
 $baslangic = Get-Date
 $adim = 0
@@ -134,6 +135,12 @@ if (-not $EskiTarife -or -not (Test-Path $ozelVapur)) {
   Adim "Turyol ve Dentur tarifesi indiriliyor" { node ozel-vapur-indir.mjs $ozelVapur }
 }
 Adim "Turyol ve Dentur tarifesi işleniyor" { PythonCalistir ozel-vapur-uygula.py $ozelVapur $ray }
+# Minibüs hat kodları (A43, C117…): İBB açık verisinden; indirilemezse önceki dosya kullanılır.
+if (-not $EskiTarife -or -not (Test-Path $minibus)) {
+  Adim "Minibüs hat kodları (İBB'den indirilerek)" { PythonCalistir minibus-kod.py '--indir' $minibus $ray }
+} else {
+  Adim "Minibüs hat kodları" { PythonCalistir minibus-kod.py $minibus $ray }
+}
 Adim "Erişim (basamaksız) işaretleri" { PythonCalistir erisim-isaretle.py $ray $iett }
 Adim "Resmî tatiller ve bayramlar" { PythonCalistir ozel-gun-takvimi.py ..\assets\veri\ozel-gunler.json $ray $iett }
 Adim "Hat çizgileri" { PythonCalistir cizgi-ekle.py $osm $ray }

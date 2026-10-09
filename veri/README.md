@@ -7,8 +7,8 @@ girmiyor (büyükler), betikler giriyor.
 
 **Tek komutla:** `.\yenile.ps1` aşağıdaki adımların hepsini sırayla çalıştırıyor (önce eski
 zip'leri `C:\otp\yedekler\yenile-…` klasörüne yedekliyor, bir adım hata verirse duruyor).
-`-Derle` sonunda OTP grafiğini de derliyor (çalışan OTP'yi önce kapat); `-EskiTarife` metro
-ve vapur tarifelerini yeniden indirmeden son indirileni kullanıyor. İETT tarifesi, mevsim ya da
+`-Derle` sonunda OTP grafiğini de derliyor (çalışan OTP'yi önce kapat); `-EskiTarife` metro,
+vapur, TCDD tarifelerini ve minibüs kodlarını yeniden indirmeden son indirileni kullanıyor. İETT tarifesi, mevsim ya da
 bir işletme değişikliği olunca, `ozel-gunler.json` güncellenince bunu çalıştırmak yeter.
 
 Betiklerin çoğu zip'i **yerinde** değiştiriyor ve sıraya bağlı. Elle baştan kurarken:
@@ -27,6 +27,7 @@ node vapur-tarife-indir.mjs C:\otp\vapur-tarife.json            # yalnız senin 
 python vapur-tarife-uygula.py C:\otp\vapur-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
 node ozel-vapur-indir.mjs C:\otp\ozel-vapur-tarife.json       # yalnız senin bilgisayarında (<1 dk)
 python ozel-vapur-uygula.py C:\otp\ozel-vapur-tarife.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
+python minibus-kod.py --indir C:\otp\minibus-hatlari.geojson C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip   # İBB'den (~5 sn)
 python erisim-isaretle.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip C:\otp\istanbul\istanbul-iett-gtfs.zip
 python ozel-gun-takvimi.py ..\assets\veri\ozel-gunler.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip C:\otp\istanbul\istanbul-iett-gtfs.zip
 python cizgi-ekle.py C:\otp\osm-hatlar.json C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
@@ -367,6 +368,31 @@ dokunmuyor):
 Ardından `durak-birlestir.py` ve `siklik-cikar.py` (yenile.ps1 zaten sırayla yapıyor).
 Yaz/kış tarifesi değişince yeniden indirip uygulamak yeter.
 
+## 4d2. Minibüs hat kodları — İBB açık verisi
+
+```powershell
+python minibus-kod.py --indir C:\otp\minibus-hatlari.geojson C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip
+```
+
+Beslemedeki minibüs hatlarının kısa adı güzergâhın kendisi ("AVCILAR - BAĞLARÇEŞME"), kod yok;
+uygulama rozete bu yüzden yalnız "Minibüs" yazıyordu. İBB'nin "Minibüs Hatları Verisi"
+(GeoJSON, 165 kod, ~680 güzergâh) her güzergâhın resmî kodunu (A43, C117, BL323, ŞL04,
+SRY/07…) ve çizgisini veriyor. Ortak kimlik olmadığı için eşleme bizde, hat hat:
+
+- **Yakınlık:** hattın en uzun seferindeki durakların ne kadarı kodun çizgilerinden birine
+  ~150 m yakın (100 m'lik ızgara: durağın gözü ya da komşusu çizginin geçtiği bir göz mü).
+- **Ad:** beslemedeki güzergâh adının kodun güzergâh / hat adlarına benzerliği.
+- **Kabul:** puan = yakınlık × 0,6 + ad × 0,4; en iyi kod ikinciden en az 0,04 önde ve
+  (yakınlık ≥ 0,8, ad ≥ 0,5) ya da (yakınlık ≥ 0,65, ad ≥ 0,75) ya da (yakınlık ≥ 0,95,
+  ad ≥ 0,35). Tutmayan hat "Minibüs" kalır: yanlış kod göstermek koddan hiç göstermemekten kötü.
+
+Kabul edilen hatta `route_short_name` kod, `route_long_name` güzergâh oluyor; özgün adlar
+`route_desc`'te (`minibus-kod:[…]`) saklanıyor, betik yeniden çalıştırılabilir. Son çalıştırmada
+318 minibüs hattının 257'si kod aldı. Taksi dolmuşların resmî kodu yok, dokunulmuyor.
+Aynı kodun birden çok güzergâhı var (A43: Avcılar–Kıraç, Avcılar–Bağlarçeşme…): uygulama
+rozette kodu, alt satırda güzergâhı gösteriyor; sıklık verisi `KOD|GÜZERGÂH` anahtarıyla.
+İndirme başarısız olursa önceki dosya kullanılıyor (kurulum durmuyor).
+
 ## 4e. Basamaksız (tekerlekli sandalye) arama
 
 ```powershell
@@ -606,4 +632,5 @@ python siklik-cikar.py C:\otp\istanbul\istanbul-ray-vapur-gtfs.zip ..\assets\ver
 Minibüs ve dolmuş seferleri GTFS'te saatli değil, sıklık pencereleri olarak duruyor
 (`frequencies.txt`). OTP bunları durak kalkışlarında göstermiyor ve API'sinde sıklık
 alanı yok; uygulama "Her 5 dk · son sefer 23:00" yazısını bu dosyadan üretiyor
-(`src/lib/siklik.ts`). GTFS yenilenince bu betik de yeniden çalıştırılmalı.
+(`src/lib/siklik.ts`). Kodlu minibüslerde (4d2) aynı kodun güzergâhları ayrı ayrı
+`KOD|GÜZERGÂH` anahtarıyla da yazılıyor; uygulama önce onu, yoksa yalnız kodu arıyor. GTFS yenilenince bu betik de yeniden çalıştırılmalı.

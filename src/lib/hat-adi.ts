@@ -8,6 +8,10 @@
 // Kural: rozet kimlik taşır, ayrıntı alt satıra iner. Kısa kodu olan hatta kodu
 // yazılır; olmayanda araç tipi yazılır ve güzergâh `ayrinti` olarak döner.
 //
+// Minibüslerin çoğu artık İBB'nin resmî koduyla geliyor (veri/minibus-kod.py: A43, C117,
+// ŞL04…). Bir kodun birden çok güzergâhı olduğu için güzergâh yine alt satırda; o zaman
+// uzun addan (route_long_name) geliyor.
+//
 // Bu dosya bilerek bağımlılıksız: React Native'e dokunmuyor, testlerden çağrılabiliyor.
 
 import { baslikYap, trBuyuk } from './metin';
@@ -79,15 +83,25 @@ export type HatEtiketi = {
  * @param kisaAd   GTFS route_short_name
  * @param mode     araç tipi (SUBWAY, BUS, FERRY…)
  * @param isletmeci işletmeci adı; minibüs ile dolmuşu ayırmak için
+ * @param uzunAd   GTFS route_long_name; kodlu minibüste güzergâh buradan
  */
-export function hatEtiketi(kisaAd?: string | null, mode?: string | null, isletmeci?: string | null): HatEtiketi {
+export function hatEtiketi(
+  kisaAd?: string | null,
+  mode?: string | null,
+  isletmeci?: string | null,
+  uzunAd?: string | null,
+): HatEtiketi {
   const ham = (kisaAd ?? '').trim();
   if (!ham) return { rozet: aracAdi(mode) || '?', ayrinti: '' };
 
   // Marmaray veride üç hat: tam hat, kısa dönüş ve banliyö şubesi. Yolcu için hepsi Marmaray.
   if (/^marmaray\s*\d*$/i.test(ham)) return { rozet: 'Marmaray', ayrinti: '' };
 
-  if (ham.length <= EN_UZUN_KOD) return { rozet: trBuyuk(ham), ayrinti: '' };
+  if (ham.length <= EN_UZUN_KOD) {
+    // Kodlu minibüs: kod rozette, güzergâh alt satırda (kodun birden çok güzergâhı var).
+    const guzergah = isletmeciAdi(isletmeci) ? baslikYap((uzunAd ?? '').trim()) : '';
+    return { rozet: trBuyuk(ham), ayrinti: guzergah };
+  }
 
   // Kısa ad aslında güzergâhın kendisi: rozete araç tipi, alt satıra güzergâh.
   const tip = isletmeciAdi(isletmeci) || aracAdi(mode) || 'Hat';

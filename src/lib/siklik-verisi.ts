@@ -9,6 +9,6 @@ import { siklikBul, siklikDurumu, type SiklikDurumu, type SiklikVerisi } from '.
 const VERI = ham as unknown as SiklikVerisi;
 
 /** Bir minibüs/dolmuş ya da sıklıkla çalışan raylı hattın şu anki sıklık durumu; veri yoksa null. */
-export function hatSikligi(kisaAd?: string | null, simdiMs: number = Date.now()): SiklikDurumu | null {
-  return siklikDurumu(siklikBul(VERI, kisaAd), simdiMs);
+export function hatSikligi(kisaAd?: string | null, uzunAd?: string | null, simdiMs: number = Date.now()): SiklikDurumu | null {
+  return siklikDurumu(siklikBul(VERI, kisaAd, uzunAd), simdiMs);
 }
