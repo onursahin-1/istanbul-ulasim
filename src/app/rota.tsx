@@ -31,7 +31,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   BacakZinciri,
-  canliRenk,
   CevrimdisiSerit,
   GeriCubugu,
   HataKutusu,
@@ -68,6 +67,7 @@ import {
   istanbulSaat,
   istanbulSimdi,
   andanSecim,
+  durakVarisMetni,
   istanbulZamanYap,
   saatDakikaYaz,
   secimdenAn,
@@ -594,7 +594,11 @@ export default function RotaEkrani() {
                       </Text>
                     );
                   }
-                  const renk = canliRenk(canli.sinif, tema);
+                  // Öbür ekranlardaki gibi: canlı kalkış tek renk ve durağa varış saatiyle
+                  // ("Canlı · 00:07'de durakta"). Tarifeye göre fark ("5 dk erken") yolcuya bir
+                  // şey söylemiyordu: otobüsün ara durak saati tarifede yok, bizim tahminimiz.
+                  const renk = tema.vurgu;
+                  const binisAni = Date.parse(ilkArac.start.estimated?.time ?? ilkArac.start.scheduledTime ?? '') / 1000;
                   // İlk bacak canlıyken sonraki araçların hangisinin tahmin olduğunu söyle.
                   const tarifeli = g.legs.filter((b) => b.transitLeg && b !== ilkArac && !b.start.estimated);
                   return (
@@ -607,7 +611,9 @@ export default function RotaEkrani() {
                         <NabizNoktasi renk={renk} />
                         <Text style={[s.ilkArac, s.esnek]} numberOfLines={2}>
                           {bas}
-                          <Text style={{ color: renk, fontWeight: '700' }}>{`${saat} · ${canli.metin}`}</Text>
+                          <Text style={{ color: renk, fontWeight: '700' }}>
+                            {Number.isFinite(binisAni) ? `Canlı · ${durakVarisMetni(binisAni)}` : `Canlı · ${saat}`}
+                          </Text>
                           {ilkGelen}
                         </Text>
                       </View>
@@ -664,8 +670,8 @@ export default function RotaEkrani() {
         )}
         {guzergahlar && guzergahlar.length > 0 && (
           <Text style={s.not}>
-            Otobüs, Metrobüs, minibüs, metro, Marmaray, tramvay, füniküler ve vapur dahildir. Marmaray'ın ve İDO
-            vapurlarının saatleri yaklaşıktır.
+            Otobüs, Metrobüs, minibüs, dolmuş, metro, Marmaray, tramvay, füniküler, teleferik ve vapur dahildir.
+            Minibüs ve dolmuş saatleri sefer sıklığına göre yaklaşıktır.
           </Text>
         )}
       </ScrollView>
