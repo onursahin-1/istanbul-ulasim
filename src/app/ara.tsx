@@ -20,9 +20,10 @@ import Animated, {
 import { Pressable } from '@/components/dokun';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { KaydirmaliSatir } from '@/components/kaydirmali-satir';
 import { GeriCubugu, HataKutusu, Ikon, useStiller, Yukleniyor, type IkonAdi } from '@/components/ulasim';
 import { mesafeMetre } from '@/lib/cografya';
-import { aramaKaydet, useKayitlar, yerKaydet, type YerTuru } from '@/lib/kayitlar';
+import { aramaKaydet, aramalariTemizle, aramaSil, useKayitlar, yerKaydet, type YerTuru } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
 import { adTekrariniEle } from '@/lib/istasyon';
 import { durakAra, OtpHatasi, type Durak, type Konum } from '@/lib/otp';
@@ -55,23 +56,69 @@ type Parametreler = {
 
 const YER_ADI: Record<YerTuru, string> = { ev: 'Ev', is: 'İş' };
 
-// Boş ekranda gösterilen kısayollar. Metne dokunmak kategori aramasını başlatır.
-const KISAYOLLAR: { tur: string; ad: string }[] = [
-  { tur: 'eczane', ad: 'Eczane' },
-  { tur: 'hastane', ad: 'Hastane' },
-  { tur: 'market', ad: 'Market' },
-  { tur: 'benzinlik', ad: 'Benzin' },
-  { tur: 'avm', ad: 'AVM' },
-  { tur: 'kafe', ad: 'Kafe' },
-  { tur: 'park', ad: 'Park' },
-  { tur: 'atm', ad: 'ATM' },
-];
-
-// Boş ekranda adres aramasını öğreten örnekler: dokununca kutuya yazılır ve aranır.
-const ORNEKLER: { yazi: string; not: string }[] = [
-  { yazi: 'Bağdat Cd. 312', not: 'adres' },
-  { yazi: '1543 Sk. Bağcılar', not: 'sokak ve ilçe' },
-  { yazi: 'Kadıköy eczane', not: 'semtte bir yer' },
+// Boş ekranda "Yakınımda ne var?" kategorileri, gruplu. Çipe dokunmak kategori aramasını
+// başlatır: yazı, veritabanındaki türün adıyla ya da adının bir sözcüğüyle aynı olmalı
+// ("Benzin" → "Benzin istasyonu"); kategoriEslesmesi böyle eşleştiriyor.
+const KATEGORI_GRUPLARI: { ad: string; ogeler: { tur: string; ad: string }[] }[] = [
+  {
+    ad: 'Sağlık',
+    ogeler: [
+      { tur: 'eczane', ad: 'Eczane' },
+      { tur: 'hastane', ad: 'Hastane' },
+      { tur: 'klinik', ad: 'Klinik' },
+      { tur: 'dis', ad: 'Diş hekimi' },
+      { tur: 'veteriner', ad: 'Veteriner' },
+    ],
+  },
+  {
+    ad: 'Yeme içme',
+    ogeler: [
+      { tur: 'restoran', ad: 'Restoran' },
+      { tur: 'kafe', ad: 'Kafe' },
+      { tur: 'firin', ad: 'Fırın' },
+      { tur: 'bufe', ad: 'Büfe' },
+    ],
+  },
+  {
+    ad: 'Alışveriş',
+    ogeler: [
+      { tur: 'market', ad: 'Market' },
+      { tur: 'bakkal', ad: 'Bakkal' },
+      { tur: 'avm', ad: 'AVM' },
+      { tur: 'pazar', ad: 'Pazar' },
+      { tur: 'kitapci', ad: 'Kitapçı' },
+      { tur: 'kirtasiye', ad: 'Kırtasiye' },
+    ],
+  },
+  {
+    ad: 'Para ve hizmetler',
+    ogeler: [
+      { tur: 'atm', ad: 'ATM' },
+      { tur: 'banka', ad: 'Banka' },
+      { tur: 'postane', ad: 'Postane' },
+      { tur: 'kuafor', ad: 'Kuaför' },
+      { tur: 'polis', ad: 'Polis' },
+    ],
+  },
+  {
+    ad: 'Araç',
+    ogeler: [
+      { tur: 'benzinlik', ad: 'Benzin' },
+      { tur: 'sarj', ad: 'Şarj' },
+      { tur: 'otopark', ad: 'Otopark' },
+      { tur: 'tamirci', ad: 'Oto tamir' },
+    ],
+  },
+  {
+    ad: 'Gezi ve spor',
+    ogeler: [
+      { tur: 'park', ad: 'Park' },
+      { tur: 'muze', ad: 'Müze' },
+      { tur: 'sinema', ad: 'Sinema' },
+      { tur: 'gezi', ad: 'Gezilecek yer' },
+      { tur: 'spor_salonu', ad: 'Spor salonu' },
+    ],
+  },
 ];
 const SON_ARAMA_SINIRI = 5;
 
@@ -388,43 +435,65 @@ export default function AraEkrani() {
             <>
               <View style={s.bolumSatiri}>
                 <Text style={[s.bolumBaslik, s.bolumBaslikEsnek]}>SON ARAMALAR</Text>
-                <Pressable hitSlop={8} onPress={() => router.navigate('/kayitli')} accessibilityRole="button">
-                  <Text style={s.tumu}>Tümü</Text>
+                <Pressable
+                  hitSlop={8}
+                  onPress={() =>
+                    Alert.alert(
+                      'Son aramalar silinsin mi?',
+                      `${aramalar.length} arama kaydı silinecek. Ev, İş, favori yerlerin ve durakların yerinde kalır.`,
+                      [
+                        { text: 'Vazgeç', style: 'cancel' },
+                        { text: 'Sil', style: 'destructive', onPress: () => aramalariTemizle() },
+                      ],
+                    )
+                  }
+                  accessibilityRole="button"
+                  accessibilityLabel="Son aramaların tümünü temizle"
+                >
+                  <Text style={s.tumu}>Tümünü temizle</Text>
                 </Pressable>
               </View>
+              {/* Sola kaydırınca silinir. Anahtar kayda bağlı: sıra numarası olsaydı silinen satırın
+                  kapanmış yüksekliği alttaki kayda geçerdi. */}
               {aramalar.slice(0, SON_ARAMA_SINIRI).map((a) => (
-                <Pressable
-                  key={`${a.lat},${a.lon},${a.ad}`}
-                  style={s.satir}
-                  onPress={() => hedefSec({ ad: a.ad, lat: a.lat, lon: a.lon }, a.alt)}
-                  accessibilityRole="button"
-                >
-                  <View style={[s.satirIkon, s.satirIkonGri]}>
-                    <Ikon ad="time-outline" boyut={17} renkKodu={tema.soluk} />
-                  </View>
-                  <View style={s.satirMetin}>
-                    <Text style={s.satirBaslik} numberOfLines={1}>
-                      {a.ad}
-                    </Text>
-                    {!!a.alt && (
-                      <Text style={s.satirAlt} numberOfLines={1}>
-                        {a.alt}
-                      </Text>
-                    )}
-                  </View>
-                  {/* Adı kutuya yazar: aramayı değiştirip yeniden arayabilirsin. */}
+                <KaydirmaliSatir key={`${a.lat},${a.lon},${a.ad}`} onSil={() => aramaSil(a)} silEtiketi="Aramayı sil">
                   <Pressable
-                    hitSlop={10}
-                    onPress={() => setMetin(a.ad)}
+                    style={s.satir}
+                    onPress={() => hedefSec({ ad: a.ad, lat: a.lat, lon: a.lon }, a.alt)}
                     accessibilityRole="button"
-                    accessibilityLabel={`${a.ad} adını arama kutusuna yaz`}
                   >
-                    <View style={s.kutuyaYaz}>
-                      <Ikon ad="arrow-up-outline" boyut={17} renkKodu={tema.soluk} />
+                    <View style={[s.satirIkon, s.satirIkonGri]}>
+                      <Ikon ad="time-outline" boyut={17} renkKodu={tema.soluk} />
                     </View>
+                    <View style={s.satirMetin}>
+                      <Text style={s.satirBaslik} numberOfLines={1}>
+                        {a.ad}
+                      </Text>
+                      {!!a.alt && (
+                        <Text style={s.satirAlt} numberOfLines={1}>
+                          {a.alt}
+                        </Text>
+                      )}
+                    </View>
+                    {/* Adı kutuya yazar: aramayı değiştirip yeniden arayabilirsin. */}
+                    <Pressable
+                      hitSlop={10}
+                      onPress={() => setMetin(a.ad)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${a.ad} adını arama kutusuna yaz`}
+                    >
+                      <View style={s.kutuyaYaz}>
+                        <Ikon ad="arrow-up-outline" boyut={17} renkKodu={tema.soluk} />
+                      </View>
+                    </Pressable>
                   </Pressable>
-                </Pressable>
+                </KaydirmaliSatir>
               ))}
+              {aramalar.length > SON_ARAMA_SINIRI && (
+                <Pressable style={s.dahaFazla} onPress={() => router.navigate('/kayitli')} accessibilityRole="button">
+                  <Text style={s.dahaFazlaYazi}>+ {aramalar.length - SON_ARAMA_SINIRI} arama daha</Text>
+                </Pressable>
+              )}
             </>
           )}
 
@@ -457,24 +526,24 @@ export default function AraEkrani() {
           )}
 
           <Text style={s.bolumBaslik}>YAKINIMDA NE VAR?</Text>
-          <View style={s.kisayollar}>
-            {KISAYOLLAR.map((k) => (
-              <Pressable hitSlop={4} key={k.tur} style={s.kisayol} onPress={() => setMetin(k.ad)} accessibilityRole="button">
-                <Ikon ad={poiSimgesi(k.tur) as IkonAdi} boyut={15} renkKodu={tema.vurgu} />
-                <Text style={s.kisayolYazi}>{k.ad}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <Text style={s.bolumBaslik}>ŞÖYLE DE ARAYABİLİRSİN</Text>
-          {ORNEKLER.map((o) => (
-            <Pressable key={o.yazi} style={s.ornek} onPress={() => setMetin(o.yazi)} accessibilityRole="button">
-              <Text style={s.ornekYazi}>{o.yazi}</Text>
-              <Text style={s.ornekNot}>{o.not}</Text>
-              <View style={[s.kutuyaYaz, s.ornekOk]}>
-                <Ikon ad="arrow-up-outline" boyut={15} renkKodu={tema.soluk} />
+          {KATEGORI_GRUPLARI.map((g) => (
+            <View key={g.ad}>
+              <Text style={s.grupAdi}>{g.ad}</Text>
+              <View style={s.kisayollar}>
+                {g.ogeler.map((k) => (
+                  <Pressable
+                    hitSlop={4}
+                    key={k.tur}
+                    style={s.kisayol}
+                    onPress={() => setMetin(k.ad)}
+                    accessibilityRole="button"
+                  >
+                    <Ikon ad={poiSimgesi(k.tur) as IkonAdi} boyut={15} renkKodu={tema.vurgu} />
+                    <Text style={s.kisayolYazi}>{k.ad}</Text>
+                  </Pressable>
+                ))}
               </View>
-            </Pressable>
+            </View>
           ))}
 
           <View style={s.ipucu}>
@@ -716,10 +785,7 @@ const stiller = (t: Tema) =>
     tumu: { fontSize: 13, fontWeight: '700', color: t.vurgu, paddingBottom: 7 },
     // "↖": yukarı ok sola yatırılır (Ionicons'ta çapraz ok yok).
     kutuyaYaz: { transform: [{ rotate: '-45deg' }] },
-    ornek: { flexDirection: 'row', alignItems: 'baseline', gap: 10, paddingHorizontal: 16, paddingVertical: 10 },
-    ornekYazi: { fontSize: 14.5, fontWeight: '600', color: t.yazi },
-    ornekNot: { flex: 1, fontSize: 12.5, color: t.soluk },
-    ornekOk: { alignSelf: 'center' },
+    grupAdi: { fontSize: 12, fontWeight: '600', color: t.soluk, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 6 },
     dahaFazla: {
       paddingLeft: 62,
       paddingVertical: 11,

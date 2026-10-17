@@ -98,6 +98,16 @@ export async function aramaKaydet(yer: { ad: string; lat: number; lon: number; a
   haberVer();
 }
 
+/** Son aramalardan tek bir kaydı siler (aynı ad ve aynı nokta). */
+export async function aramaSil(yer: { ad: string; lat: number; lon: number }): Promise<void> {
+  const liste = await oku<SonArama[]>(ARAMA_ANAHTARI, []);
+  const kalan = liste.filter(
+    (a) => !(a.ad === yer.ad && Math.abs(a.lat - yer.lat) < 1e-5 && Math.abs(a.lon - yer.lon) < 1e-5),
+  );
+  await yaz(ARAMA_ANAHTARI, kalan);
+  haberVer();
+}
+
 export async function aramalariTemizle(): Promise<void> {
   await yaz(ARAMA_ANAHTARI, []);
   haberVer();

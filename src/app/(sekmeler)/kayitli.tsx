@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { KaydirmaliSatir } from '@/components/kaydirmali-satir';
 import { Dakika, Ikon, useStiller } from '@/components/ulasim';
-import { aramalariTemizle, favoriDegistir, favoriYerDegistir, useKayitlar, type YerTuru } from '@/lib/kayitlar';
+import { aramalariTemizle, aramaSil, favoriDegistir, favoriYerDegistir, useKayitlar, type YerTuru } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
 import { durakDetayiGetir } from '@/lib/otp';
 import { baslikYap, useTema, type Tema } from '@/lib/tema';
@@ -202,23 +202,27 @@ export default function KayitliEkrani() {
           <Text style={s.bos}>Aradığın yerler burada birikecek.</Text>
         ) : (
           <View style={s.liste}>
-            {aramalar.map((a, i) => (
-              <Pressable key={`${a.ad}-${i}`} style={s.satir} onPress={() => hedefeGit(a)} accessibilityRole="button">
-                <View style={[s.satirIkon, { backgroundColor: tema.zemin }]}>
-                  <Ikon ad="time-outline" boyut={17} renkKodu={tema.soluk} />
-                </View>
-                <View style={s.satirMetin}>
-                  <Text style={s.satirBaslik} numberOfLines={1}>
-                    {a.ad}
-                  </Text>
-                  {!!a.alt && (
-                    <Text style={s.satirAlt} numberOfLines={1}>
-                      {a.alt}
+            {/* Sola kaydırınca silinir. Anahtar kayda bağlı: sıra numarası olsaydı silinen satırın
+                kapanmış yüksekliği alttaki kayda geçerdi. */}
+            {aramalar.map((a) => (
+              <KaydirmaliSatir key={`${a.lat},${a.lon},${a.ad}`} onSil={() => aramaSil(a)} silEtiketi="Aramayı sil">
+                <Pressable style={s.satir} onPress={() => hedefeGit(a)} accessibilityRole="button">
+                  <View style={[s.satirIkon, { backgroundColor: tema.zemin }]}>
+                    <Ikon ad="time-outline" boyut={17} renkKodu={tema.soluk} />
+                  </View>
+                  <View style={s.satirMetin}>
+                    <Text style={s.satirBaslik} numberOfLines={1}>
+                      {a.ad}
                     </Text>
-                  )}
-                </View>
-                <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.yurume} />
-              </Pressable>
+                    {!!a.alt && (
+                      <Text style={s.satirAlt} numberOfLines={1}>
+                        {a.alt}
+                      </Text>
+                    )}
+                  </View>
+                  <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.yurume} />
+                </Pressable>
+              </KaydirmaliSatir>
             ))}
           </View>
         )}
