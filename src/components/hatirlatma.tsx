@@ -155,7 +155,8 @@ export function CikisSecici({ once, degistir }: { once: number; degistir: (dk: n
           <Pressable
             key={dk}
             geriBildirim={false}
-            style={[s.secenek, secili && s.secenekSecili]}
+            // "Tam vaktinde" öbürlerinden uzun: eşit genişlikte sığmıyordu.
+            style={[s.secenek, { flex: dk === 0 ? 1.7 : 1 }, secili && s.secenekSecili]}
             onPress={() => {
               if (!secili) {
                 secimTiki();
@@ -166,7 +167,12 @@ export function CikisSecici({ once, degistir }: { once: number; degistir: (dk: n
             accessibilityState={{ selected: secili }}
             accessibilityLabel={dk === 0 ? 'Tam vaktinde' : `${dk} dakika önce`}
           >
-            <Text style={[s.secenekYazi, secili && s.secenekYaziSecili]} numberOfLines={1}>
+            <Text
+              style={[s.secenekYazi, secili && s.secenekYaziSecili]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.85}
+            >
               {dk === 0 ? 'Tam vaktinde' : `${dk} dk`}
             </Text>
           </Pressable>
