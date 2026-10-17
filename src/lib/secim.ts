@@ -12,3 +12,12 @@ export function guzergahlariSakla(liste: Guzergah[]): void {
 export function guzergahGetir(sira: number): Guzergah | undefined {
   return sonGuzergahlar[sira];
 }
+
+/**
+ * Kayıtlı bir güzergâhı (hatırlatıcıdan açılan yolculuk) depoya ekler, sırasını döner.
+ * Rota listesinin sıraları bozulmasın diye sona eklenir.
+ */
+export function guzergahEkle(g: Guzergah): number {
+  sonGuzergahlar = [...sonGuzergahlar, g];
+  return sonGuzergahlar.length - 1;
+}

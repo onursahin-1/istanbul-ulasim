@@ -95,6 +95,14 @@ query SeferSaatleri($sefer: String!, $gun: String!) {
   }
 }`;
 
+// Bir seferin bugünkü canlı saatleri: hatırlatıcılar uygulama açıldıkça bununla kaydırılıyor.
+const SEFER_CANLI = `
+query SeferCanli($sefer: String!, $gun: String!) {
+  trip(id: $sefer) {
+    stoptimesForDate(serviceDate: $gun) { stop { gtfsId } serviceDay realtimeArrival realtimeDeparture realtime }
+  }
+}`;
+
 // Bir seferin durak deseni: yolcu bindiği hattı değiştirince durak listesi o hattınki olsun.
 const SEFER_DESENI = `
 query SeferDeseni($sefer: String!) {
@@ -471,6 +479,7 @@ export const SORGULAR = {
   HAT_KALKISLARI,
   DURAK_KALKISLARI,
   SEFER_SAATLERI,
+  SEFER_CANLI,
   SEFER_DESENI,
   DURAK_TARIFESI,
   HATLAR,

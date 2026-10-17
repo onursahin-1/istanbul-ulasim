@@ -20,7 +20,10 @@ import { Pressable } from '@/components/dokun';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Ikon, type IkonAdi, useStiller, VasitaSimgesi } from '@/components/ulasim';
-import { hatirlaticiIptal, hatirlaticiSaati, hepsiniIptal, izinIste, useHatirlaticilar } from '@/lib/bildirim';
+import { ayarYaz, hatirlaticiIptal, hatirlaticiSaati, hepsiniIptal, izinIste, useHatirlaticilar, type Hatirlatici } from '@/lib/bildirim';
+import { yolculuguAc } from '@/lib/bildirim-yanit';
+import { type HatirlatmaAyari } from '@/lib/hatirlatma-plan';
+import { CikisOrnegi, CikisSecici } from '@/components/hatirlatma';
 import {
   ekranAcikKaydet,
   rotaSecenekleriKaydet,
@@ -53,7 +56,20 @@ export default function AyarlarEkrani() {
   const [sunucuBagli, setSunucuBagli] = useState<boolean | null>(null);
   /** Aşağı çekerek yenileme (RefreshControl'ün kendi göstergesi). */
   const [cekiliyor, setCekiliyor] = useState(false);
-  const { hatirlaticilar, izin, yenile: hatirlaticilariYenile } = useHatirlaticilar();
+  const { hatirlaticilar, yolculuklar, ayar: hatirlatmaAyari, izin, yenile: hatirlaticilariYenile } = useHatirlaticilar();
+  // Hatırlatıcılar yolculuk yolculuk: her grubun bildirimleri saat sırasıyla.
+  const hatirlaticiGruplari = (() => {
+    const gruplar = new Map<string, Hatirlatici[]>();
+    for (const h of hatirlaticilar) {
+      const g = h.grup ?? `tek-${h.id}`;
+      gruplar.set(g, [...(gruplar.get(g) ?? []), h]);
+    }
+    return [...gruplar.entries()];
+  })();
+  const ayarDegistir = (degisim: Partial<HatirlatmaAyari>) => {
+    secimTiki();
+    ayarYaz({ ...hatirlatmaAyari, ...degisim });
+  };
   const { ucretTuru, ekranAcik, sesliTarif, sesCinsiyeti, temaTercihi, rotaSecenekleri } = useKayitlar();
   const kapaliTurler = rotaSecenekleri.kapali;
   const turuAyarla = (tur: VasitaTuru, acik: boolean) => {
@@ -205,32 +221,62 @@ export default function AyarlarEkrani() {
 
           {hatirlaticilar.length === 0 ? (
             <Text style={s.aciklama}>
-              Kurulu hatırlatıcı yok. Bir rota bulup detayında zil düğmesine basarsan çıkış ve iniş uyarıları
-              kurulur; uygulama kapalıyken de çıkarlar.
+              Kurulu hatırlatıcı yok. Bir rota bulup detayında zil düğmesine basarsan yola çıkış, otobüs, aktarma ve iniş
+              bildirimleri kurulur; uygulama kapalıyken de çıkarlar.
             </Text>
           ) : (
             <>
-              {hatirlaticilar.map((h) => (
-                <View key={h.id} style={s.hatirlatici}>
-                  <Text style={s.hatirlaticiSaat}>{hatirlaticiSaati(h.zaman)}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.satirBaslik} numberOfLines={1}>
-                      {h.baslik}
-                    </Text>
-                    <Text style={s.aciklama} numberOfLines={2}>
-                      {h.metin}
-                    </Text>
+              {hatirlaticiGruplari.map(([grup, liste]) => {
+                const kayit = yolculuklar[grup];
+                return (
+                  <View key={grup} style={s.yolculukGrubu}>
+                    {kayit && (
+                      <Pressable
+                        style={s.yolculukBasi}
+                        onPress={() => yolculuguAc(grup)}
+                        accessibilityRole="button"
+                        accessibilityHint="Yolculuğu açar"
+                      >
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <View style={s.satir}>
+                            <Text style={[s.satirBaslik, { flexShrink: 1 }]} numberOfLines={1}>
+                              {kayit.baslik}
+                            </Text>
+                            <Text style={s.yolculukZaman}>{gunVeSaat(kayit.kalkis)}</Text>
+                          </View>
+                          <Text style={s.aciklama} numberOfLines={1}>
+                            {`${kayit.hatlar.join(' › ')} · ${liste.length} bildirim`}
+                          </Text>
+                        </View>
+                        <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.soluk} />
+                      </Pressable>
+                    )}
+                    {liste.map((h) => (
+                      <View key={h.id} style={s.hatirlatici}>
+                        <Text style={s.hatirlaticiSaat}>{hatirlaticiSaati(h.zaman)}</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.satirBaslik} numberOfLines={1}>
+                            {h.baslik}
+                          </Text>
+                          {!kayit && (
+                            <Text style={s.aciklama} numberOfLines={2}>
+                              {h.metin}
+                            </Text>
+                          )}
+                        </View>
+                        <Pressable
+                          hitSlop={10}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${h.baslik} hatırlatıcısını kaldır`}
+                          onPress={() => hatirlaticiIptal(h.id)}
+                        >
+                          <Ikon ad="close" boyut={18} renkKodu={tema.soluk} />
+                        </Pressable>
+                      </View>
+                    ))}
                   </View>
-                  <Pressable
-                    hitSlop={10}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${h.baslik} hatırlatıcısını kaldır`}
-                    onPress={() => hatirlaticiIptal(h.id)}
-                  >
-                    <Ikon ad="close" boyut={18} renkKodu={tema.soluk} />
-                  </Pressable>
-                </View>
-              ))}
+                );
+              })}
               <Pressable style={s.dugme} onPress={hepsiniIptal} accessibilityRole="button">
                 <Ikon ad="notifications-off" boyut={16} renkKodu={tema.hata} />
                 <Text style={[s.dugmeYazi, { color: tema.hata }]}>Hepsini kaldır</Text>
@@ -238,6 +284,38 @@ export default function AyarlarEkrani() {
             </>
           )}
         </View>
+
+        <Text style={s.bolumBaslik}>HATIRLATICI VARSAYILANLARI</Text>
+        <View style={s.kutu}>
+          <View>
+            <Text style={s.satirBaslik}>Yola çıkma hatırlatıcısı</Text>
+            <Text style={s.aciklama}>Yola çıkman gereken andan ne kadar önce bildirim gelsin</Text>
+          </View>
+          <CikisSecici once={hatirlatmaAyari.once} degistir={(dk) => ayarYaz({ ...hatirlatmaAyari, once: dk })} />
+          <CikisOrnegi once={hatirlatmaAyari.once} />
+          {(
+            [
+              ['yaklasma', 'Otobüs yaklaşınca', 'İlk otobüs biniş durağına yaklaşık 4 dk kala'],
+              ['aktarma', 'Aktarma yaklaşınca', 'Aktarma yapacağın durağa 2 dk kala'],
+              ['inis', 'İneceğin durak yaklaşınca', 'Son araçtan ineceğin durağa 2 dk kala'],
+            ] as const
+          ).map(([anahtar, ad, alt]) => (
+            <View key={anahtar} style={[s.satir, s.varsayilanSatiri]}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.satirBaslik}>{ad}</Text>
+                <Text style={s.aciklama}>{alt}</Text>
+              </View>
+              <Switch
+                value={hatirlatmaAyari[anahtar]}
+                onValueChange={(v) => ayarDegistir({ [anahtar]: v })}
+                trackColor={{ true: tema.vurgu }}
+              />
+            </View>
+          ))}
+        </View>
+        <Text style={s.disAciklama}>
+          Hatırlat sayfası bu seçimlerle açılır; her yolculukta tek tek değiştirebilirsin.
+        </Text>
 
         <Text style={s.bolumBaslik}>YOLCULUK</Text>
         <View style={s.kutu}>
@@ -431,6 +509,15 @@ const stiller = (t: Tema) =>
       borderTopColor: t.cizgiSilik,
     },
     hatirlaticiSaat: { fontSize: 15, fontWeight: '700', color: t.vurgu, fontVariant: ['tabular-nums'] },
+    yolculukGrubu: { gap: 0 },
+    yolculukBasi: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 10, paddingBottom: 4 },
+    yolculukZaman: { marginLeft: 'auto', fontSize: 12.5, color: t.soluk, fontVariant: ['tabular-nums'] },
+    varsayilanSatiri: {
+      gap: 12,
+      paddingTop: 10,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: t.cizgiSilik,
+    },
     haplar: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
     hap: {
       paddingHorizontal: 12,
@@ -445,3 +532,12 @@ const stiller = (t: Tema) =>
     hapIkonlu: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     hapYazi: { fontSize: 13.5, fontWeight: '700', color: t.yazi },
   });
+
+/** "bugün 00:23", "yarın 07:10", "21 Ekim 08:00" — hatırlatıcı listesindeki yolculuk zamanı. */
+function gunVeSaat(an: number): string {
+  const gun = (ms: number) => new Date(ms).toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' });
+  const saat = hatirlaticiSaati(an);
+  if (gun(an) === gun(Date.now())) return `bugün ${saat}`;
+  if (gun(an) === gun(Date.now() + 86_400_000)) return `yarın ${saat}`;
+  return `${new Date(an).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', timeZone: 'Europe/Istanbul' })} ${saat}`;
+}

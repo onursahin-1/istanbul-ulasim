@@ -9,6 +9,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AcilisAnimasyonu } from '@/components/logo';
 import { gorselleriHazirla } from '@/components/ulasim';
 import { bildirimleriHazirla } from '@/lib/bildirim';
+import { useBildirimYanitlari } from '@/lib/bildirim-yanit';
+import { useHatirlaticiTazeleme } from '@/lib/hatirlatma-tazele';
 import { temaTercihiniYukle } from '@/lib/kayitlar';
 import { useTema } from '@/lib/tema';
 
@@ -28,6 +30,9 @@ const ACILIS_EN_GEC_MS = 4000;
 
 export default function KokDuzen() {
   const tema = useTema();
+  // Bildirime dokununca yolculuk açılsın; kurulu bildirimler canlı saate göre kaysın.
+  useBildirimYanitlari();
+  useHatirlaticiTazeleme();
   // Açılış animasyonu yalnız uygulama sıfırdan açılırken: kök düzen bir kez kuruluyor,
   // arka plandan dönüşte yeniden kurulmuyor.
   const [acilis, setAcilis] = useState(true);

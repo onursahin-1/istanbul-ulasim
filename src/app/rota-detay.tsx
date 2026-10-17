@@ -25,9 +25,11 @@ import {
   type YolTarifiVerisi,
 } from '@/components/canli-yol-tarifi';
 import { HareketliOtobus, PusulaDugmesi, YonKonisi } from '@/components/harita-isaretleri';
-import { HatirlatmaSayfasi, type InisBilgisi } from '@/components/hatirlatma';
+import { HatirlatmaSayfasi } from '@/components/hatirlatma';
 import { GeriCubugu, Ikon, useStiller } from '@/components/ulasim';
-import { hemenBildir, izinIste, useHatirlaticilar } from '@/lib/bildirim';
+import { anahtariIptal, hemenBildir, izinIste, planiGuncelle, planiKur, useHatirlaticilar } from '@/lib/bildirim';
+import { yolculukPlani } from '@/lib/hatirlatma-tazele';
+import { hatlarYazisi } from '@/components/hatirlatma';
 import { sesliTarifKaydet, useKayitlar } from '@/lib/kayitlar';
 import { cizgiUzerindeYer, mesafeMetre, polylineCoz, type Nokta } from '@/lib/cografya';
 import {
@@ -70,7 +72,7 @@ import {
   type BeklemeSecenegi,
 } from '@/lib/bekleme';
 import { seferBilgisi, type SeferBilgisi } from '@/lib/sefer';
-import { aracAdi, baslikYap, haritaRengi, hatEtiketi, useTema, type Tema } from '@/lib/tema';
+import { baslikYap, haritaRengi, hatEtiketi, useTema, type Tema } from '@/lib/tema';
 import { OZEL_GUNLER } from '@/lib/ozel-gun-verisi';
 import { TARIFE_TARIHI, UCRET_ADLARI, ucretKisa, ucretYaz, yolculukUcreti } from '@/lib/ucret';
 import {
@@ -142,7 +144,7 @@ export default function RotaDetayEkrani() {
   const tema = useTema();
   const s = useStiller(stiller);
   const { height } = useWindowDimensions();
-  const { sira, hedef, esdeger } = useLocalSearchParams<{ sira: string; hedef?: string; esdeger?: string }>();
+  const { sira, hedef, esdeger, baslat } = useLocalSearchParams<{ sira: string; hedef?: string; esdeger?: string; baslat?: string }>();
   // Güzergâh durumda tutuluyor: yolculukta yürüme bacağı bulunulan yerden yeniden çizilebiliyor.
   const [guzergah, setGuzergah] = useState(() => guzergahGetir(Number(sira)));
   const harita = useRef<MapView>(null);
@@ -187,7 +189,7 @@ export default function RotaDetayEkrani() {
   const [durakKalkislari, setDurakKalkislari] = useState<Record<number, DurakKalkisi[]>>({});
   const [seferSaatleri, setSeferSaatleri] = useState<Record<number, Map<string, number>>>({});
   const [hatirlatAcik, setHatirlatAcik] = useState(false);
-  const { hatirlaticilar, yenile: hatirlaticilariYenile } = useHatirlaticilar();
+  const { hatirlaticilar, yolculuklar, ayar: hatirlatmaAyari } = useHatirlaticilar();
   const { ucretTuru, ekranAcik, sesliTarif, sesCinsiyeti, rotaSecenekleri } = useKayitlar();
   const aboneligi = useRef<Location.LocationSubscription | null>(null);
   const simulasyon = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -306,28 +308,28 @@ export default function RotaDetayEkrani() {
   // Yürüme bacaklarının adım adım tarifi; toplu taşıma bacaklarında boş kalır.
   const yolTarifleri = useMemo(() => bacaklar.map((b) => (b.transitLeg ? [] : adimlariYaz(b.steps))), [bacaklar]);
 
-  // Hatırlatıcılar: yola çıkış anı ve her aracın iniş durağına varış anı.
-  // Grup anahtarı aranan güzergâhın ilk saatiyle: yolda saatler yeniden kurulunca kurulu
-  // hatırlatıcılar kaybolmasın.
+  // Hatırlatıcılar (bkz. components/hatirlatma, lib/hatirlatma-plan). Grup anahtarı aranan
+  // güzergâhın ilk saati ve hatlarıyla: yolda saatler yeniden kurulunca da, bildirimden
+  // açılınca da (sıra numarası farklı) aynı yolculuk aynı grup.
   const ilkBaslangic = useRef(guzergah?.start ?? '');
-  const hatirlatmaGrubu = `rota-${sira}-${ilkBaslangic.current}`;
+  const hatirlatmaGrubu = `rota-${ilkBaslangic.current}-${ilkHatlar.current.filter(Boolean).join('-')}`;
   const kuruluHatirlatici = hatirlaticilar.filter((h) => h.grup === hatirlatmaGrubu).length;
-  const kalkisAni = useMemo(() => {
-    const an = Date.parse(guzergah?.start ?? '');
-    return Number.isNaN(an) ? null : an;
-  }, [guzergah]);
-  const inisler = useMemo<InisBilgisi[]>(
-    () =>
-      bacaklar
-        .filter((b) => b.transitLeg)
-        .map((b) => ({
-          zaman: Date.parse(b.end.estimated?.time ?? b.end.scheduledTime ?? ''),
-          durak: baslikYap(b.to.name),
-          hat: b.route?.shortName ?? aracAdi(b.route?.mode ?? b.mode),
-        }))
-        .filter((i) => !Number.isNaN(i.zaman)),
-    [bacaklar],
+  const kuruluAnahtarlar = useMemo(
+    () => new Set(hatirlaticilar.filter((h) => h.grup === hatirlatmaGrubu && h.anahtar).map((h) => h.anahtar!)),
+    [hatirlaticilar, hatirlatmaGrubu],
   );
+  const yolculukBasligi = `${baslikYap(bacaklar[0]?.from.name) || 'Başlangıç'} → ${hedef ? baslikYap(hedef) : baslikYap(bacaklar[bacaklar.length - 1]?.to.name) || 'Varış'}`;
+
+  // Ekran açıkken saatler canlı veriyle yeniden kuruluyor: kurulu bildirimler de kaysın.
+  useEffect(() => {
+    if (!guzergah || kuruluHatirlatici === 0) return;
+    const t = setTimeout(() => {
+      const kayitli = yolculuklar[hatirlatmaGrubu];
+      if (!kayitli) return;
+      planiGuncelle(hatirlatmaGrubu, yolculukPlani(guzergah, kayitli), guzergah).catch(() => {});
+    }, 4000);
+    return () => clearTimeout(t);
+  }, [guzergah, kuruluHatirlatici, hatirlatmaGrubu]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Alt yaprak: harita tüm ekranı kaplıyor, yaprak üstünde sürükleniyor (ana ekrandaki gibi).
   // Yaprağın alanı alttaki "Yolculuğu başlat" çubuğunun üstünde bitiyor.
@@ -341,21 +343,59 @@ export default function RotaDetayEkrani() {
   const [binisOtobusleri, setBinisOtobusleri] = useState<Record<number, { otobus: YerlesikArac; kalan: number }>>({});
 
   // "Otobüs yaklaşınca haber ver": açık olan bacaklar ve uyarısı atılmış olanlar.
-  // Canlı konuma bakarak çalışıyor, bu yüzden yalnız uygulama açıkken; kapalıyken
-  // haber vermek sunucudan itme bildirimi ister (sırada).
-  const [yaklasmaUyarisi, setYaklasmaUyarisi] = useState<Record<number, boolean>>({});
+  // Uygulama açıkken canlı konuma bakarak hemen bildiriliyor. Hatırlat sayfasındaki
+  // "otobüs yaklaşıyor" bildirimi ile aynı şey: biri açılınca öbürü de açık görünür;
+  // çizelgeden açılınca uygulama kapalıyken de çıksın diye ilk otobüs için bildirim
+  // kuruluyor (otobüsün tahmini saatine göre, uygulama açıldıkça kayar).
+  const [yaklasmaUyarisi, setYaklasmaUyarisiHam] = useState<Record<number, boolean>>({});
   const uyarildi = useRef(new Set<number>());
-  const yaklasmaUyarisiRef = useRef(yaklasmaUyarisi);
-  yaklasmaUyarisiRef.current = yaklasmaUyarisi;
-  const uyariDegistir = useCallback(async (i: number) => {
-    const acilacak = !yaklasmaUyarisiRef.current[i];
-    if (acilacak && !(await izinIste())) {
-      Alert.alert('Bildirim izni yok', 'Ayarlar › Bildirimler bölümünden bu uygulamaya izin verebilirsin.');
-      return;
+  const yaklasmaAcik = useMemo(() => {
+    const tablo: Record<number, boolean> = { ...yaklasmaUyarisi };
+    for (const a of kuruluAnahtarlar) {
+      const m = /^yaklasma-(\d+)$/.exec(a);
+      if (m && tablo[Number(m[1])] === undefined) tablo[Number(m[1])] = true;
     }
-    uyarildi.current.delete(i);
-    setYaklasmaUyarisi((o) => ({ ...o, [i]: acilacak }));
-  }, []);
+    return tablo;
+  }, [yaklasmaUyarisi, kuruluAnahtarlar]);
+  const yaklasmaAcikRef = useRef(yaklasmaAcik);
+  yaklasmaAcikRef.current = yaklasmaAcik;
+  const kayitBilgisiRef = useRef({ grup: hatirlatmaGrubu, baslik: yolculukBasligi, guzergah, esdegerHatlar, ayar: hatirlatmaAyari });
+  kayitBilgisiRef.current = { grup: hatirlatmaGrubu, baslik: yolculukBasligi, guzergah, esdegerHatlar, ayar: hatirlatmaAyari };
+  const uyariDegistir = useCallback(
+    async (i: number) => {
+      const acilacak = !yaklasmaAcikRef.current[i];
+      if (acilacak && !(await izinIste())) {
+        Alert.alert('Bildirim izni yok', 'Ayarlar › Bildirimler bölümünden bu uygulamaya izin verebilirsin.');
+        return;
+      }
+      uyarildi.current.delete(i);
+      setYaklasmaUyarisiHam((o) => ({ ...o, [i]: acilacak }));
+      const { grup, baslik, guzergah: g, esdegerHatlar: es, ayar } = kayitBilgisiRef.current;
+      const anahtar = `yaklasma-${i}`;
+      if (!acilacak) {
+        anahtariIptal(grup, anahtar).catch(() => {});
+        return;
+      }
+      if (!g) return;
+      const ilk = g.legs[0];
+      const son = g.legs[g.legs.length - 1];
+      const kayit = {
+        grup,
+        baslik,
+        hatlar: hatlarYazisi(g, es),
+        kalkis: ilk ? Date.parse(ilk.start.estimated?.time ?? ilk.start.scheduledTime) : Date.now(),
+        varis: son ? Date.parse(son.end.estimated?.time ?? son.end.scheduledTime) : Date.now(),
+        guzergah: g,
+        esdeger,
+        hedef,
+        ayar,
+        kuruldu: Date.now(),
+      };
+      const oge = yolculukPlani(g, kayit).find((o) => o.anahtar === anahtar);
+      if (oge) planiKur(kayit, [oge]).catch(() => {});
+    },
+    [esdeger, hedef],
+  );
   useEffect(() => {
     let acik = true;
     const yukle = async () => {
@@ -396,8 +436,10 @@ export default function RotaDetayEkrani() {
   useEffect(() => {
     for (const [anahtar, { otobus, kalan }] of Object.entries(binisOtobusleri)) {
       const i = Number(anahtar);
-      if (!yaklasmaUyarisi[i] || uyarildi.current.has(i) || kalan > YAKLASMA_ESIGI || otobus.sinif === 'eski') continue;
+      if (!yaklasmaAcik[i] || uyarildi.current.has(i) || kalan > YAKLASMA_ESIGI || otobus.sinif === 'eski') continue;
       uyarildi.current.add(i);
+      // Canlı uyarı atıldı: aynı otobüs için zamanlanmış bildirim de çıkmasın.
+      anahtariIptal(hatirlatmaGrubu, `yaklasma-${i}`).catch(() => {});
       const b = bacaklar[i];
       const hat = b?.route?.shortName ?? 'Otobüs';
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
@@ -406,7 +448,7 @@ export default function RotaDetayEkrani() {
         `${baslikYap(b?.from.name)} durağında ol: otobüs ${kalan === 0 ? 'durakta' : 'geliyor'}.`,
       );
     }
-  }, [binisOtobusleri, yaklasmaUyarisi, bacaklar]);
+  }, [binisOtobusleri, yaklasmaAcik, bacaklar, hatirlatmaGrubu]);
 
   const durakKalkislariRef = useRef<Record<number, DurakKalkisi[]>>({});
   const kalaniZamanlaRef = useRef<() => void>(() => {});
@@ -592,8 +634,11 @@ export default function RotaDetayEkrani() {
     ).catch(() => {});
     if (takip.kalanDurak === 1) {
       hemenBildir('Sıradaki durakta in', `${baslikYap(bacaklar[takip.bacak]?.to.name)} durağında inmeye hazırlan.`);
+      // Takip konuma göre uyardı: aynı iniş için zamanlanmış bildirim de çıkmasın.
+      anahtariIptal(hatirlatmaGrubu, `inis-${takip.bacak}`).catch(() => {});
+      anahtariIptal(hatirlatmaGrubu, `aktarma-${takip.bacak}`).catch(() => {});
     }
-  }, [takip, bacaklar]);
+  }, [takip, bacaklar, hatirlatmaGrubu]);
 
   const zamanlamaAcik = useRef(false);
   const takibiDurdur = useCallback(() => {
@@ -987,6 +1032,14 @@ export default function RotaDetayEkrani() {
     );
   };
 
+  // Çıkış bildirimindeki "Yolculuğu başlat" düğmesiyle açıldıysa takip kendiliğinden başlar.
+  const baslatildi = useRef(false);
+  useEffect(() => {
+    if (baslat !== '1' || baslatildi.current || !guzergah) return;
+    baslatildi.current = true;
+    takibiBaslat();
+  }, [baslat]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Geliştirme sırasında masadan deneyebilmek için: düğmeye basılı tutunca
   // güzergâhtaki duraklar sırayla "ziyaret edilir".
   const simulasyonuBaslat = () => {
@@ -1234,7 +1287,7 @@ export default function RotaDetayEkrani() {
         cizgiler,
         binisOtobusleri,
         seferler,
-        yaklasmaUyarisi,
+        yaklasmaUyarisi: yaklasmaAcik,
         uyariDegistir,
         hedef,
         simdi,
@@ -1433,7 +1486,7 @@ export default function RotaDetayEkrani() {
               seferler={seferler}
               esdegerHatlar={esdegerHatlar}
               binisOtobusleri={binisOtobusleri}
-              yaklasmaUyarisi={yaklasmaUyarisi}
+              yaklasmaUyarisi={yaklasmaAcik}
               uyariDegistir={uyariDegistir}
               yolTarifleri={yolTarifleri}
               oranlar={oranlar}
@@ -1508,15 +1561,18 @@ export default function RotaDetayEkrani() {
         </View>
       )}
 
-      <HatirlatmaSayfasi
-        acik={hatirlatAcik}
-        kapat={() => setHatirlatAcik(false)}
-        kalkis={kalkisAni}
-        inisler={inisler}
-        grup={hatirlatmaGrubu}
-        kurulu={kuruluHatirlatici}
-        degisti={hatirlaticilariYenile}
-      />
+      {guzergah && (
+        <HatirlatmaSayfasi
+          acik={hatirlatAcik}
+          kapat={() => setHatirlatAcik(false)}
+          guzergah={guzergah}
+          esdegerHatlar={esdegerHatlar}
+          esdeger={esdeger}
+          hedef={hedef}
+          baslik={yolculukBasligi}
+          grup={hatirlatmaGrubu}
+        />
+      )}
     </View>
   );
 }

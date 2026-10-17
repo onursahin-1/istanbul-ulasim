@@ -59,6 +59,7 @@ const {
   HAT_KALKISLARI,
   DURAK_KALKISLARI,
   SEFER_SAATLERI,
+  SEFER_CANLI,
   SEFER_DESENI,
   DURAK_TARIFESI,
   HATLAR,
@@ -521,6 +522,33 @@ export async function seferSaatleriGetir(seferId: string, gun: string, sinyal?: 
   return (veri.trip?.stoptimesForDate ?? [])
     .map((s) => ({ gtfsId: s?.stop?.gtfsId ?? '', saniye: s?.scheduledArrival ?? s?.scheduledDeparture ?? -1 }))
     .filter((s) => s.gtfsId && s.saniye >= 0);
+}
+
+/**
+ * Bir seferin canlı saatleri, durak kimliğiyle: varış ve kalkış anı (ms). `canli` yoksa
+ * tarife saatidir. Hatırlatıcıların saatini kaydırmak için (hatirlatma-tazele.ts).
+ */
+export async function seferCanliSaatleri(
+  seferId: string,
+  gun: string,
+  sinyal?: AbortSignal,
+): Promise<Map<string, { varis: number; kalkis: number; canli: boolean }>> {
+  type Satir = {
+    stop: { gtfsId: string } | null;
+    serviceDay: number | null;
+    realtimeArrival: number | null;
+    realtimeDeparture: number | null;
+    realtime: boolean | null;
+  } | null;
+  const veri = await sorgula<{ trip: { stoptimesForDate: Satir[] | null } | null }>(SEFER_CANLI, { sefer: seferId, gun }, sinyal);
+  const sonuc = new Map<string, { varis: number; kalkis: number; canli: boolean }>();
+  for (const s of veri.trip?.stoptimesForDate ?? []) {
+    if (!s?.stop?.gtfsId || s.serviceDay == null) continue;
+    const varis = (s.serviceDay + (s.realtimeArrival ?? s.realtimeDeparture ?? 0)) * 1000;
+    const kalkis = (s.serviceDay + (s.realtimeDeparture ?? s.realtimeArrival ?? 0)) * 1000;
+    sonuc.set(s.stop.gtfsId, { varis, kalkis, canli: !!s.realtime });
+  }
+  return sonuc;
 }
 
 /** Bir seferin kimliği ve durak deseni: bindiği hat değişince bacağın seferi bununla değişir. */
