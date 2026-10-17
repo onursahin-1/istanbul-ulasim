@@ -32,6 +32,7 @@ import {
   poiHazirla,
   poiSimgesi,
   poiTureGore,
+  sadelestir,
   type PoiSonuc,
   type PoiTuru,
 } from '@/lib/poi';
@@ -59,14 +60,20 @@ const KISAYOLLAR: { tur: string; ad: string }[] = [
   { tur: 'eczane', ad: 'Eczane' },
   { tur: 'hastane', ad: 'Hastane' },
   { tur: 'market', ad: 'Market' },
-  { tur: 'benzinlik', ad: 'Benzin istasyonu' },
+  { tur: 'benzinlik', ad: 'Benzin' },
   { tur: 'avm', ad: 'AVM' },
   { tur: 'kafe', ad: 'Kafe' },
   { tur: 'park', ad: 'Park' },
   { tur: 'atm', ad: 'ATM' },
-  { tur: 'kirtasiye', ad: 'Kırtasiye' },
-  { tur: 'otopark', ad: 'Otopark' },
 ];
+
+// Boş ekranda adres aramasını öğreten örnekler: dokununca kutuya yazılır ve aranır.
+const ORNEKLER: { yazi: string; not: string }[] = [
+  { yazi: 'Bağdat Cd. 312', not: 'adres' },
+  { yazi: '1543 Sk. Bağcılar', not: 'sokak ve ilçe' },
+  { yazi: 'Kadıköy eczane', not: 'semtte bir yer' },
+];
+const SON_ARAMA_SINIRI = 5;
 
 type DurakSonucu = Durak & { mesafe: number };
 
@@ -75,7 +82,7 @@ export default function AraEkrani() {
   const tema = useTema();
   const s = useStiller(stiller);
   const p = useLocalSearchParams<Parametreler>();
-  const { yerler, favoriYerler } = useKayitlar();
+  const { yerler, favoriYerler, aramalar } = useKayitlar();
   const konum = useKonum();
 
   const [metin, setMetin] = useState('');
@@ -84,6 +91,9 @@ export default function AraEkrani() {
   const [kategori, setKategori] = useState<PoiTuru | null>(null);
   const [hata, setHata] = useState<string | null>(null);
   const [yukleniyor, setYukleniyor] = useState(false);
+  // "+6 mahalle daha" ile açılan sokaklar (sade adla); arama değişince kapanır.
+  const [acikSokaklar, setAcikSokaklar] = useState<Set<string>>(new Set());
+  useEffect(() => setAcikSokaklar(new Set()), [metin]);
 
   // Aramanın ölçüldüğü nokta: rota başlangıcı verilmişse o, yoksa kullanıcının konumu.
   const merkez = useMemo(() => {
@@ -114,7 +124,7 @@ export default function AraEkrani() {
         setKategori(kat);
         // Yer araması telefonda yapılır, durak araması sunucuya gider: ikisi paralel.
         const [yerler, durakListesi] = await Promise.all([
-          kat ? poiTureGore(kat.anahtar, merkez, 25) : poiAra(aranan, merkez, 20),
+          kat ? poiTureGore(kat.anahtar, merkez, 25) : poiAra(aranan, merkez, 40),
           durakAra(trBuyuk(aranan), iptal.signal).catch((e) => {
             if (e instanceof OtpHatasi) return [] as Durak[];
             throw e;
@@ -213,6 +223,7 @@ export default function AraEkrani() {
   type Satir =
     | { tip: 'baslik'; anahtar: string; yazi: string }
     | { tip: 'yer'; anahtar: string; veri: PoiSonuc }
+    | { tip: 'dahaFazla'; anahtar: string; ad: string; sayi: number }
     | { tip: 'durak'; anahtar: string; veri: DurakSonucu };
 
   const satirlar = useMemo<Satir[]>(() => {
@@ -226,20 +237,46 @@ export default function AraEkrani() {
       liste.push({ tip: 'baslik', anahtar: 'b-istasyon', yazi: 'İSTASYONLAR VE İSKELELER' });
       for (const d of istasyonlar) liste.push({ tip: 'durak', anahtar: `d${d.gtfsId}`, veri: d });
     }
-    if (yerSonuclari?.length) {
+    // Yerler türüne göre bölümlere ayrılır: adresler, sokaklar, yerler, binalar. Bölümlerin
+    // sırası en iyi sonuçlarının sırası: "bağdat cad 312" yazınca önce adres, "kadıköy" yazınca
+    // önce yer. Aynı sokak birçok mahallede: ilk üçü, sonra "+N mahalle daha".
+    const bolumler = new Map<Bolum, PoiSonuc[]>();
+    for (const y of yerSonuclari ?? []) {
+      const b = bolumOf(y.tur);
+      bolumler.set(b, [...(bolumler.get(b) ?? []), y]);
+    }
+    for (const [b, ogeler] of bolumler) {
       liste.push({
         tip: 'baslik',
-        anahtar: 'b-yer',
-        yazi: kategori ? `YAKININDAKİ ${trBuyuk(kategori.ad)}` : 'YERLER',
+        anahtar: `b-${b}`,
+        yazi: b === 'yer' && kategori ? `YAKININDAKİ ${trBuyuk(kategori.ad)}` : BOLUM_ADLARI[b],
       });
-      for (const y of yerSonuclari) liste.push({ tip: 'yer', anahtar: `y${y.id}`, veri: y });
+      if (b !== 'sokak') {
+        for (const y of ogeler.slice(0, BOLUM_SINIRI[b])) liste.push({ tip: 'yer', anahtar: `y${y.id}`, veri: y });
+        continue;
+      }
+      const adlar = new Map<string, PoiSonuc[]>();
+      for (const y of ogeler) {
+        const a = sadelestir(y.ad);
+        adlar.set(a, [...(adlar.get(a) ?? []), y]);
+      }
+      let yazilan = 0;
+      for (const [a, parcalar] of adlar) {
+        if (yazilan >= BOLUM_SINIRI.sokak) break;
+        const gorunen = acikSokaklar.has(a) ? parcalar : parcalar.slice(0, SOKAK_PARCASI);
+        for (const y of gorunen) liste.push({ tip: 'yer', anahtar: `y${y.id}`, veri: y });
+        yazilan += gorunen.length;
+        if (parcalar.length > gorunen.length) {
+          liste.push({ tip: 'dahaFazla', anahtar: `f${a}`, ad: a, sayi: parcalar.length - gorunen.length });
+        }
+      }
     }
     if (otobusDuraklari.length) {
       liste.push({ tip: 'baslik', anahtar: 'b-durak', yazi: 'DURAKLAR' });
       for (const d of otobusDuraklari) liste.push({ tip: 'durak', anahtar: `d${d.gtfsId}`, veri: d });
     }
     return liste;
-  }, [yerSonuclari, duraklar, kategori]);
+  }, [yerSonuclari, duraklar, kategori, acikSokaklar]);
 
   return (
     <View style={[s.kok, { paddingTop: kenar.top + 4 }]}>
@@ -251,7 +288,7 @@ export default function AraEkrani() {
             id="hedef-arama"
             value={metin}
             onChangeText={setMetin}
-            placeholder="Yer ya da durak ara (hastane, Taksim, 34)"
+            placeholder="Yer, adres ya da durak ara"
             placeholderTextColor={tema.soluk}
             style={s.girdiYazi}
             autoFocus
@@ -319,25 +356,77 @@ export default function AraEkrani() {
             </Pressable>
           )}
 
-          {!p.kaydet &&
-            (['ev', 'is'] as YerTuru[]).map((tur) => {
-              const yer = yerler[tur];
-              return (
+          {/* Ev ve İş yan yana: yer kazanır, son aramalar ilk bakışta görünür. */}
+          {!p.kaydet && (
+            <View style={s.evIs}>
+              {(['ev', 'is'] as YerTuru[]).map((tur) => {
+                const yer = yerler[tur];
+                return (
+                  <Pressable
+                    key={tur}
+                    style={s.evIsKart}
+                    onPress={() => (yer ? hedefSec(yer) : router.setParams({ kaydet: tur }))}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${YER_ADI[tur]}: ${yer ? baslikYap(yer.ad) : 'kaydetmek için dokun'}`}
+                  >
+                    <View style={s.satirIkon}>
+                      <Ikon ad={tur === 'ev' ? 'home' : 'briefcase'} boyut={18} renkKodu={tema.vurgu} />
+                    </View>
+                    <View style={s.satirMetin}>
+                      <Text style={s.satirBaslik}>{YER_ADI[tur]}</Text>
+                      <Text style={s.satirAlt} numberOfLines={1}>
+                        {yer ? baslikYap(yer.ad) : 'Kaydetmek için dokun'}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+
+          {aramalar.length > 0 && (
+            <>
+              <View style={s.bolumSatiri}>
+                <Text style={[s.bolumBaslik, s.bolumBaslikEsnek]}>SON ARAMALAR</Text>
+                <Pressable hitSlop={8} onPress={() => router.navigate('/kayitli')} accessibilityRole="button">
+                  <Text style={s.tumu}>Tümü</Text>
+                </Pressable>
+              </View>
+              {aramalar.slice(0, SON_ARAMA_SINIRI).map((a) => (
                 <Pressable
-                  key={tur}
+                  key={`${a.lat},${a.lon},${a.ad}`}
                   style={s.satir}
-                  onPress={() => (yer ? hedefSec(yer) : router.setParams({ kaydet: tur }))}
+                  onPress={() => hedefSec({ ad: a.ad, lat: a.lat, lon: a.lon }, a.alt)}
+                  accessibilityRole="button"
                 >
-                  <View style={s.satirIkon}>
-                    <Ikon ad={tur === 'ev' ? 'home' : 'briefcase'} boyut={18} renkKodu={tema.vurgu} />
+                  <View style={[s.satirIkon, s.satirIkonGri]}>
+                    <Ikon ad="time-outline" boyut={17} renkKodu={tema.soluk} />
                   </View>
                   <View style={s.satirMetin}>
-                    <Text style={s.satirBaslik}>{YER_ADI[tur]}</Text>
-                    <Text style={s.satirAlt}>{yer ? baslikYap(yer.ad) : 'Kaydetmek için dokun'}</Text>
+                    <Text style={s.satirBaslik} numberOfLines={1}>
+                      {a.ad}
+                    </Text>
+                    {!!a.alt && (
+                      <Text style={s.satirAlt} numberOfLines={1}>
+                        {a.alt}
+                      </Text>
+                    )}
                   </View>
+                  {/* Adı kutuya yazar: aramayı değiştirip yeniden arayabilirsin. */}
+                  <Pressable
+                    hitSlop={10}
+                    onPress={() => setMetin(a.ad)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${a.ad} adını arama kutusuna yaz`}
+                  >
+                    <View style={s.kutuyaYaz}>
+                      <Ikon ad="arrow-up-outline" boyut={17} renkKodu={tema.soluk} />
+                    </View>
+                  </Pressable>
                 </Pressable>
-              );
-            })}
+              ))}
+            </>
+          )}
 
           {!p.kaydet && favoriYerler.length > 0 && (
             <>
@@ -377,13 +466,20 @@ export default function AraEkrani() {
             ))}
           </View>
 
+          <Text style={s.bolumBaslik}>ŞÖYLE DE ARAYABİLİRSİN</Text>
+          {ORNEKLER.map((o) => (
+            <Pressable key={o.yazi} style={s.ornek} onPress={() => setMetin(o.yazi)} accessibilityRole="button">
+              <Text style={s.ornekYazi}>{o.yazi}</Text>
+              <Text style={s.ornekNot}>{o.not}</Text>
+              <View style={[s.kutuyaYaz, s.ornekOk]}>
+                <Ikon ad="arrow-up-outline" boyut={15} renkKodu={tema.soluk} />
+              </View>
+            </Pressable>
+          ))}
+
           <View style={s.ipucu}>
             <Ikon ad="bulb-outline" boyut={16} renkKodu={tema.soluk} />
-            <Text style={s.ipucuYazi}>
-              Yer adı, kategori ya da durak adı yazabilirsin. Yer aramaları telefonda yapılır, internet gerekmez.
-              Ana ekranda haritaya basılı tutarak bir noktayı hedef, başlangıç ya da favori yapabilirsin; bir sonuca
-              basılı tutarsan Ev ya da İş olarak kaydedilir.
-            </Text>
+            <Text style={s.ipucuYazi}>Bir sonuca basılı tutarsan Ev ya da İş olarak kaydedilir.</Text>
           </View>
         </Animated.ScrollView>
       )}
@@ -414,13 +510,27 @@ export default function AraEkrani() {
   function satirCiz(item: (typeof satirlar)[number]) {
     if (item.tip === 'baslik') return <Text style={s.bolumBaslik}>{item.yazi}</Text>;
 
+    if (item.tip === 'dahaFazla') {
+      return (
+        <Pressable
+          style={s.dahaFazla}
+          onPress={() => setAcikSokaklar((x) => new Set(x).add(item.ad))}
+          accessibilityRole="button"
+        >
+          <Text style={s.dahaFazlaYazi}>{`+ ${item.sayi} mahalle daha`}</Text>
+        </Pressable>
+      );
+    }
+
     if (item.tip === 'yer') {
       const y = item.veri;
       const hedef: Konum = { ad: y.ad, lat: y.lat, lon: y.lon };
+      // Adres ve sokakta tür adı yazılmaz: "Bağdat Caddesi · Caddebostan Mah., Kadıköy".
+      const tur = y.tur === 'adres' || y.tur === 'sokak' ? '' : y.turAdi;
       return (
         <Pressable
           style={s.satir}
-          onPress={() => hedefSec(hedef, [y.turAdi, y.semt].filter(Boolean).join(' · '))}
+          onPress={() => hedefSec(hedef, [tur, y.semt].filter(Boolean).join(' · '))}
           onLongPress={() => kaydetSor(hedef)}
         >
           <View style={s.satirIkon}>
@@ -429,7 +539,7 @@ export default function AraEkrani() {
           <View style={s.satirMetin}>
             <Vurgulu metin={y.ad} aranan={metin} style={s.satirBaslik} renk={tema.vurgu} />
             <Text style={s.satirAlt} numberOfLines={1}>
-              {[y.turAdi, y.semt, mesafeYaz(y.mesafe)].filter(Boolean).join(' · ')}
+              {[tur, y.semt, mesafeYaz(y.mesafe)].filter(Boolean).join(' · ')}
             </Text>
           </View>
           <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.yurume} />
@@ -461,6 +571,23 @@ export default function AraEkrani() {
       </Pressable>
     );
   }
+}
+
+type Bolum = 'adres' | 'sokak' | 'yer' | 'bina';
+const BOLUM_ADLARI: Record<Bolum, string> = {
+  adres: 'ADRESLER',
+  sokak: 'SOKAKLAR VE CADDELER',
+  yer: 'YERLER',
+  bina: 'BİNALAR VE SİTELER',
+};
+const BOLUM_SINIRI: Record<Bolum, number> = { adres: 6, sokak: 12, yer: 20, bina: 6 };
+/** Aynı adlı sokağın bu kadar mahallesi gösterilir, gerisi "+N mahalle daha". */
+const SOKAK_PARCASI = 3;
+function bolumOf(tur: string): Bolum {
+  if (tur === 'adres') return 'adres';
+  if (tur === 'sokak') return 'sokak';
+  if (tur === 'bina' || tur === 'apartman' || tur === 'ishani' || tur === 'site') return 'bina';
+  return 'yer';
 }
 
 /** Arama kutusu ana sayfadaki yerinden (biraz yukarıdan) kendi yerine kayar. */
@@ -571,6 +698,36 @@ const stiller = (t: Tema) =>
       justifyContent: 'center',
     },
     satirMetin: { flex: 1, gap: 2 },
+    satirIkonGri: { backgroundColor: t.cizgi },
+    evIs: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingTop: 4 },
+    evIsKart: {
+      flex: 1,
+      minWidth: 0,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 11,
+      borderRadius: 14,
+      backgroundColor: t.yuzey,
+    },
+    bolumSatiri: { flexDirection: 'row', alignItems: 'flex-end', paddingRight: 16 },
+    bolumBaslikEsnek: { flex: 1 },
+    tumu: { fontSize: 13, fontWeight: '700', color: t.vurgu, paddingBottom: 7 },
+    // "↖": yukarı ok sola yatırılır (Ionicons'ta çapraz ok yok).
+    kutuyaYaz: { transform: [{ rotate: '-45deg' }] },
+    ornek: { flexDirection: 'row', alignItems: 'baseline', gap: 10, paddingHorizontal: 16, paddingVertical: 10 },
+    ornekYazi: { fontSize: 14.5, fontWeight: '600', color: t.yazi },
+    ornekNot: { flex: 1, fontSize: 12.5, color: t.soluk },
+    ornekOk: { alignSelf: 'center' },
+    dahaFazla: {
+      paddingLeft: 62,
+      paddingVertical: 11,
+      backgroundColor: t.yuzey,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: t.cizgi,
+    },
+    dahaFazlaYazi: { fontSize: 13.5, fontWeight: '700', color: t.vurgu },
     satirBaslik: { fontSize: 15, fontWeight: '600', color: t.yazi },
     satirAlt: { fontSize: 12.5, color: t.soluk },
     kisayollar: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16 },

@@ -50,3 +50,9 @@ kopru/kayit/
 
 # Python
 __pycache__/
+
+# Yer araması ara çıktıları (veri/README.md, 3)
+veri/ham.jsonl
+veri/adres.jsonl
+veri/sinirlar.json
+veri/istanbul-poi.db

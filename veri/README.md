@@ -125,17 +125,34 @@ ağına bağlanamaz ve uygulamada "yol ağına bağlanamadı" hatası verir.
 `.pbf` dosyası `C:\otp\istanbul\` içinde **tek** olmalı; OTP klasördeki bütün
 `.pbf` dosyalarını derlemeye çalışır.
 
-## 3. İlgi noktaları — yer araması
+## 3. İlgi noktaları ve adresler — yer araması
 
 ```powershell
-python cikar.py C:\otp\istanbul\Istanbul.osm.pbf ham.jsonl
-python kur.py ham.jsonl istanbul-poi.db
+pip install osmium shapely                     # bir kez
+python cikar.py C:\otp\istanbul\Istanbul.osm.pbf ham.jsonl                       # ~2,5 dk
+python adres-cikar.py C:\otp\istanbul\Istanbul.osm.pbf adres.jsonl sinirlar.json  # ~30 sn
+python kur.py ham.jsonl istanbul-poi.db adres.jsonl sinirlar.json
 copy istanbul-poi.db ..\assets\veri\istanbul-poi.db
 ```
 
-Aynı OSM dosyasından adı olan hastane, okul, eczane, benzinlik, kırtasiye, park,
-AVM, semt gibi noktaları çıkarır (~52 bin nokta, 70 kategori) ve telefonda
-çalışan bir SQLite veritabanı üretir. Arama tamamen cihazda yapılır.
+Aynı OSM dosyasından iki şey çıkarılıyor ve telefonda çalışan tek bir SQLite veritabanı
+oluyor; arama tamamen cihazda, internetsiz:
+
+- **İlgi noktaları** (`cikar.py`): adı olan hastane, okul, eczane, benzinlik, kırtasiye, park,
+  AVM, semt gibi noktalar (~72 bin, 70 kategori).
+- **Adresler** (`adres-cikar.py`): sokak ve caddeler, kapı numaraları, adı olan bina, apartman
+  ve siteler; mahalle ve ilçe sınırları.
+
+`kur.py` her kayda içinde bulunduğu mahalle ve ilçeyi yazıyor ("Caferağa Mah., Kadıköy";
+sınır yoksa en yakın semt noktası). Sokaklar mahalle mahalle birleşiyor: Bağdat Caddesi 14 km,
+tek nokta işe yaramaz; geçtiği her mahallede o mahalledeki en uzun parçasının ortası. İlçe
+sınırının dışındaki adres kayıtları atılıyor (Kapaklı, Çerkezköy); Çatalca'nın sınırı veride
+olmadığı için onun noktaları boylamla tutuluyor. Son kurulum: 177.700 kayıt (58.830
+sokak ve cadde, mahalle başına; 32.633 kapı numarası; ~14 bin bina ve site), 23,5 MB.
+
+Kapı numarası kapsamı OSM'deki kadar: en çok Kadıköy, Tuzla, Pendik, Üsküdar; çoğu ilçede
+yok, orada sokak araması çalışıyor. Aramanın kuralları (kısaltmalar, kapı numarası, sıralama)
+`src/lib/adres-sorgu.ts`'te.
 
 Veritabanı her yenilendiğinde `src/lib/poi.ts` içindeki `SURUM` numarası
 artırılmalı; dosya adı numarayı taşıdığı için telefondaki eski kopya böylece

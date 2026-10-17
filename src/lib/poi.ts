@@ -1,4 +1,8 @@
-// İlgi noktası (hastane, okul, eczane, benzinlik, kırtasiye…) araması.
+// İlgi noktası (hastane, okul, eczane, benzinlik, kırtasiye…) ve adres araması.
+//
+// Adresler de aynı veritabanında: sokak ve caddeler (mahalle mahalle), kapı numaraları,
+// adı olan bina, apartman ve siteler (veri/adres-cikar.py). Her kaydın altında içinde
+// bulunduğu mahalle ve ilçe yazıyor ("Caferağa Mah., Kadıköy").
 //
 // Veri OpenStreetMap'ten çıkarıldı ve uygulamanın içinde SQLite dosyası olarak taşınıyor:
 // arama tamamen telefonda yapılır, internete ya da rota sunucusuna ihtiyaç duymaz.
@@ -8,9 +12,13 @@ import { importDatabaseFromAssetAsync, openDatabaseAsync, type SQLiteDatabase } 
 
 import { mesafeMetre, type Nokta } from '@/lib/cografya';
 
+import { ADRES_TURLERI, onekSonu, puanla, sadelestir, sorguyuAyristir, YER_ONEKI_EN_AZ, type Sorgu } from './adres-sorgu';
+
+export { ADRES_TURLERI, sadelestir, sorguyuAyristir } from './adres-sorgu';
+
 // Veri her yenilendiğinde bu numara artar. Dosya adı numarayı taşıdığı için telefondaki
 // eski kopya kullanılmaya devam etmez; yeni sürüm ilk açılışta varlıktan kopyalanır.
-const SURUM = 2;
+const SURUM = 3;
 const DOSYA = `istanbul-poi-${SURUM}.db`;
 
 export type PoiSonuc = {
@@ -25,30 +33,6 @@ export type PoiSonuc = {
 };
 
 export type PoiTuru = { anahtar: string; ad: string; duz: string };
-
-/**
- * Türkçe arama için sade biçim: 'Şişli Etfal' → 'sisli etfal'.
- * Veritabanındaki `duz` sütunu da aynı kuralla üretildi, iki taraf birebir eşleşir.
- */
-const AKSAN: Record<string, string> = {
-  ı: 'i', ş: 's', ğ: 'g', ü: 'u', ö: 'o', ç: 'c',
-  â: 'a', î: 'i', û: 'u', ê: 'e', ô: 'o', é: 'e', ñ: 'n',
-};
-
-export function sadelestir(metin: string): string {
-  const kucuk = metin.replace(/I/g, 'ı').replace(/İ/g, 'i').toLowerCase();
-  let cikan = '';
-  for (const harf of kucuk) {
-    const d = AKSAN[harf] ?? harf;
-    cikan += /[0-9a-z]/.test(d) ? d : ' ';
-  }
-  return cikan.split(/\s+/).filter(Boolean).join(' ');
-}
-
-/** 'eczane' → 'eczanf': önek aralığının üst sınırı (sozcuk >= x AND sozcuk < y). */
-function onekSonu(onek: string): string {
-  return onek.slice(0, -1) + String.fromCharCode(onek.charCodeAt(onek.length - 1) + 1);
-}
 
 let baglanti: Promise<SQLiteDatabase> | null = null;
 
@@ -88,40 +72,58 @@ export async function poiTurleri(): Promise<PoiTuru[]> {
 
 type HamSatir = Omit<PoiSonuc, 'mesafe'> & { agirlik: number };
 
-function siralaVeKes(satirlar: HamSatir[], merkez: Nokta, aranan: string, sinir: number): PoiSonuc[] {
+function siralaVeKes(satirlar: HamSatir[], merkez: Nokta, aranan: string, sinir: number, sorgu?: Sorgu): PoiSonuc[] {
   return satirlar
     .map((r) => {
       const mesafe = mesafeMetre(merkez, { latitude: r.lat, longitude: r.lon });
-      // Puan: kategorinin önemi + adın baştan eşleşmesi − uzaklık cezası.
-      // Uzaklık ağır basar; yoksa 90 km ötedeki Şile'deki bir yer listenin başına geçiyor.
-      const bastanEslesme = aranan && r.ad && sadelestir(r.ad).startsWith(aranan) ? 25 : 0;
-      const km = Math.min(mesafe / 1000, 40);
-      return { ...r, mesafe, puan: r.agirlik + bastanEslesme - km * 2.5 };
+      return { ...r, mesafe, puan: puanla(r, mesafe / 1000, aranan, sorgu) };
     })
     .sort((a, b) => b.puan - a.puan)
     .slice(0, sinir)
     .map(({ puan, agirlik, ...geri }) => geri);
 }
 
-const SUTUNLAR = 'p.id, p.ad, p.tur, t.ad AS turAdi, p.lat, p.lon, p.semt, p.agirlik';
+const SUTUNLAR = 'p.id, p.ad, p.tur, t.ad AS turAdi, p.lat, p.lon, y.ad AS semt, p.agirlik';
+const KAYNAK = 'poi p JOIN tur t ON t.anahtar = p.tur LEFT JOIN yer y ON y.id = p.yer';
+/** Bir sözcüğün tuttuğu kayıtlar: adında ya da mahalle/ilçesinde o sözcükle başlayan. */
+const SOZCUK_KUMESI =
+  '(SELECT poi FROM sozcuk WHERE sozcuk >= ? AND sozcuk < ? UNION SELECT id FROM poi WHERE yer IN (SELECT yer FROM yersozcuk WHERE sozcuk >= ? AND sozcuk < ?))';
 
-/** Ada göre arama: "şişli etfal", "boğaziçi üniv". */
-export async function poiAra(metin: string, merkez: Nokta, sinir = 20): Promise<PoiSonuc[]> {
-  const aranan = sadelestir(metin);
-  const sozcukler = aranan.split(' ').filter((s) => s.length >= 2).slice(0, 4);
+/** Sözcüklerin hepsini (adında ya da yerinde) taşıyan kayıtlar; yakın ve önemli olanlar önce. */
+async function sozcuklerleAra(db: SQLiteDatabase, sozcukler: string[], merkez: Nokta): Promise<HamSatir[]> {
   if (!sozcukler.length) return [];
-  const db = await veritabani();
-
-  const parcalar = sozcukler.map(() => 'SELECT poi FROM sozcuk WHERE sozcuk >= ? AND sozcuk < ?');
-  const degerler: string[] = [];
-  for (const s of sozcukler) degerler.push(s, onekSonu(s));
-
+  const degerler: (string | number)[] = [];
+  for (const s of sozcukler) degerler.push(s, onekSonu(s), s, s.length >= YER_ONEKI_EN_AZ ? onekSonu(s) : `${s}\u0001`);
+  degerler.push(merkez.latitude, merkez.longitude);
   const satirlar = await db.getAllAsync<HamSatir>(
-    `SELECT ${SUTUNLAR} FROM poi p JOIN tur t ON t.anahtar = p.tur
-     WHERE p.id IN (${parcalar.join(' INTERSECT ')}) LIMIT 400`,
+    `SELECT ${SUTUNLAR} FROM ${KAYNAK}
+     WHERE p.id IN (${sozcukler.map(() => `SELECT * FROM ${SOZCUK_KUMESI}`).join(' INTERSECT ')})
+     ORDER BY p.agirlik - (ABS(p.lat - ?) * 111 + ABS(p.lon - ?) * 84) * 2.5 DESC
+     LIMIT 800`,
     degerler,
   );
-  return siralaVeKes(satirlar, merkez, aranan, sinir);
+  // Yalnız mahalle ya da ilçe adıyla tutan kayıt sonuç değil: "kadıköy" yazınca Kadıköy'deki
+  // her dükkân gelmesin. En az bir sözcük adın içinde olmalı.
+  return satirlar.filter((r) => {
+    const ad = sadelestir(r.ad).split(' ');
+    return sozcukler.some((s) => ad.some((w) => w.startsWith(s)));
+  });
+}
+
+/**
+ * Ada ve adrese göre arama: "şişli etfal", "boğaziçi üniv", "bağdat cad 312", "1543 sk bağcılar".
+ * Sondaki sayı kapı numarası olabileceği için ("bağdat 312") o sayı olmadan da aranır: cadde
+ * de, adındaki başka şeyler de sonuçta kalsın.
+ */
+export async function poiAra(metin: string, merkez: Nokta, sinir = 20): Promise<PoiSonuc[]> {
+  const sorgu = sorguyuAyristir(metin);
+  if (!sorgu.sozcukler.length) return [];
+  const db = await veritabani();
+  const tam = await sozcuklerleAra(db, sorgu.sozcukler, merkez);
+  const sayisiz = sorgu.kapiNo ? await sozcuklerleAra(db, sorgu.sozcukler.slice(0, -1), merkez) : [];
+  const gorulen = new Set<number>();
+  const hepsi = [...tam, ...sayisiz].filter((r) => (gorulen.has(r.id) ? false : (gorulen.add(r.id), true)));
+  return siralaVeKes(hepsi, merkez, sorgu.sozcukler.join(' '), sinir, sorgu);
 }
 
 /** Kategoriye göre arama: "yakınımdaki eczaneler". Önce 12 km, sonuç azsa 45 km taranır. */
@@ -129,7 +131,7 @@ export async function poiTureGore(tur: string, merkez: Nokta, sinir = 20): Promi
   const db = await veritabani();
   for (const yaricap of [0.11, 0.45]) {
     const satirlar = await db.getAllAsync<HamSatir>(
-      `SELECT ${SUTUNLAR} FROM poi p JOIN tur t ON t.anahtar = p.tur
+      `SELECT ${SUTUNLAR} FROM ${KAYNAK}
        WHERE p.tur = ? AND p.lat BETWEEN ? AND ? AND p.lon BETWEEN ? AND ?
        LIMIT 600`,
       [tur, merkez.latitude - yaricap, merkez.latitude + yaricap, merkez.longitude - yaricap * 1.35, merkez.longitude + yaricap * 1.35],
@@ -147,7 +149,7 @@ export async function poiTureGore(tur: string, merkez: Nokta, sinir = 20): Promi
 export async function kategoriEslesmesi(metin: string): Promise<PoiTuru | null> {
   const aranan = sadelestir(metin);
   if (aranan.length < 3) return null;
-  const turler = await poiTurleri();
+  const turler = (await poiTurleri()).filter((t) => !ADRES_TURLERI.has(t.anahtar));
   // Yalnızca tam eşleşme: "eczane" kategoriyi açar, "ecz" isim araması olarak kalır.
   // Önek kabul edilseydi "par" yazan biri parkların listesine düşerdi.
   return (
@@ -177,6 +179,8 @@ const SIMGELER: Record<string, string> = {
   otel: 'bed', hostel: 'bed-outline',
   otogar: 'bus', iskele: 'boat', marina: 'boat-outline', havalimani: 'airplane', pazar: 'basket',
   sehir: 'map', ilce: 'map', semt: 'location', mahalle: 'location', koy: 'location',
+  adres: 'home', sokak: 'trail-sign', bina: 'business-outline', apartman: 'home-outline', ishani: 'business',
+  site: 'grid-outline',
 };
 
 /** Kategoriye karşılık gelen Ionicons adı. */
