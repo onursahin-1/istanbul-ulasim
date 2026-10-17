@@ -107,8 +107,8 @@ const DURAK_TARIFESI = `
 query DurakTarifesi($durak: String!, $gun: String!) {
   stop(id: $durak) {
     tarife: stoptimesForServiceDate(date: $gun, omitNonPickups: true, omitCanceled: true) {
-      pattern { code }
-      stoptimes { scheduledDeparture }
+      pattern { code headsign stops { name } }
+      stoptimes { scheduledDeparture headsign }
     }
   }
 }`;

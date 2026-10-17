@@ -27,10 +27,12 @@ import { dakikadanSaat, gununPencereleri, istanbulAni, siklikSimdi, type GunPenc
 import { hatPencereleri } from '@/lib/siklik-verisi';
 import {
   bugununTarifesi,
+  kisaDonusleriIsaretle,
   saatlereBol,
   siradakiKalkis,
   TARIFE_GUNLERI,
   tarifeTarihleri,
+  type DesenTarifesi,
   type TarifeGunu,
 } from '@/lib/tarife';
 import { baslikYap, hatEtiketi, useTema, type Tema } from '@/lib/tema';
@@ -79,15 +81,15 @@ export default function TarifeEkrani() {
   const [gun, setGun] = useState<TarifeGunu>(bugununTuru);
 
   // Her günün tablosu bir kez çekiliyor; günler arasında gidip gelince yeniden sorulmuyor.
-  const [tablolar, setTablolar] = useState<Partial<Record<TarifeGunu, number[]>>>({});
+  const [tablolar, setTablolar] = useState<Partial<Record<TarifeGunu, DesenTarifesi[]>>>({});
   const [hata, setHata] = useState<string | null>(null);
   const yukle = useCallback(
     async (tur: TarifeGunu, sinyal?: AbortSignal) => {
       if (!p.durak) return;
       setHata(null);
       try {
-        const saniyeler = await durakTarifesiGetir(p.durak, desenler, tarihler[tur], sinyal);
-        setTablolar((t) => ({ ...t, [tur]: saniyeler }));
+        const tablo = await durakTarifesiGetir(p.durak, desenler, tarihler[tur], sinyal);
+        setTablolar((t) => ({ ...t, [tur]: tablo }));
       } catch (e) {
         if ((e as Error).name === 'AbortError') return;
         setHata(e instanceof OtpHatasi ? e.message : 'Tarife yüklenemedi.');
@@ -103,7 +105,11 @@ export default function TarifeEkrani() {
     return () => iptal.abort();
   }, [gun, eldeki, yukle, yalnizSiklik]);
 
-  const satirlar = useMemo(() => (eldeki ? saatlereBol(eldeki) : []), [eldeki]);
+  // Kısa dönüş seferleri (Marmaray'da Ataköy'de, T1'de Eminönü'nde biten) harfle işaretli.
+  const isaretli = useMemo(() => (eldeki ? kisaDonusleriIsaretle(eldeki) : null), [eldeki]);
+  const satirlar = useMemo(() => (isaretli ? saatlereBol(isaretli.kalkislar) : []), [isaretli]);
+  const aciklamalar = isaretli?.aciklamalar ?? [];
+  const hedefOf = (harf?: string) => aciklamalar.find((a) => a.harf === harf)?.hedef;
   const bugunMu = gun === bugununTuru;
   // Saatli tablo boşsa ve hattın sıklık verisi varsa pencereler gösterilir.
   const siklikModu = !!pencereler && (yalnizSiklik || (!!eldeki && satirlar.length === 0));
@@ -150,7 +156,9 @@ export default function TarifeEkrani() {
           <HatRozeti hat={hat} />
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={s.baslik} numberOfLines={1}>
-              {p.baslik || kisaAd}
+              {aciklamalar.length && isaretli?.anaHedef && p.durakAd
+                ? `${baslikYap(p.durakAd)} → ${isaretli.anaHedef} yönü`
+                : p.baslik || kisaAd}
             </Text>
             <Text style={s.alt} numberOfLines={1}>
               {yalnizSiklik
@@ -201,6 +209,18 @@ export default function TarifeEkrani() {
           <Text style={s.bos}>{`${tarihYaz(tarihler[gun])} bu duraktan bu yöne sefer yok.`}</Text>
         )}
 
+        {!siklikModu && satirlar.length > 0 && aciklamalar.length > 0 && (
+          <View style={s.lejant}>
+            {aciklamalar.map((a) => (
+              <View key={a.harf} style={s.lejantSatir}>
+                <Text style={s.lejantHarf}>{a.harf}</Text>
+                <Text style={s.lejantYazi} numberOfLines={1}>
+                  {`Son durak: ${a.hedef}${a.kisa ? ' (kısa dönüş)' : ''}`}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
         {!siklikModu && satirlar.length > 0 && (
           <ScrollView
             ref={kaydirma}
@@ -217,7 +237,9 @@ export default function TarifeEkrani() {
                     style={[s.satir, i > 0 && s.ayrac]}
                     onLayout={(e) => satirKonumu(satir.saat, e.nativeEvent.layout.y)}
                     accessible
-                    accessibilityLabel={`Saat ${satir.saat}: ${satir.kalkislar.map((k) => String(k.dakika)).join(', ')} geçe`}
+                    accessibilityLabel={`Saat ${satir.saat}: ${satir.kalkislar
+                      .map((k) => `${k.dakika}${k.isaret ? ` (son durak ${hedefOf(k.isaret) ?? k.isaret})` : ''}`)
+                      .join(', ')} geçe`}
                   >
                     <View style={[s.saat, simdikiSatir && { backgroundColor: tema.vurgu }]}>
                       <Text style={[s.saatYazi, simdikiSatir && { color: tema.vurguYazi }]}>
@@ -230,10 +252,11 @@ export default function TarifeEkrani() {
                         const sirada = k.saniye === siradaki;
                         return (
                           <Text
-                            key={k.saniye}
+                            key={`${k.saniye}${k.isaret ?? ''}`}
                             style={[s.dakika, gecti && { color: tema.soluk, opacity: 0.55 }, sirada && s.siradaki]}
                           >
                             {String(k.dakika).padStart(2, '0')}
+                            {!!k.isaret && <Text style={s.isaret}>{k.isaret}</Text>}
                           </Text>
                         );
                       })}
@@ -243,7 +266,12 @@ export default function TarifeEkrani() {
               })}
             </View>
             <Text style={s.dipnot}>
-              {`${tarihYaz(tarihler[gun])} tarifesi. Saatler tarifeye göre; otobüsler trafiğe göre gecikebilir.`}
+              {[
+                aciklamalar.length && isaretli?.anaHedef ? `İşaretsiz saatler hattın sonuna (${isaretli.anaHedef}) gidiyor.` : '',
+                `${tarihYaz(tarihler[gun])} tarifesi. Saatler tarifeye göre; otobüsler trafiğe göre gecikebilir.`,
+              ]
+                .filter(Boolean)
+                .join(' ')}
             </Text>
           </ScrollView>
         )}
@@ -368,6 +396,20 @@ const stiller = (t: Tema) =>
       paddingHorizontal: 4,
     },
     dipnot: { fontSize: 12.5, color: t.soluk, lineHeight: 17, paddingHorizontal: 16, paddingTop: 10 },
+    lejant: { marginHorizontal: 16, marginBottom: 10, gap: 5 },
+    lejantSatir: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    lejantHarf: {
+      fontSize: 11.5,
+      fontWeight: '800',
+      color: t.uyari,
+      borderWidth: 1,
+      borderColor: t.uyari,
+      borderRadius: 4,
+      paddingHorizontal: 4,
+      overflow: 'hidden',
+    },
+    lejantYazi: { flex: 1, fontSize: 12.5, color: t.soluk },
+    isaret: { fontSize: 10, fontWeight: '800', color: t.uyari },
     simdiKutu: {
       flexDirection: 'row',
       alignItems: 'center',

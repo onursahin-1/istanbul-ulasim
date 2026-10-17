@@ -43,7 +43,8 @@ import type { Duyuru } from './duyuru';
 import { isletmeciAdi } from './hat-adi';
 import { desenleriBirlestir, kardesKimlikleri } from './hat-tekil';
 import { aramayiIndir, ayniAdliSaatsizHatlar, hatlariCikar, saatsizHatlariKatla, yakinlariIndir, type Ebeveynli } from './istasyon';
-import { yonAdi } from './metin';
+import { baslikYap, yonAdi } from './metin';
+import type { DesenTarifesi } from './tarife';
 import { kapaliTurleriAyikla, minibussuzSuzgec, trafiksizSuzgec, vasitaSuzgeci, type VasitaTuru } from './vasita';
 import { gunuKaydir } from './onbellek';
 import { onbellegeYaz, onbellektenOku } from './onbellek-depo';
@@ -540,19 +541,34 @@ export async function durakTarifesiGetir(
   desenKodlari: string[],
   gun: string,
   sinyal?: AbortSignal,
-): Promise<number[]> {
+): Promise<DesenTarifesi[]> {
   type Cevap = {
     stop: {
-      tarife: ({ pattern: { code: string } | null; stoptimes: ({ scheduledDeparture: number | null } | null)[] | null } | null)[] | null;
+      tarife:
+        | ({
+            pattern: { code: string; headsign: string | null; stops: { name: string }[] | null } | null;
+            stoptimes: ({ scheduledDeparture: number | null; headsign: string | null } | null)[] | null;
+          } | null)[]
+        | null;
     } | null;
   };
   const veri = await sorgula<Cevap>(DURAK_TARIFESI, { durak: durakId, gun }, sinyal);
   const istenen = new Set(desenKodlari);
   return (veri.stop?.tarife ?? [])
-    .filter((t) => !!t?.pattern && (!istenen.size || istenen.has(t.pattern.code)))
-    .flatMap((t) => (t?.stoptimes ?? []).map((st) => st?.scheduledDeparture ?? -1))
-    .filter((saniye) => saniye >= 0)
-    .sort((a, b) => a - b);
+    .filter((t): t is NonNullable<typeof t> & { pattern: NonNullable<NonNullable<typeof t>['pattern']> } =>
+      !!t?.pattern && (!istenen.size || istenen.has(t.pattern.code)),
+    )
+    .map((t) => {
+      const duraklar = (t.pattern.stops ?? []).map((s) => s.name ?? '');
+      const tabela = (t.stoptimes ?? []).find((st) => st?.headsign)?.headsign;
+      return {
+        kod: t.pattern.code,
+        // Seferin gittiği yer: tabela, yoksa desenin son durağı.
+        hedef: baslikYap(tabela || t.pattern.headsign || duraklar[duraklar.length - 1] || ''),
+        duraklar,
+        saniyeler: (t.stoptimes ?? []).map((st) => st?.scheduledDeparture ?? -1).filter((s) => s >= 0),
+      };
+    });
 }
 
 /** Aramanın zaman şartı: bu saatten sonra çık, ya da en geç bu saatte var. */

@@ -6,7 +6,14 @@
 // yön görünüyordu. Kısa adı, araç tipi ve işletmecisi aynı olan güzergâhlar tek hat
 // sayılıyor.
 //
+// Marmaray veride üç kayıt: "Marmaray" (Gebze – Halkalı), "Marmaray1" (Pendik – Ataköy kısa
+// dönüşü) ve "Marmaray2" (Halkalı – Bahçeşehir). Yolcu için tek hat; ayrı sayılınca Tarife
+// ekranında kısa dönüş trenleri hiç görünmüyordu (Bostancı'dan Halkalı yönüne saatte 8
+// tren varken 4 görünüyordu). Üçü tek hat, temsilcisi "Marmaray".
+//
 // Bağımlılıksız: testlerden çağrılabiliyor.
+
+import { hatAnahtari } from './metin';
 
 export type TekillenecekHat = {
   gtfsId: string;
@@ -17,7 +24,7 @@ export type TekillenecekHat = {
 
 /** Aynı hattın güzergâhlarını birleştiren anahtar; kısa adı olmayan hat kendi başına. */
 export function hatGrubu(h: TekillenecekHat): string {
-  const kisa = (h.shortName ?? '').trim().toLocaleUpperCase('tr-TR');
+  const kisa = hatAnahtari(h.shortName ?? '');
   if (!kisa) return `#${h.gtfsId}`;
   return `${(h.mode ?? '').toUpperCase()}|${h.agency?.name ?? ''}|${kisa}`;
 }
@@ -31,10 +38,19 @@ export function hatlariTekille<T extends TekillenecekHat>(hatlar: T[]): (T & { k
   for (const h of hatlar) {
     const a = hatGrubu(h);
     const var_ = gruplar.get(a);
-    if (var_) var_.kardesler.push(h.gtfsId);
-    else gruplar.set(a, { ...h, kardesler: [h.gtfsId] });
+    if (!var_) gruplar.set(a, { ...h, kardesler: [h.gtfsId] });
+    else if (asilMi(h) && !asilMi(var_)) {
+      // Asıl kayıt ("Marmaray") sonradan geldi: temsilci o olsun, kısa dönüş kaydı değil.
+      gruplar.set(a, { ...h, kardesler: [h.gtfsId, ...var_.kardesler] });
+    } else var_.kardesler.push(h.gtfsId);
   }
   return [...gruplar.values()];
+}
+
+/** Kısa adı grubun anahtarıyla aynı mı ("Marmaray" evet, "Marmaray1" hayır)? */
+function asilMi(h: TekillenecekHat): boolean {
+  const kisa = (h.shortName ?? '').trim().toLocaleUpperCase('tr-TR');
+  return !!kisa && kisa === hatAnahtari(kisa);
 }
 
 /** Bir hattın öbür güzergâhlarının kimlikleri (kendisi hariç). */

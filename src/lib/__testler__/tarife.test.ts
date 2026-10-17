@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { bugununTarifesi, gunTuru, saatlereBol, siradakiKalkis, tarifeTarihleri } from '../tarife.ts';
+import { bugununTarifesi, gunTuru, kisaDonusleriIsaretle, saatlereBol, siradakiKalkis, tarifeTarihleri } from '../tarife.ts';
 
 describe('tarife günleri', () => {
   it('haftanın gününden türü bulur', () => {
@@ -57,5 +57,53 @@ describe('saat satırları', () => {
 
   it('boş listede boş tablo', () => {
     assert.deepEqual(saatlereBol([]), []);
+  });
+});
+
+describe('kısa dönüş işaretleri', () => {
+  const s = (saat: number, dk: number) => saat * 3600 + dk * 60;
+  // Bostancı → Halkalı yönü: Gebze – Halkalı ve Pendik – Ataköy trenleri sırayla.
+  const HALKALI = ['Gebze', 'Pendik', 'Bostancı', 'Ataköy', 'Zeytinburnu', 'Halkalı'];
+  const desenler = [
+    { kod: 'g', hedef: 'Halkalı', duraklar: HALKALI, saniyeler: [s(7, 10), s(7, 25), s(7, 40)] },
+    { kod: 'a', hedef: 'Ataköy', duraklar: ['Pendik', 'Bostancı', 'Ataköy'], saniyeler: [s(7, 3), s(7, 18)] },
+    { kod: 'z', hedef: 'Zeytinburnu', duraklar: ['Pendik', 'Bostancı', 'Zeytinburnu'], saniyeler: [s(7, 33)] },
+  ];
+
+  it('en çok seferin gittiği yer asıl uç; öbürleri baş harfiyle işaretli', () => {
+    const r = kisaDonusleriIsaretle(desenler);
+    assert.equal(r.anaHedef, 'Halkalı');
+    assert.deepEqual(r.aciklamalar, [
+      { harf: 'A', hedef: 'Ataköy', kisa: true },
+      { harf: 'Z', hedef: 'Zeytinburnu', kisa: true },
+    ]);
+    const satir = saatlereBol(r.kalkislar)[0];
+    assert.deepEqual(
+      satir.kalkislar.map((k) => `${k.dakika}${k.isaret ?? ''}`),
+      ['3A', '10', '18A', '25', '33Z', '40'],
+    );
+  });
+
+  it('tek yere gidiliyorsa işaret yok', () => {
+    const r = kisaDonusleriIsaretle([desenler[0]]);
+    assert.deepEqual(r.aciklamalar, []);
+    assert.ok(r.kalkislar.every((k) => !k.isaret));
+  });
+
+  it('aynı harfle başlayan iki yer iki harf alır; asıl yolun dışındaki yer kısa dönüş sayılmaz', () => {
+    const r = kisaDonusleriIsaretle([
+      { kod: 'k', hedef: 'Kabataş', duraklar: ['Bağcılar', 'Eminönü', 'Kabataş'], saniyeler: [1, 2, 3] },
+      { kod: 'e', hedef: 'Eminönü', duraklar: ['Cevizlibağ', 'Eminönü'], saniyeler: [4, 5] },
+      { kod: 'x', hedef: 'Esenler', duraklar: ['Cevizlibağ', 'Esenler'], saniyeler: [6] },
+    ]);
+    assert.deepEqual(r.aciklamalar, [
+      { harf: 'E', hedef: 'Eminönü', kisa: true },
+      { harf: 'ES', hedef: 'Esenler', kisa: false },
+    ]);
+  });
+
+  it('aynı dakikada iki farklı yere giden sefer ikisi de yazılır', () => {
+    const satir = saatlereBol([{ saniye: s(8, 16) }, { saniye: s(8, 16), isaret: 'E' }, { saniye: s(8, 16) + 30 }])[0];
+    assert.deepEqual(satir.kalkislar.map((k) => k.isaret ?? ''), ['', 'E']);
   });
 });

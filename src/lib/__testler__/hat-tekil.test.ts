@@ -16,6 +16,18 @@ describe('hatlariTekille', () => {
     assert.equal(sonuc[0].longName, T2a.longName);
   });
 
+  it('Marmaray, Marmaray1 ve Marmaray2 tek hat; temsilci asıl kayıt', () => {
+    const tcdd = { name: 'TCDD' };
+    const kisa = { gtfsId: '1:m1', shortName: 'Marmaray1', longName: 'ATAKÖY - PENDIK', mode: 'RAIL', agency: tcdd };
+    const asil = { gtfsId: '1:m', shortName: 'Marmaray', longName: 'GEBZE-HALKALI', mode: 'RAIL', agency: tcdd };
+    const sube = { gtfsId: '1:m2', shortName: 'Marmaray2', longName: 'HALKALI - BAHÇEŞEHİR', mode: 'RAIL', agency: tcdd };
+    const sonuc = hatlariTekille([kisa, asil, sube]);
+    assert.equal(sonuc.length, 1);
+    assert.equal(sonuc[0].gtfsId, '1:m');
+    assert.deepEqual(sonuc[0].kardesler, ['1:m', '1:m1', '1:m2']);
+    assert.deepEqual(kardesKimlikleri(asil, [kisa, asil, sube]), ['1:m1', '1:m2']);
+  });
+
   it('kısa adı aynı ama işletmecisi ya da tipi farklı hatlar ayrı kalır', () => {
     const vapur = { ...T2a, gtfsId: 'x', mode: 'FERRY' };
     const baska = { ...T2a, gtfsId: 'y', agency: { name: 'Metro İstanbul' } };
