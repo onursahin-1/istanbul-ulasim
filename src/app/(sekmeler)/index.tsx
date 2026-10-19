@@ -20,8 +20,10 @@ import {
   HatRozeti,
   Ikon,
   type IkonAdi,
-  ROZET_SUTUNU,
+  KodEtiketleri,
+  RozetHucresi,
   TarifeEtiketi,
+  useRozetSutunu,
   useStiller,
 } from '@/components/ulasim';
 import { DonenSimge, FavoriSimgesi, PingHalkasi } from '@/components/hareketli-simgeler';
@@ -77,6 +79,8 @@ function saatsizGruplari(hatlar: Hat[]): { tur: string; hatlar: Hat[]; adlar: st
 export default function AnaEkran() {
   const kenar = useSafeAreaInsets();
   const tema = useTema();
+  // Kalkış satırlarının rozet sütunu: listedeki en geniş rozete göre.
+  const rozetSutunu = useRozetSutunu();
   const s = useStiller(stiller);
   // Konum izleniyor: yürüdükçe yakındaki duraklar ve harita yeni yere göre güncelleniyor.
   const konum = useKonum({ izle: true });
@@ -401,14 +405,16 @@ export default function AnaEkran() {
                   Math.abs(b.an - a.an) < ARKASINDA_SN;
                 return ilkIki.map(({ k, yon, kodlar, canli, an }, i) => (
                   <View key={i} style={s.sefer}>
-                    <View style={s.seferRozet}>
+                    <RozetHucresi sutun={rozetSutunu}>
                       <HatRozeti hat={k.trip?.route} />
-                    </View>
+                    </RozetHucresi>
                     <View style={s.seferMetin}>
                       <Text style={s.seferYon} numberOfLines={1}>
                         {yon || baslikYap(k.trip?.pattern?.headsign) || baslikYap(k.headsign)}
-                        {!!kodlar && <Text style={s.seferKodlar}>{`  ${kodlar.join(' · ')}`}</Text>}
                       </Text>
+                      {/* Metrobüs kodları kendi satırında (durak ekranındaki gibi): yön adının
+                          sonuna eklenince dar ekranda düşüyordu. */}
+                      {!!kodlar && !!k.trip?.route && <KodEtiketleri kodlar={kodlar} hat={k.trip.route} />}
                       {k.duruyorSn != null ? (
                         // Hattın tek görünen otobüsü uzun süredir duruyor (mola, park).
                         <DuranNotu metin={`Otobüs ${duruyorYaz(k.duruyorSn)} duruyor`} style={s.duranNot} />
@@ -428,9 +434,9 @@ export default function AnaEkran() {
               })()}
               {saatsizGruplari(durak.saatsiz).map((g) => (
                 <View key={g.tur} style={s.sefer}>
-                  <View style={s.seferRozet}>
+                  <RozetHucresi sutun={rozetSutunu}>
                     <HatRozeti hat={g.hatlar[0]} />
-                  </View>
+                  </RozetHucresi>
                   <View style={s.seferMetin}>
                     <Text style={s.seferYon} numberOfLines={1}>
                       {g.adlar.join(', ')}
@@ -601,11 +607,9 @@ const stiller = (t: Tema) =>
   saatsizNot: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   saatsizYazi: { fontSize: 11.5, color: t.soluk },
   sefer: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 3 },
-  seferRozet: { minWidth: ROZET_SUTUNU },
   // Yazı sütunu satırın ortasında: metro dairesi otobüs rozetinden uzun, satır ona göre
   // büyüyor. Yazıda `flex: 1` sütunu satır boyuna uzatıp yazıyı tepeye yapıştırıyordu.
   seferMetin: { flex: 1, minWidth: 0, justifyContent: 'center' },
   duranNot: { marginTop: 2, paddingVertical: 2 },
   seferYon: { fontSize: 13, color: t.soluk },
-  seferKodlar: { fontSize: 12, fontWeight: '700', color: t.soluk },
 });

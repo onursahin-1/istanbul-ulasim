@@ -573,25 +573,34 @@ export default function RotaEkrani() {
                 (() => {
                   const canli = bacakCanli(ilkArac.start.scheduledTime, ilkArac.start.estimated?.time);
                   const saat = saatYaz(ilkArac.start.estimated?.time ?? ilkArac.start.scheduledTime);
-                  // Aynı yolu giden başka hatlar da varsa hepsi yazılır ve "ilk gelene bin" denir:
-                  // rozetteki "97M / 141M" ikisinden birinin seçileceğini söylüyor.
+                  // Aynı yolu giden başka hatlar da varsa hepsi yazılır ("97M ya da 141M"); hangisinin
+                  // önce geleceği detay ekranında söyleniyor.
                   const ilkEk = esdegerKodlari(alternatifler[0], 99);
                   const hatlarYazisi = ilkEk.length
                     ? [hatEtiketi(ilkArac.route?.shortName, ilkArac.route?.mode ?? ilkArac.mode, ilkArac.route?.agency?.name).rozet, ...ilkEk].join(' ya da ')
                     : hatYazisi(ilkArac);
-                  const bas = `${hatlarYazisi} · ${baslikYap(ilkArac.from.name)} durağından `;
-                  const ilkGelen = ilkEk.length ? ' · hangisi önce gelirse' : '';
+                  // Kalkış saati ilk satırda, hiç kesilmez; hat ve durak ikinci satırda, sığmazsa
+                  // sondan kısalır. (Eskiden tek cümleydi ve dar ekranda kesilen kısım saatti.)
+                  const hatDurak = `${hatlarYazisi} · ${baslikYap(ilkArac.from.name)} durağından`;
                   if (!canli) {
                     // Otobüsün ara duraklardaki saati İETT tarifesinde yok, uç duraklardan
                     // tahmin ediliyor: canlı veri gelmemişse saat yaklaşık olarak yazılır.
                     const otobus = (ilkArac.mode ?? '').toUpperCase() === 'BUS';
                     return (
-                      <Text style={s.ilkArac}>
-                        {bas}
-                        {otobus ? `~${saat}` : saat}
-                        {ilkGelen}
-                        {otobus && <Text style={s.tarifeNotu}> · tarifeye göre</Text>}
-                      </Text>
+                      <View style={s.canliBlok}>
+                        <View style={s.canliSatir}>
+                          <View style={s.saatSimgesi}>
+                            <Ikon ad="time-outline" boyut={12} renkKodu={tema.soluk} />
+                          </View>
+                          <Text style={[s.kalkisSatiri, s.esnek]} numberOfLines={1}>
+                            {otobus ? `~${saat}` : `Kalkış ${saat}`}
+                            {otobus && <Text style={s.tarifeEki}> · tarifeye göre</Text>}
+                          </Text>
+                        </View>
+                        <Text style={s.hatDurak} numberOfLines={1}>
+                          {hatDurak}
+                        </Text>
+                      </View>
                     );
                   }
                   // Öbür ekranlardaki gibi: canlı kalkış tek renk ve durağa varış saatiyle
@@ -609,14 +618,13 @@ export default function RotaEkrani() {
                     <View style={s.canliBlok}>
                       <View style={s.canliSatir}>
                         <NabizNoktasi renk={renk} />
-                        <Text style={[s.ilkArac, s.esnek]} numberOfLines={2}>
-                          {bas}
-                          <Text style={{ color: renk, fontWeight: '700' }}>
-                            {Number.isFinite(binisAni) ? `Canlı · ${durakVarisMetni(binisAni)}` : `Canlı · ${saat}`}
-                          </Text>
-                          {ilkGelen}
+                        <Text style={[s.kalkisSatiri, s.esnek, { color: renk }]} numberOfLines={1}>
+                          {Number.isFinite(binisAni) ? `Canlı · ${durakVarisMetni(binisAni)}` : `Canlı · ${saat}`}
                         </Text>
                       </View>
+                      <Text style={s.hatDurak} numberOfLines={1}>
+                        {hatDurak}
+                      </Text>
                       {tarifeli.length > 0 && (
                         <Text style={s.tarifeNotu} numberOfLines={1}>
                           {`${[...new Set(tarifeli.map((b) => hatEtiketi(b.route?.shortName, b.route?.mode ?? b.mode, b.route?.agency?.name).rozet))].join(', ')} aktarması tarifeye göre`}
@@ -891,16 +899,17 @@ export default function RotaEkrani() {
  */
 /**
  * Canlı satırın arkası: aynı seferin canlı tahmini tazelemede en az 45 sn kaydıysa bir an
- * renklenir (gecikme turuncu, erkene çekilme yeşil). Sefer değiştiyse renklenmez.
+ * parlar: "bu saat yenilendi". Hangi yöne kaydığına bakmadan tek renk (eskiden geç kayınca
+ * turuncu, öne gelince yeşildi; "erken/gecikme" dili kaldırıldı). Sefer değiştiyse parlamaz.
  */
 function CanliVurgu({ kimlik, an, children }: { kimlik: string | null; an: number; children: React.ReactNode }) {
   const tema = useTema();
   const s = useStiller(stiller);
-  const [d, setD] = useState({ kimlik, an, n: 0, gec: true });
+  const [d, setD] = useState({ kimlik, an, n: 0 });
   if (d.kimlik !== kimlik || d.an !== an) {
     const fark = an - d.an;
     const flas = !!kimlik && kimlik === d.kimlik && Math.abs(fark) >= 45_000 && Math.abs(fark) <= 30 * 60_000;
-    setD({ kimlik, an, n: flas ? d.n + 1 : d.n, gec: flas ? fark > 0 : d.gec });
+    setD({ kimlik, an, n: flas ? d.n + 1 : d.n });
   }
   const p = useSharedValue(0);
   useEffect(() => {
@@ -912,7 +921,7 @@ function CanliVurgu({ kimlik, an, children }: { kimlik: string | null; an: numbe
     <View>
       <Animated.View
         pointerEvents="none"
-        style={[s.vurguZemin, { backgroundColor: d.gec ? tema.uyariAcik : tema.vurguAcik }, zemin]}
+        style={[s.vurguZemin, { backgroundColor: tema.vurguAcik }, zemin]}
       />
       {children}
     </View>
@@ -1045,6 +1054,10 @@ const stiller = (t: Tema) =>
   canliSatir: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: -3 },
   esnek: { flex: 1, minWidth: 0 },
   tarifeNotu: { fontSize: 11.5, color: t.soluk, paddingLeft: 16 },
+  kalkisSatiri: { fontSize: 13.5, fontWeight: '700', color: t.yazi, fontVariant: ['tabular-nums'] },
+  tarifeEki: { fontSize: 12.5, fontWeight: '400', color: t.soluk },
+  hatDurak: { fontSize: 12.5, color: t.soluk, paddingLeft: 16 },
+  saatSimgesi: { width: 12, alignItems: 'center' },
   not: { fontSize: 12, color: t.soluk, textAlign: 'center', paddingTop: 6 },
   sonraki: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.cizgi, paddingTop: 10, gap: 7 },
   sonrakiBaslik: { fontSize: 11, letterSpacing: 0.6, color: t.soluk, fontWeight: '700' },

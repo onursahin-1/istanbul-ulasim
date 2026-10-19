@@ -17,8 +17,9 @@ import {
   HatRozeti,
   Ikon,
   NabizNoktasi,
-  ROZET_SUTUNU,
+  RozetHucresi,
   TarifeEtiketi,
+  useRozetSutunu,
   useStiller,
   YaklasmaSeridi,
   DuranNotu,
@@ -104,6 +105,8 @@ function SonrakiSaatler({
 export default function DurakEkrani() {
   const kenar = useSafeAreaInsets();
   const tema = useTema();
+  // Kalkış satırlarının rozet sütunu: bu duraktaki en geniş rozete göre.
+  const rozetSutunu = useRozetSutunu();
   const s = useStiller(stiller);
   const { id } = useLocalSearchParams<{ id: string }>();
   const konum = useKonum();
@@ -578,9 +581,9 @@ export default function DurakEkrani() {
                     .filter(Boolean)
                     .join(' · ')}
                 >
-                  <View style={{ minWidth: ROZET_SUTUNU }}>
+                  <RozetHucresi sutun={rozetSutunu}>
                     <HatRozeti hat={y.hat} />
-                  </View>
+                  </RozetHucresi>
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={s.seferYon} numberOfLines={1}>
                       {y.yon || 'Yön bilgisi yok'}
@@ -663,9 +666,9 @@ export default function DurakEkrani() {
                   accessibilityRole="button"
                   accessibilityLabel={[h.shortName ?? '', baslikYap(h.longName), metin].filter(Boolean).join(' · ')}
                 >
-                  <View style={{ minWidth: ROZET_SUTUNU }}>
+                  <RozetHucresi sutun={rozetSutunu}>
                     <HatRozeti hat={h} />
-                  </View>
+                  </RozetHucresi>
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={s.seferYon} numberOfLines={1}>
                       {baslikYap(h.longName) || h.shortName}
@@ -697,9 +700,9 @@ export default function DurakEkrani() {
                       accessibilityRole="button"
                       accessibilityLabel={`${guzergah || h.shortName || ''}, saat bilgisi yok`}
                     >
-                      <View style={{ minWidth: ROZET_SUTUNU }}>
+                      <RozetHucresi sutun={rozetSutunu}>
                         <HatRozeti hat={h} />
-                      </View>
+                      </RozetHucresi>
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <Text style={s.seferYon} numberOfLines={2}>
                           {guzergah || baslikYap(h.shortName)}

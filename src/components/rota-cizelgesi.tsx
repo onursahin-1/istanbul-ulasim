@@ -27,7 +27,7 @@ import Animated, {
 
 import { Pressable } from '@/components/dokun';
 import { KayanMetin } from '@/components/kayan-metin';
-import { canliRenk, DONUS_SIMGELERI, HatRozeti, Ikon, NabizNoktasi, useStiller } from '@/components/ulasim';
+import { DONUS_SIMGELERI, HatRozeti, Ikon, NabizNoktasi, useStiller } from '@/components/ulasim';
 import type { YerlesikArac } from '@/lib/arac-konum';
 import { kalanYaz, yasYaz } from '@/lib/arac-konum';
 import { durakSaatleri } from '@/lib/bekleme';
@@ -146,6 +146,8 @@ type Satir = {
   saat: string | null;
   /** Kalkışın canlı sapması (yalnız biniş düğümünde). */
   canli: ReturnType<typeof bacakCanli>;
+  /** Canlı verisi olmayan otobüs saati: ara durak saati tarifede yok, tahmin ("~08:10"). */
+  yaklasik?: boolean;
   ad: string;
   /** Düğümün rengi ve alttaki rayın türü. */
   renk: string;
@@ -186,9 +188,21 @@ function satirlariKur(bacaklar: Bacak[], tema: Tema, varisAdi?: string | null): 
       binis = { tur: 'durak', saat: iso(b, 'start'), canli, ad: baslikYap(b.from.name), renk, ray: null };
       satirlar.push(binis);
     }
+    // Rota listesindeki gibi: otobüs saati canlı değilse yaklaşık. Metro, tramvay, vapur
+    // saatleri tarifede her durak için var, onlar kesin yazılır.
+    const otobus = (b.mode ?? '').toUpperCase() === 'BUS';
+    binis.yaklasik = otobus && !canli;
     binis.arac = i;
     binis.ray = { renk, yuru: false };
-    son = { tur: 'durak', saat: iso(b, 'end'), canli: null, ad: baslikYap(b.to.name), renk, ray: null };
+    son = {
+      tur: 'durak',
+      saat: iso(b, 'end'),
+      canli: null,
+      yaklasik: otobus && !b.end.estimated,
+      ad: baslikYap(b.to.name),
+      renk,
+      ray: null,
+    };
     satirlar.push(son);
   }
   // Son düğüm varış: son yürüyüşün sonu ya da son aracın inişi.
@@ -277,12 +291,23 @@ export function RotaCizelgesi({
             style={s.satir}
           >
             <View style={s.saatSutun}>
-              <Text style={[s.saat, x.tur === 'varis' && s.saatKalin]}>{saatYaz(x.saat)}</Text>
-              {x.canli && (
-                <Text style={[s.sapma, { color: canliRenk(x.canli.sinif, tema) }]} numberOfLines={1}>
-                  {x.canli.dakika === 0 ? 'canlı' : x.canli.dakika > 0 ? `+${x.canli.dakika} dk` : `${x.canli.dakika} dk`}
+              {/* Canlı saat vurgu renginde, altında "● canlı". Kaç dakika kaydığı ("+3 dk")
+                  yazılmaz: üstteki saat zaten canlı tahmin, yolcu farkı bir daha ekliyordu. */}
+              <Text
+                style={[s.saat, x.tur === 'varis' && s.saatKalin, !!x.canli && { color: tema.vurgu }]}
+                numberOfLines={1}
+              >
+                {x.yaklasik && x.saat ? `~${saatYaz(x.saat)}` : saatYaz(x.saat)}
+              </Text>
+              {x.canli ? (
+                <Text style={[s.sapma, { color: tema.vurgu }]} numberOfLines={1}>
+                  ● canlı
                 </Text>
-              )}
+              ) : x.yaklasik && x.saat ? (
+                <Text style={[s.sapma, s.tarife]} numberOfLines={1}>
+                  tarife
+                </Text>
+              ) : null}
             </View>
             <View style={s.ray}>
               {x.tur === 'baslangic' ? (
@@ -636,10 +661,11 @@ const stiller = (t: Tema) =>
     // çizelge
     cizelge: { paddingTop: 12, paddingBottom: 10 },
     satir: { flexDirection: 'row', gap: 8 },
-    saatSutun: { width: 44, alignItems: 'flex-end', paddingTop: 1 },
+    saatSutun: { width: 50, alignItems: 'flex-end', paddingTop: 1 },
     saat: { fontSize: 13, fontWeight: '700', color: t.yazi, fontVariant: ['tabular-nums'] },
     saatKalin: { fontWeight: '800' },
     sapma: { fontSize: 10.5, fontWeight: '700', marginTop: 1 },
+    tarife: { color: t.soluk, fontWeight: '600' },
     ray: { width: 18, alignItems: 'center' },
     rayCizgi: { flex: 1, width: 4, borderRadius: 2, marginTop: -2, marginBottom: -4 },
     rayYuru: { width: 0, borderLeftWidth: 3, borderStyle: 'dotted', borderColor: t.yurume },

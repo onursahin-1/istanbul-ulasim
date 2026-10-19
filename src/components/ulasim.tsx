@@ -4,7 +4,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
-import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -12,6 +12,7 @@ import {
   Easing,
   Image,
   type ImageSourcePropType,
+  type LayoutChangeEvent,
   StyleSheet,
   Text,
   View,
@@ -59,6 +60,33 @@ export function Ikon({ ad, boyut = 20, renkKodu }: { ad: IkonAdi; boyut?: number
  * yazıyı iter, üstüne binmez.
  */
 export const ROZET_SUTUNU = 90;
+
+/**
+ * Bir listenin rozet sütunu: listedeki en geniş rozet kadar. Hepsi kısa kodsa ("19F", metro
+ * yuvarlağı) dar kalır, yön adına yer açılır; "Minibüs" ya da "Metrobüs" varsa genişler.
+ * Bütün satırların yazısı aynı hizadan başlar. Genişlik yalnız büyür (liste yenilenince
+ * yazı yerinden oynamasın).
+ */
+export function useRozetSutunu() {
+  const [genislik, setGenislik] = useState(0);
+  const olc = useCallback((e: LayoutChangeEvent) => {
+    const w = Math.ceil(e.nativeEvent.layout.width);
+    setGenislik((x) => (w > x ? w : x));
+  }, []);
+  return useMemo(() => ({ genislik, olc }), [genislik, olc]);
+}
+export type RozetSutunu = ReturnType<typeof useRozetSutunu>;
+
+/** Rozeti ölçüp sütunu en genişe göre ayarlayan hücre. */
+export function RozetHucresi({ sutun, children }: { sutun: RozetSutunu; children: ReactNode }) {
+  return (
+    <View style={{ minWidth: sutun.genislik }}>
+      <View onLayout={sutun.olc} style={stil.rozetHucresi}>
+        {children}
+      </View>
+    </View>
+  );
+}
 
 /** Tabela rozetinin simgeleri: tek renkli, tintColor ile temanın yeşiline boyanıyor. */
 const SIMGELER = {
@@ -745,15 +773,24 @@ export function DuruyorDakika({ an, style }: { an: number; style?: StyleProp<Vie
  * sayısı yazılmıyor: durak listesinde yolcu otobüsün ne zaman geleceğini soruyor,
  * tarifeden ne kadar saptığını değil ("17 dk gecikmeli" anlamsız kalıyordu).
  * Sapma yalnız rota ekranlarında, aktarma zamanlaması için gösteriliyor.
- * `arkasinda`: aynı hattın bir önceki canlı otobüsü 3 dakikadan yakın.
+ * `arkasinda`: aynı hattın bir önceki canlı otobüsü 3 dakikadan yakın. Bu ayrı, gri bir
+ * satırda yazılır: canlı satırın sonuna eklenince hiçbir telefonda sığmıyordu.
  */
 export function CanliAciklama({ an, arkasinda, style }: { an: number; arkasinda?: boolean; style?: StyleProp<TextStyle> }) {
   const tema = useTema();
-  const metin = `Canlı · ${durakVarisMetni(an)}${arkasinda ? ' · hemen arkasında' : ''}`;
-  return (
+  const canli = (
     <Text style={[stil.canliYazi, { color: tema.vurgu }, style]} numberOfLines={1}>
-      {metin}
+      {`Canlı · ${durakVarisMetni(an)}`}
     </Text>
+  );
+  if (!arkasinda) return canli;
+  return (
+    <View>
+      {canli}
+      <Text style={[stil.arkasindaYazi, { color: tema.soluk }]} numberOfLines={1}>
+        hemen arkasından geliyor
+      </Text>
+    </View>
   );
 }
 
@@ -987,6 +1024,8 @@ const stil = StyleSheet.create({
   dakika: { flexDirection: 'row', alignItems: 'center', gap: 3, minWidth: 44, justifyContent: 'flex-end' },
   dakikaMetin: { flexDirection: 'row', alignItems: 'baseline', gap: 2 },
   canliYazi: { fontSize: 12, fontWeight: '600' },
+  arkasindaYazi: { fontSize: 11.5, marginTop: 1 },
+  rozetHucresi: { alignSelf: 'flex-start' },
   tarifeEtiketi: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   dakikaSayi: { fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
   dakikaBirim: { fontSize: 11, fontWeight: '500' },

@@ -44,7 +44,6 @@ import { ModalSayfa } from '@/components/modal-sayfa';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
-  canliRenk,
   DONUS_SIMGELERI,
   DuranNotu,
   DuruyorDakika,
@@ -725,7 +724,8 @@ function InBandi({ metin }: { metin: string }) {
 
 /**
  * Varış kartı: yeşil daire yaylı açılır, içine tik oturur, etrafında bir halka yayılıp
- * söner; ardından sırayla başlık, saat ve özet (süre, plana göre fark).
+ * söner; ardından sırayla başlık, saat ve yolculuk süresi. ("Plandan 4 dk erken" çipi
+ * kaldırıldı: "erken/gecikme" dili uygulamanın hiçbir yerinde yok.)
  */
 function VarisKarti({ v }: { v: YolTarifiVerisi }) {
   const s = useStiller(stiller);
@@ -734,7 +734,6 @@ function VarisKarti({ v }: { v: YolTarifiVerisi }) {
   const [an] = useState(() => Date.now());
   const ozet = v.yolculukOzeti;
   const sureDk = ozet ? Math.max(1, Math.round((an - ozet.baslangic) / 60_000)) : null;
-  const fark = ozet?.planliVaris != null ? Math.round((ozet.planliVaris - an) / 60_000) : null;
   const patlama = useSharedValue(0);
   useEffect(() => {
     if (!azalt) patlama.value = withDelay(380, withTiming(1, { duration: 850, easing: Easing.out(Easing.cubic) }));
@@ -763,14 +762,9 @@ function VarisKarti({ v }: { v: YolTarifiVerisi }) {
       <Animated.Text entering={gir(500)} style={s.detay}>
         {[v.hedef ? baslikYap(v.hedef) : '', istanbulSaatiYaz(Math.round(an / 1000))].filter(Boolean).join(' · ')}
       </Animated.Text>
-      {(sureDk != null || fark != null) && (
+      {sureDk != null && (
         <Animated.View entering={gir(620)} style={s.varisCipler}>
-          {sureDk != null && <Text style={s.varisCip}>{`${sureDk} dk yolculuk`}</Text>}
-          {fark != null && (
-            <Text style={[s.varisCip, fark >= 0 && s.varisCipIyi]}>
-              {fark > 0 ? `plandan ${fark} dk erken` : fark < 0 ? `plandan ${-fark} dk geç` : 'tam planlandığı gibi'}
-            </Text>
-          )}
+          <Text style={s.varisCip}>{`${sureDk} dk yolculuk`}</Text>
         </Animated.View>
       )}
     </View>
@@ -1614,7 +1608,7 @@ function SonrakiBinisKutusu({
   return (
     <View style={[s.kutu, yetisilmez ? s.kutuDikkat : s.kutuIyi]}>
       {canli ? (
-        <NabizNoktasi renk={canliRenk(canli.sinif, tema)} />
+        <NabizNoktasi renk={tema.vurgu} />
       ) : (
         <Ikon ad="time-outline" boyut={15} renkKodu={yetisilmez ? tema.uyari : tema.vurgu} />
       )}
@@ -1838,7 +1832,6 @@ const stiller = (t: Tema) =>
       paddingVertical: 4,
       overflow: 'hidden',
     },
-    varisCipIyi: { color: t.vurgu, backgroundColor: t.vurguAcik, borderColor: t.vurguAcik },
     nokta: { width: 6, height: 6, borderRadius: 3, backgroundColor: t.cizgi },
     noktaAktif: { width: 16, backgroundColor: t.vurgu },
     icerik: { gap: 4, paddingBottom: 10 },
