@@ -7,7 +7,7 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as Location from 'expo-location';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Share, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Alert, AppState, Linking, Share, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Pressable } from '@/components/dokun';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -171,6 +171,8 @@ export default function RotaDetayEkrani() {
   const sonIslenen = useRef<{ an: number; konum: Nokta } | null>(null);
   const sonSinyalKaydi = useRef(0);
   const [konum, setKonum] = useState<Nokta | null>(null);
+  // Yolculuk sürerken konum izni kapatılırsa (Ayarlar'a gidip dönünce) kartta söylenir.
+  const [konumIzniYok, setKonumIzniYok] = useState(false);
   // Yön konisi ve pusula kipi. Açılar derece ve sarılmamış (359 → 1 kısa yoldan, +2 döner):
   // koni `yon - haritaYonu` kadar döner, pusula ibresi `-haritaYonu` kadar.
   const yonSV = useSharedValue(0);
@@ -365,7 +367,10 @@ export default function RotaDetayEkrani() {
     async (i: number) => {
       const acilacak = !yaklasmaAcikRef.current[i];
       if (acilacak && !(await izinIste())) {
-        Alert.alert('Bildirim izni yok', 'Ayarlar › Bildirimler bölümünden bu uygulamaya izin verebilirsin.');
+        Alert.alert('Bildirim izni yok', 'Ayarlar › Bildirimler bölümünden bu uygulamaya izin verebilirsin.', [
+          { text: 'Vazgeç', style: 'cancel' },
+          { text: 'Ayarları aç', onPress: () => Linking.openSettings() },
+        ]);
         return;
       }
       uyarildi.current.delete(i);
@@ -666,6 +671,21 @@ export default function RotaDetayEkrani() {
   }, []);
 
   useEffect(() => takibiDurdur, [takibiDurdur]);
+
+  useEffect(() => {
+    if (!takipAcik) {
+      setKonumIzniYok(false);
+      return;
+    }
+    const bak = () =>
+      Location.getForegroundPermissionsAsync()
+        .then((i) => setKonumIzniYok(i.status !== 'granted'))
+        .catch(() => {});
+    const abone = AppState.addEventListener('change', (h) => {
+      if (h === 'active') bak();
+    });
+    return () => abone.remove();
+  }, [takipAcik]);
 
   // Yolda saatleri gerçeğe göre yeniden kurma (zamanlama.ts): yürürken kalan yürüyüşe,
   // durakta şimdiye, binince gerçek biniş anına göre. Hızlı yürüyüp erken varınca önceki
@@ -1016,7 +1036,10 @@ export default function RotaDetayEkrani() {
   const takibiBaslat = async () => {
     const izin = await Location.requestForegroundPermissionsAsync();
     if (izin.status !== 'granted') {
-      Alert.alert('Konum izni gerekli', 'Yolculuğunu takip edebilmemiz için ayarlardan konum iznini açman gerekiyor.');
+      Alert.alert('Konum izni gerekli', 'Yolculuğunu takip edebilmemiz için ayarlardan konum iznini açman gerekiyor.', [
+        { text: 'Vazgeç', style: 'cancel' },
+        { text: 'Ayarları aç', onPress: () => Linking.openSettings() },
+      ]);
       return;
     }
     yolculuguAc();
@@ -1284,6 +1307,8 @@ export default function RotaDetayEkrani() {
         durum,
         tarifler: yolTarifleri,
         konum,
+        konumAni: sonGps.current?.an ?? null,
+        konumIzniYok,
         cizgiler,
         binisOtobusleri,
         seferler,

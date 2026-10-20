@@ -30,6 +30,9 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated';
 import {
+  AccessibilityInfo,
+  Alert,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
@@ -63,7 +66,7 @@ import { konus, sus } from '@/lib/konusma';
 import type { SeferBilgisi } from '@/lib/sefer';
 import type { SesCinsiyeti } from '@/lib/ses-secimi';
 import { sesliDuyurular, type SesGirdisi } from '@/lib/sesli-tarif';
-import { aracAdi, baslikYap, hatRengi, useTema, type Tema } from '@/lib/tema';
+import { aracAdi, baslikYap, hatRengi, rozetRenkleri, useTema, type Tema } from '@/lib/tema';
 import {
   aktarmaPayi,
   binmeIfadesi,
@@ -95,6 +98,10 @@ export type YolTarifiVerisi = {
   tarifler: YuruyusAdimi[][];
   /** Telefonun son konumu; henüz gelmediyse null. */
   konum: Nokta | null;
+  /** Son GPS okumasının anı (ms). Dururken de tazelenir; konum kesilince eskir. */
+  konumAni?: number | null;
+  /** Yolculuk sürerken konum izni kapatıldı. */
+  konumIzniYok?: boolean;
   /** Bacakların çizgileri; yürürken "sıradaki dönüşe kaç metre" bunun üstünden. */
   cizgiler: Nokta[][];
   binisOtobusleri: Record<number, { otobus: YerlesikArac; kalan: number }>;
@@ -128,6 +135,28 @@ export type YolTarifiVerisi = {
   /** Telefonun baktığı yön (derece, pusula); pusula yoksa verilmez. İstasyonun yön oku için. */
   cihazYonu?: SharedValue<number>;
 };
+
+/** Konum bundan eskiyse (ms) "alınamıyor": mesafeler son bilinen yere göre, soluk yazılır. */
+const KONUM_ESKI_MS = 30_000;
+
+type KonumHali = 'taze' | 'bekleniyor' | 'alinamiyor' | 'eski' | 'izinYok';
+
+/** Konumun hâli: yolculuğun başında "bekleniyor", 30 sn'den çok gelmezse "alınamıyor". */
+function konumHali(v: YolTarifiVerisi): KonumHali {
+  if (v.konumIzniYok) return 'izinYok';
+  if (!v.konum) {
+    const bas = v.yolculukOzeti?.baslangic;
+    return bas != null && v.simdi - bas > KONUM_ESKI_MS ? 'alinamiyor' : 'bekleniyor';
+  }
+  if (v.konumAni != null && v.simdi - v.konumAni > KONUM_ESKI_MS) return 'eski';
+  return 'taze';
+}
+
+/** "40 sn" / "3 dk": konum ne kadar önce alındı. */
+function konumYasi(v: YolTarifiVerisi): string {
+  const sn = Math.max(0, Math.round((v.simdi - (v.konumAni ?? v.simdi)) / 1000));
+  return sn < 60 ? `${Math.max(10, Math.round(sn / 10) * 10)} sn` : `${Math.round(sn / 60)} dk`;
+}
 
 /**
  * Yürüme bacağı raylı istasyonda bitiyorsa ve son yaklaşmadaysak istasyona kalan metre
@@ -251,7 +280,8 @@ export function AdimSekmeleri({ v, gorunen, sec }: { v: YolTarifiVerisi; gorunen
           const bitti = i < v.durum.adim || (v.durum.faz === 'vardi' && i === v.durum.adim);
           const bakilan = i === gorunen;
           const b = v.bacaklar[a.bacak];
-          const renk = a.tur === 'arac' ? hatRengi(b?.route, tema) : tema.yazi;
+          // Hat adı ham hat rengiyle değil, okunur tonuyla (M9 sarısı açık temada görünmüyordu).
+          const renk = a.tur === 'arac' && b?.route ? rozetRenkleri(b.route, tema).yazi : tema.yazi;
           return [
             i > 0 && (
               <Text key={`a${i}`} style={s.ayrac}>
@@ -269,7 +299,7 @@ export function AdimSekmeleri({ v, gorunen, sec }: { v: YolTarifiVerisi; gorunen
               accessibilityRole="tab"
               accessibilityState={{ selected: bakilan }}
               accessibilityLabel={`Adım ${i + 1}: ${adimEtiketi(v, a)}${bitti ? ', tamamlandı' : ''}`}
-              hitSlop={4}
+              hitSlop={8}
             >
               {a.tur === 'yuru' ? (
                 <Ikon ad="walk" boyut={14} renkKodu={bakilan ? tema.yazi : tema.soluk} />
@@ -307,9 +337,12 @@ export function KonumSeridi({
   const a = adimlar[durum.adim];
   if (!a) return null;
   const b = bacaklar[a.bacak];
-  let ikon: 'navigate' | 'walk' | 'bus' | 'flag' | 'time-outline' = 'navigate';
+  // Değişen değer başta ve kalın ("120 m", "3 durak", "M3 22:54'te"), ad sonda: tek satıra
+  // sığmayınca kesilen ad olsun, sayı değil.
+  let ikon: 'navigate' | 'walk' | 'bus' | 'flag' | 'time-outline' | 'location-outline' = 'navigate';
   let ana = '';
   let yan = '';
+  const hal = konumHali(v);
 
   if (durum.faz === 'vardi') {
     ikon = 'flag';
@@ -322,21 +355,24 @@ export function KonumSeridi({
     const kalan = durum.kalanDurak ?? son;
     const ilerleme = durum.ilerleme ?? son - kalan;
     const sira = durakSirasi(ilerleme, son);
-    const arada = sira < son && ilerleme - sira >= DURAKTA_PAYI;
     ikon = 'bus';
     if (kalan === 0) {
-      ana = `Şimdi in: ${baslikYap(liste[son]?.ad)}`;
-    } else if (arada) {
-      // İki durak arasında: gidilen durak.
-      ana = `Sıradaki: ${baslikYap(liste[sira + 1]?.ad)}`;
-      yan = sira + 1 === son ? 'orada in' : `${kalan} durak kaldı`;
+      ana = 'Şimdi in';
+      yan = baslikYap(liste[son]?.ad);
     } else {
-      ana = `Şu an: ${baslikYap(liste[sira]?.ad)}`;
-      yan = `sonraki: ${baslikYap(liste[sira + 1]?.ad)}`;
+      ana = `${kalan} durak`;
+      yan = `sıradaki ${baslikYap(liste[Math.min(sira + 1, son)]?.ad)}${sira + 1 >= son ? ' · orada in' : ''}`;
     }
-  } else if (!konum) {
+  } else if (hal === 'izinYok') {
+    ikon = 'location-outline';
+    ana = 'Konum izni kapalı';
+  } else if (hal === 'bekleniyor') {
     ikon = 'time-outline';
     ana = 'Konum bekleniyor…';
+  } else if (hal === 'alinamiyor' || hal === 'eski' || !konum) {
+    ikon = 'location-outline';
+    ana = 'Konum alınamıyor';
+    yan = hal === 'eski' ? `son ${konumYasi(v)} önce` : '';
   } else {
     // Yürürken ve beklerken: gidilen noktaya kalan mesafe.
     const hedefNokta =
@@ -349,12 +385,13 @@ export function KonumSeridi({
     const sozcuk = bitisSozcugu(bacaklar, a.bacak);
     ikon = durum.faz === 'bekle' ? 'bus' : 'walk';
     if (durum.faz === 'bekle' && m <= 60) {
-      ana = `${ad} ${sozcuk.desin}`;
       // "M3 bekleniyor" yerine ne zaman: "M3 22:54'te".
       const kalkis = Date.parse(b.start.estimated?.time ?? b.start.scheduledTime ?? '');
-      yan = `${b.route?.shortName ?? ''} ${Number.isNaN(kalkis) ? 'bekleniyor' : saatEkli(kalkis / 1000)}`.trim();
+      ana = `${b.route?.shortName ?? ''} ${Number.isNaN(kalkis) ? 'bekleniyor' : saatEkli(kalkis / 1000)}`.trim();
+      yan = `${ad} ${sozcuk.desin}`;
     } else {
-      ana = varis ? `Varış noktasına ${mesafeYaz(m)}` : `${ad} ${sozcuk.e} ${mesafeYaz(m)}`;
+      ana = mesafeYaz(m);
+      yan = varis ? 'varış noktasına' : `${ad} ${sozcuk.e}`;
     }
   }
 
@@ -373,13 +410,13 @@ export function KonumSeridi({
         <Ikon ad={ikon} boyut={15} renkKodu={tema.vurgu} />
         <Text style={s.konumAna} numberOfLines={1}>
           {ana}
-          {!!yan && <Text style={s.konumYan}>{`  ·  ${yan}`}</Text>}
+          {!!yan && <Text style={s.konumYan}>{` · ${yan}`}</Text>}
         </Text>
       </Animated.View>
       {ses && (
         <Pressable
           onPress={ses.degistir}
-          hitSlop={10}
+          hitSlop={12}
           style={s.sesDugme}
           accessibilityRole="switch"
           accessibilityState={{ checked: ses.acik }}
@@ -511,7 +548,7 @@ export function AdimKartlari({
           style={s.donSarici}
           pointerEvents="box-none"
         >
-          <Pressable style={s.donDugmesi} onPress={() => sec(simdiki)} accessibilityRole="button">
+          <Pressable style={s.donDugmesi} onPress={() => sec(simdiki)} hitSlop={6} accessibilityRole="button">
             <Ikon ad="locate" boyut={14} renkKodu={tema.vurguYazi} />
             <Text style={s.donYazi}>Şu anki adıma dön</Text>
           </Pressable>
@@ -540,8 +577,17 @@ export function AdimKartlari({
       <View style={s.eylemler}>
         <Pressable
           style={[s.dugme, vardi ? s.dugmeDolu : s.dugmeBitir]}
-          onPress={onBitir}
+          // Vardıktan sonra sormadan kapanır; yolda yanlışlıkla basılırsa önce sorar.
+          onPress={() =>
+            vardi
+              ? onBitir()
+              : Alert.alert('Yol tarifi bitsin mi?', 'Yol takibi kapanır; yolculuğa sonra yeniden başlayabilirsin.', [
+                  { text: 'Vazgeç', style: 'cancel' },
+                  { text: 'Bitir', style: 'destructive', onPress: onBitir },
+                ])
+          }
           accessibilityRole="button"
+          accessibilityHint={vardi ? undefined : 'Yol tarifini bitirmeden önce sorar'}
         >
           <Text style={[s.dugmeYazi, { color: vardi ? tema.vurguYazi : tema.hata }]}>{vardi ? 'Tamam' : 'Bitir'}</Text>
         </Pressable>
@@ -589,8 +635,11 @@ function useAsamaAnlari(v: YolTarifiVerisi): { baslik: string; alt: string; n: n
     onceki.current = { adim: durum.adim, faz: durum.faz, kalan: durum.kalanDurak };
     if (!o) return;
     const hata = () => {};
+    // iPhone'da VoiceOver için: accessibilityLiveRegion yalnız Android'de çalışıyor.
+    const duyur = (metin: string) => AccessibilityInfo.announceForAccessibility(metin);
     if (durum.faz === 'vardi' && o.faz !== 'vardi') {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(hata);
+      duyur(v.hedef ? `Vardın. ${baslikYap(v.hedef)}` : 'Vardın');
     } else if (durum.faz === 'icinde' && (o.faz !== 'icinde' || o.adim !== durum.adim)) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(hata);
       const a = v.adimlar[durum.adim];
@@ -603,12 +652,20 @@ function useAsamaAnlari(v: YolTarifiVerisi): { baslik: string; alt: string; n: n
           alt: `${baslikYap(b.from.name)} ${sozcuk.de}${binis} · iniş ${saatYaz(iso(b, 'end'))}`,
           n: (x?.n ?? 0) + 1,
         }));
+        duyur(`Bindin, ${b.route?.shortName ?? aracAdiKisa(b)}. ${baslikYap(b.to.name)} ${sozcuk.de} ineceksin.`);
       }
     } else if (durum.adim > o.adim) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(hata);
     } else if (durum.faz === 'icinde' && o.faz === 'icinde' && durum.kalanDurak !== o.kalan) {
-      if (durum.kalanDurak === 1) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(hata);
-      else if (durum.kalanDurak === 0) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(hata);
+      const a = v.adimlar[durum.adim];
+      const b = a ? v.bacaklar[a.bacak] : undefined;
+      if (durum.kalanDurak === 1) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(hata);
+        duyur('Bir durak kaldı. Sıradakinde in.');
+      } else if (durum.kalanDurak === 0) {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(hata);
+        duyur(b ? `Şimdi in: ${baslikYap(b.to.name)}` : 'Şimdi in');
+      }
     }
     // Yalnız durum değişince; adımlar ve bacaklar o sırada okunuyor.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -836,26 +893,38 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
         : a.rol === 'varis' || a.rol === 'tek'
           ? 'Varış noktasına yürü'
           : `${hedefDurak} yürü`;
+    // Konum tazeyken sıradaki dönüş en üstte ve büyük: yürürken bir bakışta okunsun.
+    // "…durağına yürü" o zaman küçük bir alt başlık. Konum yoksa kart eskisi gibi.
+    const hal = konumHali(v);
+    const buyukDonus = simdiki && hal === 'taze' && (v.tarifler[a.bacak]?.length ?? 0) > 0;
+    const ozet = `${mesafeYaz(b.distance)} · ${sureYaz(b.duration)}`;
     return sar(
       <>
         {etiketler}
-        <Text style={s.komut}>{komut}</Text>
-        <Text style={s.detay}>
-          <Text style={s.kalin}>{`${mesafeYaz(b.distance)} · ${sureYaz(b.duration)}`}</Text>
-          {(a.rol === 'varis' || a.rol === 'tek') && v.hedef ? ` · ${baslikYap(v.hedef)}` : ''}
-        </Text>
+        {buyukDonus ? (
+          <Text style={s.komutKucuk} numberOfLines={2}>{`${komut} · ${ozet}`}</Text>
+        ) : (
+          <>
+            <Text style={s.komut}>{komut}</Text>
+            <Text style={s.detay}>
+              <Text style={s.kalin}>{ozet}</Text>
+              {(a.rol === 'varis' || a.rol === 'tek') && v.hedef ? ` · ${baslikYap(v.hedef)}` : ''}
+            </Text>
+          </>
+        )}
+        {simdiki && hal !== 'taze' && hal !== 'bekleniyor' && <KonumUyarisi hal={hal} yas={konumYasi(v)} />}
+        {buyukDonus && <TarifKutusu v={v} bacak={a.bacak} simdiki={simdiki} odak={setOdakY} bolum="donus" />}
         {sonraki && sonrakiAdim && (
           <SonrakiBinisKutusu v={v} yuruyus={a.bacak} binis={sonrakiAdim.bacak} simdiki={simdiki} aktarma={a.rol === 'aktarma'} />
         )}
         {/* Konum anlayamazsa (yeraltı istasyon, bina içi) yürüyüşü elle bitirmek için; durağa
-            400 m'den yakınken. Sıradaki adım araç olmalı. */}
+            400 m'den yakınken ya da konum hiç yoksa/eskiyse. Sıradaki adım araç olmalı. */}
         {simdiki &&
           v.durum.faz === 'yuru' &&
           !!v.vardim &&
           !!sonraki &&
           v.adimlar[sira + 1]?.tur === 'arac' &&
-          !!v.konum &&
-          mesafeMetre(v.konum, { latitude: b.to.lat, longitude: b.to.lon }) <= VARDIM_M && (
+          (hal !== 'taze' || (!!v.konum && mesafeMetre(v.konum, { latitude: b.to.lat, longitude: b.to.lon }) <= VARDIM_M)) && (
             <Pressable
               style={[s.dugme, { marginTop: 10 }]}
               onPress={() => {
@@ -869,7 +938,14 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
               <Text style={[s.dugmeYazi, { color: tema.vurgu }]}>{buradayimYazisi(sonraki.route?.mode ?? sonraki.mode)}</Text>
             </Pressable>
           )}
-        <TarifKutusu v={v} bacak={a.bacak} simdiki={simdiki} odak={setOdakY} />
+        <TarifKutusu
+          v={v}
+          bacak={a.bacak}
+          simdiki={simdiki}
+          odak={setOdakY}
+          bolum={buyukDonus ? 'liste' : 'hepsi'}
+          soluk={simdiki && hal === 'eski'}
+        />
       </>,
     );
   }
@@ -929,7 +1005,7 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
         ) : (
           <View style={s.buyukSatir}>
             <SonDurakKutusu aktif={kalan === 1}>
-              <View style={s.tabanSatir}>
+              <View style={s.tabanSatir} accessible accessibilityLabel={`${kalan} durak kaldı`}>
                 <KayanMetin metin={String(kalan)} style={[s.sayac, kalan === 1 && { color: tema.vurgu }]} />
                 <Text style={s.sayacBirim}> durak kaldı</Text>
               </View>
@@ -944,6 +1020,14 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
               {`\niniş ${inisSaati}`}
             </Text>
           </View>
+        )}
+        {/* Sıradaki durak büyük alanda: otobüste en çok bakılan şey. Bir durak kalınca
+            "Sıradaki durakta in" yazısı onun yerini tutuyor. */}
+        {kalan > 1 && (
+          <Text style={s.siradaki} numberOfLines={1}>
+            <Text style={s.siradakiEt}>Sıradaki </Text>
+            {baslikYap(liste[Math.min(durakSirasi(ilerleme ?? 0, liste.length - 1) + 1, liste.length - 1)]?.ad)}
+          </Text>
         )}
         {/* Aynı yoldan birden çok hat varsa hangisinde olduğu; yanlışsa düzeltilir. */}
         {obur.length > 0 && !!v.hatSec && <HatSecimi v={v} bacak={a.bacak} obur={obur} />}
@@ -1064,7 +1148,7 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
             {canli && <NabizNoktasi renk={tema.vurgu} />}
             <Text style={s.sayac}>
               <Text style={s.sayacBirim}>{uzak ? 'Kalkış ' : dk === 0 ? '' : 'Kalkışa '}</Text>
-              {uzak ? saatYaz(iso(b, 'start')) : dk === 0 ? 'Kalkıyor' : dk}
+              {uzak ? saatYaz(iso(b, 'start')) : dk === 0 ? 'Şimdi' : dk}
               <Text style={s.sayacBirim}>{uzak || dk === 0 ? '' : ' dk'}</Text>
             </Text>
           </View>
@@ -1185,7 +1269,7 @@ function SecenekSatiri({ v, bacak, secenek, ilk }: { v: YolTarifiVerisi; bacak: 
           <View style={s.tabanSatir}>
             <KayanMetin
               metin={
-                ilkDk == null ? '–' : ilkDk >= 60 ? istanbulSaatiYaz(Math.round(birinci!.an / 1000)) : ilkDk === 0 ? 'şimdi' : String(ilkDk)
+                ilkDk == null ? '–' : ilkDk >= 60 ? istanbulSaatiYaz(Math.round(birinci!.an / 1000)) : ilkDk === 0 ? 'Şimdi' : String(ilkDk)
               }
               style={[s.secenekDk, (birinci?.canli || otobusBurada) && { color: tema.vurgu }]}
             />
@@ -1371,12 +1455,21 @@ function TarifKutusu({
   bacak,
   simdiki,
   odak,
+  bolum = 'hepsi',
+  soluk = false,
 }: {
   v: YolTarifiVerisi;
   bacak: number;
   simdiki: boolean;
   odak: (y: number | null) => void;
+  /** "donus": yalnız büyük dönüş kutusu (kartın üstünde); "liste": yalnız tarif listesi. */
+  bolum?: 'hepsi' | 'donus' | 'liste';
+  /** Konum eski: dönüş kutusu soluk (mesafe son bilinen yere göre). */
+  soluk?: boolean;
 }) {
+  const donusGoster = bolum !== 'liste';
+  const listeGoster = bolum !== 'donus';
+  const buyuk = bolum === 'donus';
   const tema = useTema();
   const s = useStiller(stiller);
   const [ustY, setUstY] = useState(0);
@@ -1395,7 +1488,7 @@ function TarifKutusu({
   // Manevraya gelince kısa bir titreşim: telefona bakmadan "şimdi dön" anlaşılsın.
   const titredi = useRef('');
   useEffect(() => {
-    if (!yer || !simdi) return;
+    if (!yer || !simdi || !donusGoster) return;
     const anahtar = `${bacak}-${yer.simdiki + 1}`;
     if (titredi.current === anahtar) return;
     titredi.current = anahtar;
@@ -1403,7 +1496,7 @@ function TarifKutusu({
   }, [yer, simdi, bacak]);
 
   useEffect(() => {
-    odak(yer ? ustY + yer.simdiki * 28 : null);
+    if (listeGoster) odak(yer ? ustY + yer.simdiki * 28 : null);
   }, [yer?.simdiki, ustY]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!tarif.length) return null;
@@ -1415,13 +1508,14 @@ function TarifKutusu({
     const istasyon = { latitude: b.to.lat, longitude: b.to.lon };
     return (
       <View style={s.tarif}>
-        <View style={s.manevra}>
-          <View style={s.manevraSimge}>
-            <Ikon ad="enter-outline" boyut={20} renkKodu={tema.vurguYazi} />
+        {donusGoster && (
+        <View style={[s.manevra, soluk && s.eskiKonum]}>
+          <View style={[s.manevraSimge, buyuk && s.manevraSimgeBuyuk]}>
+            <Ikon ad="enter-outline" boyut={buyuk ? 28 : 20} renkKodu={tema.vurguYazi} />
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={s.manevraMesafe}>{mesafeYaz(yaklasma)}</Text>
-            <Text style={s.manevraYazi} numberOfLines={1}>
+            <Text style={[s.manevraMesafe, buyuk && s.manevraMesafeBuyuk]}>{mesafeYaz(yaklasma)}</Text>
+            <Text style={[s.manevraYazi, buyuk && s.manevraYaziBuyuk]} numberOfLines={1}>
               İstasyona gir
             </Text>
             <Text style={s.manevraSokak} numberOfLines={1}>
@@ -1430,6 +1524,8 @@ function TarifKutusu({
           </View>
           {v.cihazYonu && v.konum && <IstasyonYonu yon={yonAcisi(v.konum, istasyon)} cihazYonu={v.cihazYonu} />}
         </View>
+        )}
+        {listeGoster && (
         <View>
           {tarif.slice(0, gecilen).map((t, i) => (
             <View key={i} style={s.tarifListeSatir}>
@@ -1454,14 +1550,15 @@ function TarifKutusu({
             </Text>
           </View>
         </View>
+        )}
       </View>
     );
   }
 
   return (
     <View style={s.tarif}>
-      {yer && (
-        <>
+      {yer && donusGoster && (
+        <View style={[s.tarif, { marginTop: 0 }, soluk && s.eskiKonum]}>
           {yer.rotadan > SAPMA_M && (
             <View style={[s.kutu, s.kutuDikkat, { marginTop: 0 }]}>
               <Ikon ad="alert-circle-outline" boyut={16} renkKodu={tema.uyari} />
@@ -1474,7 +1571,7 @@ function TarifKutusu({
           )}
           {sapma ? (
             <View style={s.manevra}>
-              <View style={s.manevraSimge}>
+              <View style={[s.manevraSimge, buyuk && s.manevraSimgeBuyuk]}>
                 {v.cihazYonu ? (
                   <DonenOk yon={sapma.yon} cihazYonu={v.cihazYonu} ad="arrow-up" fark={0} renk={tema.vurguYazi} boyut={20} />
                 ) : (
@@ -1482,8 +1579,8 @@ function TarifKutusu({
                 )}
               </View>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={s.manevraMesafe}>{mesafeYaz(sapma.metre)}</Text>
-                <Text style={s.manevraYazi} numberOfLines={1}>
+                <Text style={[s.manevraMesafe, buyuk && s.manevraMesafeBuyuk]}>{mesafeYaz(sapma.metre)}</Text>
+                <Text style={[s.manevraYazi, buyuk && s.manevraYaziBuyuk]} numberOfLines={1}>
                   İstasyon bu yönde
                 </Text>
                 <Text style={s.manevraSokak} numberOfLines={1}>
@@ -1493,14 +1590,15 @@ function TarifKutusu({
             </View>
           ) : (
             <View style={s.manevra}>
-              <View style={[s.manevraSimge, simdi && { backgroundColor: tema.uyari }]}>
-                <Ikon ad={sonraki ? DONUS_SIMGELERI[sonraki.donus] : 'flag'} boyut={20} renkKodu={tema.vurguYazi} />
+              <View style={[s.manevraSimge, buyuk && s.manevraSimgeBuyuk, simdi && { backgroundColor: tema.uyari }]}>
+                <Ikon ad={sonraki ? DONUS_SIMGELERI[sonraki.donus] : 'flag'} boyut={buyuk ? 28 : 20} renkKodu={tema.vurguYazi} />
               </View>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={[s.manevraMesafe, simdi && { color: tema.uyari }]}>
-                  {simdi ? 'Şimdi' : `${mesafeYaz(yer.sonrakine)} sonra`}
+                {/* Büyük kutuda yalnız sayı ("120 m"): en çok bakılan şey, 28 pt. */}
+                <Text style={[s.manevraMesafe, buyuk && s.manevraMesafeBuyuk, simdi && { color: tema.uyari }]}>
+                  {simdi ? 'Şimdi' : buyuk ? mesafeYaz(yer.sonrakine) : `${mesafeYaz(yer.sonrakine)} sonra`}
                 </Text>
-                <Text style={s.manevraYazi} numberOfLines={1}>
+                <Text style={[s.manevraYazi, buyuk && s.manevraYaziBuyuk]} numberOfLines={1}>
                   {sonraki ? sonraki.eylem : 'Vardın'}
                 </Text>
                 <Text style={s.manevraSokak} numberOfLines={1}>
@@ -1509,8 +1607,9 @@ function TarifKutusu({
               </View>
             </View>
           )}
-        </>
+        </View>
       )}
+      {listeGoster && (
       <View onLayout={(e) => setUstY(e.nativeEvent.layout.y)}>
         {tarif.map((t, i) => {
           const gecildi = !!yer && i < yer.simdiki;
@@ -1533,6 +1632,32 @@ function TarifKutusu({
           </Text>
         </View>
       </View>
+      )}
+    </View>
+  );
+}
+
+/** Yürürken konum yok, eski ya da izin kapalı: turuncu not; izin kapalıysa ayarlara bağlantı. */
+function KonumUyarisi({ hal, yas }: { hal: KonumHali; yas: string }) {
+  const s = useStiller(stiller);
+  const tema = useTema();
+  const metin =
+    hal === 'izinYok'
+      ? 'Konum izni olmadan adımlar kendiliğinden ilerlemiyor.'
+      : hal === 'eski'
+        ? `Son konum ${yas} önce alındı (kapalı alan, metro olabilir). Mesafeler o yere göre.`
+        : 'Konum alınamıyor (kapalı alan, metro). Durağa varınca aşağıdaki düğmeye bas.';
+  return (
+    <View style={[s.kutu, s.kutuDikkat]}>
+      <Ikon ad="location-outline" boyut={16} renkKodu={tema.uyari} />
+      <Text style={s.kutuYazi}>
+        {metin}
+        {hal === 'izinYok' && (
+          <Text style={{ color: tema.vurgu, fontWeight: '700' }} onPress={() => Linking.openSettings()} accessibilityRole="link">
+            {' Ayarları aç'}
+          </Text>
+        )}
+      </Text>
     </View>
   );
 }
@@ -1622,7 +1747,7 @@ function SonrakiBinisKutusu({
             ? ''
             : !aktarma && pay > 15
               ? // Kalkışa daha çok varsa "587 dk payın var" yerine ne zaman yola çıkılacağı.
-                `. En geç ${istanbulSaatiYaz(yolaCikisAni(an(bb, 'start'), yb.duration ?? 0) / 1000)} yola çık.`
+                `. En geç ${saatEkli(yolaCikisAni(an(bb, 'start'), yb.duration ?? 0) / 1000)} yola çık.`
               : `. ${pay} dk payın var.`}
       </Text>
     </View>
@@ -1891,6 +2016,10 @@ const stiller = (t: Tema) =>
     },
     manevraMesafe: { fontSize: 12, fontWeight: '700', color: t.vurgu },
     manevraYazi: { fontSize: 15, fontWeight: '700', color: t.yazi },
+    manevraSimgeBuyuk: { width: 52, height: 52, borderRadius: 14 },
+    manevraMesafeBuyuk: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5, lineHeight: 32, fontVariant: ['tabular-nums'] },
+    manevraYaziBuyuk: { fontSize: 18 },
+    eskiKonum: { opacity: 0.45 },
     tarifSatir: { flex: 1, fontSize: 12.5, color: t.soluk },
     tarifListeSatir: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 28, paddingHorizontal: 6 },
     durakKutusu: { marginTop: 8, borderRadius: 12, backgroundColor: t.yuzeyIkincil, padding: 10 },
@@ -1918,11 +2047,15 @@ const stiller = (t: Tema) =>
       borderRadius: 11,
       paddingHorizontal: 10,
       paddingVertical: 7,
+      minHeight: 44,
       backgroundColor: t.yuzey,
     },
     secimYazi: { fontSize: 13, fontWeight: '700', color: t.yazi },
     hatSecimi: { marginTop: 10, padding: 9, borderRadius: 10, backgroundColor: t.yuzeyIkincil, gap: 6 },
     komut: { fontSize: 21, fontWeight: '800', letterSpacing: -0.3, color: t.yazi, lineHeight: 26 },
+    komutKucuk: { fontSize: 15, fontWeight: '700', color: t.soluk, lineHeight: 20, marginBottom: 8 },
+    siradaki: { fontSize: 16, fontWeight: '700', color: t.yazi, marginBottom: 4 },
+    siradakiEt: { fontSize: 13, fontWeight: '600', color: t.soluk },
     detay: { fontSize: 13, color: t.soluk, lineHeight: 18 },
     kalin: { fontWeight: '700', color: t.yazi },
     buyukSatir: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginVertical: 6 },
@@ -1942,7 +2075,7 @@ const stiller = (t: Tema) =>
     kalanBosluk: { color: t.soluk, marginLeft: 4, height: 16, lineHeight: 16 },
     eylemler: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginTop: 10 },
     dugme: {
-      height: 42,
+      height: 44,
       borderRadius: 12,
       paddingHorizontal: 14,
       flexDirection: 'row',
@@ -1956,7 +2089,7 @@ const stiller = (t: Tema) =>
     dugmeBitir: {},
     dugmeDolu: { backgroundColor: t.vurgu, borderColor: t.vurgu },
     dugmeYazi: { fontSize: 13.5, fontWeight: '700', color: t.yazi },
-    zil: { width: 42, paddingHorizontal: 0 },
+    zil: { width: 44, paddingHorizontal: 0 },
 
     sayfa: {
       backgroundColor: t.yuzey,
