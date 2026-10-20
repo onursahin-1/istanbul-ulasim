@@ -23,6 +23,7 @@ import { secimTiki } from '@/lib/dokunsal';
 import { istanbulTarihi } from '@/lib/ozel-gunler';
 import { OZEL_GUNLER } from '@/lib/ozel-gun-verisi';
 import { durakTarifesiGetir, OtpHatasi } from '@/lib/otp';
+import { useCanliAralik } from '@/lib/canli-aralik';
 import { dakikadanSaat, gununPencereleri, istanbulAni, siklikSimdi, type GunPenceresi, type SiklikSimdi } from '@/lib/siklik';
 import { hatPencereleri } from '@/lib/siklik-verisi';
 import {
@@ -117,6 +118,10 @@ export default function TarifeEkrani() {
     const g = haftaGunu(tarihler[gun]);
     return { bugun: gununPencereleri(pencereler, g), dun: gununPencereleri(pencereler, (g + 6) % 7) };
   }, [pencereler, tarihler, gun]);
+  // Ekran açık kaldıkça dakikada bir yeniden çizilir: geçmiş saatlerin solması, sıradaki
+  // sefer ve "şu an her 5 dk" açıldığı dakikada donmasın.
+  const [, setTik] = useState(0);
+  useCanliAralik(() => setTik((x) => x + 1), 60_000);
   // İstanbul saatiyle gün başından saniye.
   const simdi = Math.floor((Date.now() / 1000 + 3 * 3600) % 86_400);
   const siradaki = bugunMu ? siradakiKalkis(satirlar, simdi) : null;

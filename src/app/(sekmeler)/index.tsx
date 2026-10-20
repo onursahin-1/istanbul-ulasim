@@ -3,7 +3,7 @@
 import * as Location from 'expo-location';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Linking, StyleSheet, Text, View } from 'react-native';
 import { Pressable } from '@/components/dokun';
 import { ModalSayfa } from '@/components/modal-sayfa';
 import MapView, { Marker, type LongPressEvent } from 'react-native-maps';
@@ -13,6 +13,7 @@ import { AltYaprak } from '@/components/alt-yaprak';
 import {
   ARKASINDA_SN,
   CanliAciklama,
+  CevrimdisiSerit,
   Dakika,
   DuranNotu,
   DuruyorDakika,
@@ -109,6 +110,10 @@ export default function AnaEkran() {
     });
   }, [duraklar, aracVarislari]);
   const [hata, setHata] = useState<string | null>(null);
+  // Elde liste varken yenileme başarısız olursa: son başarılı yüklemenin anı (sarı şerit).
+  // Kırmızı hata kutusu yalnız hiç veri yokken.
+  const [cevrimdisi, setCevrimdisi] = useState<number | null>(null);
+  const sonBasari = useRef<number | null>(null);
   // Alt yaprağın ölçüleri: ekranın boyu ve arama kutusunun bittiği yer.
   const [ekranBoyu, setEkranBoyu] = useState(0);
   const [aramaAlti, setAramaAlti] = useState(0);
@@ -137,9 +142,15 @@ export default function AnaEkran() {
       // Yakındaki ilk durakların otobüs hatlarını köprü öncelikle tarasın: evden çıkarken
       // bakılan durakta otobüsler canlı görünsün.
       kopruyeIlgiBildir(liste.slice(0, 4).flatMap((y) => (y.durak.routes ?? []).map((r) => r.shortName)));
+      sonBasari.current = Date.now();
+      setCevrimdisi(null);
       setHata(null);
     } catch (e) {
       if (no !== sonYukleme.current) return;
+      if (sonBasari.current != null) {
+        setCevrimdisi(sonBasari.current);
+        return;
+      }
       setHata(e instanceof OtpHatasi ? e.message : 'Yakındaki duraklar yüklenemedi.');
     }
   }, [latitude, longitude]);
@@ -303,8 +314,19 @@ export default function AnaEkran() {
         </View>
         {konum.tur === 'varsayilan' && (
           <View style={s.uyari}>
-            <Ikon ad="information-circle" boyut={16} renkKodu={tema.soluk} />
+            <Ikon ad="location-outline" boyut={16} renkKodu={tema.uyari} />
             <Text style={s.uyariYazi}>{konum.neden}</Text>
+            {/* İzin verilmediyse Ayarlar (iOS yeniden sormuyor), alınamadıysa yeniden dene;
+                İstanbul dışındaysa yapılacak bir şey yok. */}
+            {konum.neden.includes('izni') ? (
+              <Pressable hitSlop={10} onPress={() => Linking.openSettings()} accessibilityRole="button">
+                <Text style={s.uyariDugme}>Ayarları aç</Text>
+              </Pressable>
+            ) : konum.neden.includes('alınamadı') ? (
+              <Pressable hitSlop={10} onPress={() => konum.yenile()} accessibilityRole="button">
+                <Text style={s.uyariDugme}>Tekrar dene</Text>
+              </Pressable>
+            ) : null}
           </View>
         )}
       </View>
@@ -317,7 +339,9 @@ export default function AnaEkran() {
           erisilebilirlikEtiketi="Yakındaki durakları aç ya da kapat"
           baslik={
             <View style={s.panelBaslik}>
-              <Text style={s.panelBaslikYazi}>Yakındaki duraklar</Text>
+              <Text style={s.panelBaslikYazi} numberOfLines={1}>
+                {konum.tur === 'varsayilan' ? 'Kadıköy çevresindeki duraklar' : 'Yakındaki duraklar'}
+              </Text>
               <Text style={s.ipucu}>Hedef seçmek için haritaya basılı tut</Text>
             </View>
           }
@@ -338,6 +362,7 @@ export default function AnaEkran() {
               ))}
             </View>
           )}
+          <CevrimdisiSerit zaman={cevrimdisi} tekrarDene={duraklariYukle} />
           {hata && <HataKutusu mesaj={hata} tekrarDene={duraklariYukle} />}
           {!hata && !duraklar && (
             <View accessible accessibilityLabel="Yakındaki duraklar aranıyor">
@@ -589,8 +614,20 @@ const stiller = (t: Tema) =>
   kisayolIkon: { width: 28, height: 28, borderRadius: 8, backgroundColor: t.vurguAcik, alignItems: 'center', justifyContent: 'center' },
   kisayolBaslik: { fontSize: 13, fontWeight: '700', color: t.yazi },
   kisayolAlt: { fontSize: 11, color: t.soluk },
-  uyari: { flexDirection: 'row', gap: 6, alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.94)', borderRadius: 10, padding: 8 },
-  uyariYazi: { flex: 1, fontSize: 12, color: t.soluk },
+  // Temaya uyan kutu (eskiden koyu temada da beyazdı).
+  uyari: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+    backgroundColor: t.yuzey,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: t.cizgi,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  uyariDugme: { fontSize: 12.5, fontWeight: '700', color: t.vurgu },
+  uyariYazi: { flex: 1, fontSize: 12, color: t.yazi, lineHeight: 16 },
   panelBaslik: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 },
   panelBaslikYazi: { fontSize: 18, fontWeight: '700', color: t.yazi },
   ipucu: { fontSize: 11, color: t.soluk },

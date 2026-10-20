@@ -427,7 +427,7 @@ export default function AyarlarEkrani() {
             style={({ pressed }) => [s.gecisSatiri, pressed && { opacity: 0.6 }]}
             onPress={() => ekranAc('/hakkinda')}
             accessibilityRole="button"
-            accessibilityLabel={`Hakkında, rota sunucusu ${sunucuBagli ? 'bağlı' : 'ulaşılamıyor'}`}
+            accessibilityLabel={`Hakkında, rota sunucusu ${sunucuBagli == null ? 'kontrol ediliyor' : sunucuBagli ? 'bağlı' : 'ulaşılamıyor'}`}
           >
             <View style={s.gecisIkon}>
               <Ikon ad="information" boyut={19} renkKodu="#ffffff" />

@@ -9,15 +9,22 @@ import { KaydirmaliSatir } from '@/components/kaydirmali-satir';
 import { Dakika, Ikon, useStiller } from '@/components/ulasim';
 import { aramalariTemizle, aramaSil, favoriDegistir, favoriYerDegistir, useKayitlar, type YerTuru } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
-import { durakDetayiGetir } from '@/lib/otp';
-import { baslikYap, useTema, type Tema } from '@/lib/tema';
+import { durakDetayiGetir, type Hat } from '@/lib/otp';
+import { useCanliAralik } from '@/lib/canli-aralik';
+import { baslikYap, hatEtiketi, rozetRenkleri, useTema, type Tema } from '@/lib/tema';
 import { ekranAc } from '@/lib/gezinti';
 import { useScrollToTop } from 'expo-router';
 
 const YER_ADI: Record<YerTuru, string> = { ev: 'Ev', is: 'İş' };
 
-/** Favori durakların sıradaki kalkışı: durak kimliği → kalkış anı (Unix saniyesi); yoksa null. */
-type Dakikalar = Record<string, number | null>;
+/**
+ * Favori durakların sıradaki kalkışı: durak kimliği → kalkış (an: Unix saniyesi, hat, yön);
+ * "yok": bugün sefer kalmadı; "hata": sorulamadı. Kayıt yoksa yükleniyor.
+ */
+type SiradakiKalkis = { an: number; hat: Hat | null; yon: string };
+type Dakikalar = Record<string, SiradakiKalkis | 'yok' | 'hata'>;
+/** Sekme açıkken bu aralıkla yenilenir (sekmeye dönünce hemen). */
+const YENILEME_MS = 30_000;
 
 export default function KayitliEkrani() {
   // Seçili sekmeye yeniden dokununca liste başa kayar (iPhone'daki gibi).
@@ -41,12 +48,18 @@ export default function KayitliEkrani() {
           const durak = await durakDetayiGetir(f.gtfsId);
           const simdi = Date.now() / 1000 - 30;
           const sirada = (durak?.kalkislar ?? [])
-            .map((k) => (k.serviceDay ?? 0) + (k.realtimeDeparture ?? k.scheduledDeparture ?? 0))
-            .filter((an) => an >= simdi)
-            .sort((a, b) => a - b)[0];
-          sonuc[f.gtfsId] = sirada ?? null;
+            .map((k) => ({ k, an: (k.serviceDay ?? 0) + (k.realtimeDeparture ?? k.scheduledDeparture ?? 0) }))
+            .filter((x) => x.an >= simdi)
+            .sort((a, b) => a.an - b.an)[0];
+          sonuc[f.gtfsId] = sirada
+            ? {
+                an: sirada.an,
+                hat: sirada.k.trip?.route ?? null,
+                yon: baslikYap(sirada.k.trip?.pattern?.headsign ?? sirada.k.headsign ?? ''),
+              }
+            : 'yok';
         } catch {
-          sonuc[f.gtfsId] = null;
+          sonuc[f.gtfsId] = 'hata';
         }
       }),
     );
@@ -56,6 +69,9 @@ export default function KayitliEkrani() {
   useEffect(() => {
     kalkislariYukle();
   }, [kalkislariYukle]);
+  // Sekme açıkken yenilenir; başka sekmedeyken durur, dönünce hemen tazelenir. Eskiden
+  // yalnız açılışta yükleniyordu: "7 dk" değişmeden kalıyordu.
+  useCanliAralik(kalkislariYukle, YENILEME_MS, favoriler.length > 0);
 
   const hedefeGit = (hedef: { ad: string; lat: number; lon: number }) =>
     ekranAc({
@@ -115,6 +131,8 @@ export default function KayitliEkrani() {
         </View>
 
         <Text style={s.bolumBaslik}>FAVORİ YERLER</Text>
+        {/* Kaydırma ipucu her satırda değil, bölümün başında bir kez. */}
+        {favoriYerler.length > 0 && <Text style={s.ipucu}>Silmek için satırı sola kaydır.</Text>}
         {favoriYerler.length === 0 ? (
           <Text style={s.bos}>
             Henüz favori yerin yok. Ana ekranda haritaya basılı tutup "Favorilere ekle"ye dokunarak ekleyebilirsin.
@@ -131,9 +149,11 @@ export default function KayitliEkrani() {
                     <Text style={s.satirBaslik} numberOfLines={1}>
                       {y.ad}
                     </Text>
-                    <Text style={s.satirAlt} numberOfLines={1}>
-                      {y.alt ? `${y.alt} · silmek için sola kaydır` : 'Silmek için sola kaydır'}
-                    </Text>
+                    {!!y.alt && (
+                      <Text style={s.satirAlt} numberOfLines={1}>
+                        {y.alt}
+                      </Text>
+                    )}
                   </View>
                   <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.yurume} />
                 </Pressable>
@@ -143,6 +163,7 @@ export default function KayitliEkrani() {
         )}
 
         <Text style={s.bolumBaslik}>FAVORİ DURAKLAR</Text>
+        {favoriler.length > 0 && <Text style={s.ipucu}>Silmek için satırı sola kaydır.</Text>}
         {favoriler.length === 0 ? (
           <Text style={s.bos}>
             Henüz favori durağın yok. Bir durak ekranını açıp kalpli düğmeye basarak buraya ekleyebilirsin.
@@ -163,13 +184,9 @@ export default function KayitliEkrani() {
                     <Text style={s.satirBaslik} numberOfLines={1}>
                       {baslikYap(f.ad)}
                     </Text>
-                    <Text style={s.satirAlt}>Silmek için sola kaydır</Text>
+                    <FavoriKalkisAlti k={dakikalar[f.gtfsId]} />
                   </View>
-                  {dakikalar[f.gtfsId] != null ? (
-                    <Dakika an={dakikalar[f.gtfsId] as number} />
-                  ) : (
-                    <Text style={s.satirAlt}>—</Text>
-                  )}
+                  <FavoriKalkisi k={dakikalar[f.gtfsId]} />
                 </Pressable>
               </KaydirmaliSatir>
             ))}
@@ -231,6 +248,36 @@ export default function KayitliEkrani() {
   );
 }
 
+/** Favori durak satırının alt yazısı: sıradaki kalkışın hattı ve yönü, ya da durumu. */
+function FavoriKalkisAlti({ k }: { k: Dakikalar[string] | undefined }) {
+  const tema = useTema();
+  const s = useStiller(stiller);
+  if (k === undefined) return <View style={[s.yukleniyorCubugu, { backgroundColor: tema.cizgi }]} />;
+  if (k === 'yok') return <Text style={s.satirAlt}>Bugün sefer kalmadı</Text>;
+  if (k === 'hata') return <Text style={s.satirAlt}>Bağlantı yok</Text>;
+  const renk = k.hat ? rozetRenkleri(k.hat, tema) : null;
+  const kod = k.hat ? hatEtiketi(k.hat.shortName, k.hat.mode, k.hat.agency?.name).rozet : '';
+  return (
+    <View style={s.kalkisAlti}>
+      {!!kod && renk && <Text style={[s.hatKodu, { backgroundColor: renk.zemin, color: renk.yazi }]}>{kod}</Text>}
+      {!!k.yon && (
+        <Text style={[s.satirAlt, { flexShrink: 1 }]} numberOfLines={1}>
+          {`${k.yon} yönü`}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+/** Favori durak satırının sağı: dakika (30 sn'de bir yenilenen veriyle), yüklenirken gri çubuk. */
+function FavoriKalkisi({ k }: { k: Dakikalar[string] | undefined }) {
+  const tema = useTema();
+  const s = useStiller(stiller);
+  if (k === undefined) return <View style={[s.yukleniyorCubugu, { width: 34, backgroundColor: tema.cizgi }]} />;
+  if (typeof k === 'string') return null;
+  return <Dakika an={k.an} />;
+}
+
 const stiller = (t: Tema) =>
   StyleSheet.create({
     kok: { flex: 1, backgroundColor: t.zemin },
@@ -288,5 +335,9 @@ const stiller = (t: Tema) =>
     satirMetin: { flex: 1, gap: 2 },
     satirBaslik: { fontSize: 14.5, fontWeight: '600', color: t.yazi },
     satirAlt: { fontSize: 12, color: t.soluk },
+    ipucu: { fontSize: 11.5, color: t.soluk, paddingHorizontal: 16, marginTop: -2, marginBottom: 6 },
+    kalkisAlti: { flexDirection: 'row', alignItems: 'center', gap: 5, minWidth: 0 },
+    hatKodu: { fontSize: 11, fontWeight: '800', paddingHorizontal: 5, borderRadius: 5, overflow: 'hidden' },
+    yukleniyorCubugu: { height: 10, width: 90, borderRadius: 5, marginTop: 3 },
     bos: { color: t.soluk, fontSize: 13, lineHeight: 19, paddingHorizontal: 16, paddingBottom: 6 },
   });

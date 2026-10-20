@@ -127,8 +127,11 @@ export default function HakkindaEkrani() {
         >
           <Satir etiket="Durum">
             <View style={s.durum}>
-              <View style={[s.nokta, { backgroundColor: sunucu ? tema.vurgu : tema.hata }]} />
-              <Text style={s.deger}>{sunucu ? 'Bağlı' : 'Ulaşılamıyor'}</Text>
+              {/* Kontrol sürerken gri "Bakılıyor…": eskiden ilk anda kırmızı "Ulaşılamıyor" görünüyordu. */}
+              <View
+                style={[s.nokta, { backgroundColor: sunucu ? tema.vurgu : sunucuHatasi ? tema.hata : tema.soluk }]}
+              />
+              <Text style={s.deger}>{sunucu ? 'Bağlı' : sunucuHatasi ? 'Ulaşılamıyor' : 'Bakılıyor…'}</Text>
             </View>
           </Satir>
           <Satir etiket="Adres" deger={OTP_ADRESI} son />

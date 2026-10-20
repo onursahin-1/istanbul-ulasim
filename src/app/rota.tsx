@@ -71,6 +71,7 @@ import {
   istanbulZamanYap,
   saatDakikaYaz,
   secimdenAn,
+  saatEkli,
   saatYaz,
   sureYaz,
 } from '@/lib/zaman';
@@ -211,6 +212,12 @@ export default function RotaEkrani() {
   const [kapaliUyarisi, setKapaliUyarisi] = useState(false);
   const [hata, setHata] = useState<string | null>(null);
   const [cevrimdisi, setCevrimdisi] = useState<number | null>(null);
+  // Son başarılı aramanın anı: sessiz tazeleme başarısız olunca sarı şerit bunu söyler.
+  const sonBasari = useRef<number | null>(null);
+  // Aşağı çekip yenilerken dönen işaret.
+  const [cekiliyor, setCekiliyor] = useState(false);
+  // Biniş saati geçen kart "kalktı" olsun diye saat; liste tazelenemese de ilerler.
+  const [simdiAn, setSimdiAn] = useState(() => Date.now());
   const [aramaSaati, setAramaSaati] = useState(istanbulSaat());
   const [zaman, setZaman] = useState<ZamanSecimi>(null);
   // Aranan gün bayram ya da resmî tatilse: hangi tarife, neler ücretsiz.
@@ -267,8 +274,11 @@ export default function RotaEkrani() {
         setKapaliUyarisi(false);
         // Çevrimdışı şeridi sonuç gelene kadar kalır: arada silinirse "bağlantı geri geldi"
         // diye yanlış bir an gösterirdi.
+        setAramaSaati(istanbulSaat());
       }
-      setAramaSaati(istanbulSaat());
+      // Sessiz tazelemede "Şimdi · 08:14" ancak sonuç gelince ilerler: istek başarısız olursa
+      // eski liste yeni saatle görünmesin.
+      const istekSaati = istanbulSaat();
       try {
         const aramaZamani = zaman
           ? { tur: zaman.tur, an: istanbulZamanYap(zaman.gun, zaman.saat, zaman.dakika) }
@@ -294,6 +304,8 @@ export default function RotaEkrani() {
         if (sessiz && sonuc.guzergahlar.length === 0) return;
         setSessizGeldi(sessiz);
         setGuzergahlar(sonuc.guzergahlar);
+        if (sessiz) setAramaSaati(istekSaati);
+        if (sonuc.cevrimdisi == null) sonBasari.current = Date.now();
         if (sessiz) {
           setHata(null);
           setBilgi(null);
@@ -324,8 +336,12 @@ export default function RotaEkrani() {
         }
       } catch (e) {
         if ((e as Error).name === 'AbortError' || eski()) return;
-        // Sessiz tazeleme başarısızsa eldeki liste kalır, hata kutusu çıkmaz.
-        if (sessiz) return;
+        // Sessiz tazeleme başarısızsa eldeki liste kalır, hata kutusu çıkmaz; sarı şerit
+        // listenin ne kadar eski olduğunu söyler.
+        if (sessiz) {
+          setCevrimdisi(sonBasari.current ?? Date.now());
+          return;
+        }
         setHata(e instanceof OtpHatasi ? e.message : 'Rota aranırken beklenmeyen bir sorun oluştu.');
       }
     },
@@ -342,6 +358,15 @@ export default function RotaEkrani() {
   // Ekran açıkken dakikada bir sessiz tazeleme: canlı saatler, geçen kalkışlar. İleri bir
   // saat için aranmışsa gerek yok; ekran arkadayken çalışmaz (useCanliAralik).
   useCanliAralik(() => ara(undefined, true), TAZELEME_MS, yuklendi && !zaman && !!guzergahlar?.length);
+  useCanliAralik(() => setSimdiAn(Date.now()), 15_000, !!guzergahlar?.length);
+  const cek = useCallback(async () => {
+    setCekiliyor(true);
+    try {
+      await ara(undefined, true);
+    } finally {
+      setCekiliyor(false);
+    }
+  }, [ara]);
 
   const gruplar = useMemo(() => {
     if (!guzergahlar) return [];
@@ -495,7 +520,7 @@ export default function RotaEkrani() {
 
       <ScrollView
         contentContainerStyle={[s.sonuclar, { paddingBottom: kenar.bottom + 20 }]}
-        refreshControl={<RefreshControl refreshing={false} onRefresh={() => ara(undefined, true)} tintColor={tema.vurgu} />}
+        refreshControl={<RefreshControl refreshing={cekiliyor} onRefresh={cek} tintColor={tema.vurgu} />}
       >
         <CevrimdisiSerit zaman={cevrimdisi} tekrarDene={() => ara()} />
         {hata && <HataKutusu mesaj={hata} tekrarDene={() => ara()} />}
@@ -536,7 +561,10 @@ export default function RotaEkrani() {
           const bolum = dengeli && i > 0 ? rotaBolumu(g) : null;
           const oncekiBolum = dengeli && i > 1 ? rotaBolumu(gruplar[i - 1].ana.g) : null;
           const baslik = bolum && bolum !== 'genel' && bolum !== oncekiBolum ? BOLUM_BASLIKLARI[bolum] : null;
-          const etiket = oneri ? 'ÖNERİLEN' : null;
+          // İlk araç kalkmış (liste tazelenemedi ya da ekran bekledi): kart soluk, "KALKTI".
+          const binisMs = ilkArac ? Date.parse(ilkArac.start.estimated?.time ?? ilkArac.start.scheduledTime ?? '') : NaN;
+          const kalkti = Number.isFinite(binisMs) && binisMs < simdiAn - 30_000;
+          const etiket = kalkti ? 'KALKTI' : oneri ? 'ÖNERİLEN' : null;
           return (
             <Animated.View
               // Aynı yol (aynı biniş ve iniş, aynı hatlar) tazelemede aynı kart kalır.
@@ -552,11 +580,11 @@ export default function RotaEkrani() {
               layout={KART_YERLESIMI}
             >
             {baslik && <Text style={s.bolumBaslik}>{baslik}</Text>}
-            <Pressable style={[s.kart, oneri && s.kartOneri]} onPress={() => detayaGit(sira, hatlar)}>
+            <Pressable style={[s.kart, oneri && !kalkti && s.kartOneri, kalkti && s.kartKalkti]} onPress={() => detayaGit(sira, hatlar)}>
               <View style={s.kartUst}>
                 <KayanMetin metin={sureYaz(g.duration)} style={s.sure} />
                 {etiket ? (
-                  <Text style={s.etiket}>{etiket}</Text>
+                  <Text style={[s.etiket, kalkti && s.etiketKalkti]}>{etiket}</Text>
                 ) : (
                   <KayanMetin metin={`${saatYaz(g.start)}–${saatYaz(g.end)}`} style={s.saat} />
                 )}
@@ -582,6 +610,23 @@ export default function RotaEkrani() {
                   // Kalkış saati ilk satırda, hiç kesilmez; hat ve durak ikinci satırda, sığmazsa
                   // sondan kısalır. (Eskiden tek cümleydi ve dar ekranda kesilen kısım saatti.)
                   const hatDurak = `${hatlarYazisi} · ${baslikYap(ilkArac.from.name)} durağından`;
+                  if (kalkti) {
+                    return (
+                      <View style={s.canliBlok}>
+                        <View style={s.canliSatir}>
+                          <View style={s.saatSimgesi}>
+                            <Ikon ad="time-outline" boyut={12} renkKodu={tema.soluk} />
+                          </View>
+                          <Text style={[s.kalkisSatiri, s.esnek, { color: tema.soluk }]} numberOfLines={1}>
+                            {`${saatEkli(binisMs / 1000)} kalktı`}
+                          </Text>
+                        </View>
+                        <Text style={s.hatDurak} numberOfLines={1}>
+                          {hatDurak}
+                        </Text>
+                      </View>
+                    );
+                  }
                   if (!canli) {
                     // Otobüsün ara duraklardaki saati İETT tarifesinde yok, uç duraklardan
                     // tahmin ediliyor: canlı veri gelmemişse saat yaklaşık olarak yazılır.
@@ -1054,6 +1099,8 @@ const stiller = (t: Tema) =>
   canliSatir: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: -3 },
   esnek: { flex: 1, minWidth: 0 },
   tarifeNotu: { fontSize: 11.5, color: t.soluk, paddingLeft: 16 },
+  kartKalkti: { opacity: 0.5 },
+  etiketKalkti: { color: t.soluk, backgroundColor: t.yuzeyIkincil },
   kalkisSatiri: { fontSize: 13.5, fontWeight: '700', color: t.yazi, fontVariant: ['tabular-nums'] },
   tarifeEki: { fontSize: 12.5, fontWeight: '400', color: t.soluk },
   hatDurak: { fontSize: 12.5, color: t.soluk, paddingLeft: 16 },
