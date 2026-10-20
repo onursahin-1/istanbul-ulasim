@@ -61,6 +61,14 @@ export async function yerKaydet(tur: YerTuru, konum: Konum): Promise<void> {
   haberVer();
 }
 
+/** Ev ya da İş kaydını siler. */
+export async function yerSil(tur: YerTuru): Promise<void> {
+  const yerler = await oku<Yerler>(YER_ANAHTARI, {});
+  delete yerler[tur];
+  await yaz(YER_ANAHTARI, yerler);
+  haberVer();
+}
+
 export async function favoriDegistir(durak: FavoriDurak): Promise<void> {
   const liste = await oku<FavoriDurak[]>(FAVORI_ANAHTARI, []);
   const varMi = liste.some((d) => d.gtfsId === durak.gtfsId);

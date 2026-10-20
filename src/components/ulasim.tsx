@@ -62,6 +62,12 @@ export function Ikon({ ad, boyut = 20, renkKodu }: { ad: IkonAdi; boyut?: number
 export const ROZET_SUTUNU = 90;
 
 /**
+ * Büyük yazı boyutunda rozet, çip ve seçici yazılarının en çok büyüme oranı: kutularından
+ * taşmasınlar. Asıl metinler (durak adı, açıklamalar) sınırsız büyür.
+ */
+export const YAZI_SINIRI = 1.4;
+
+/**
  * Bir listenin rozet sütunu: listedeki en geniş rozet kadar. Hepsi kısa kodsa ("19F", metro
  * yuvarlağı) dar kalır, yön adına yer açılır; "Minibüs" ya da "Metrobüs" varsa genişler.
  * Bütün satırların yazısı aynı hizadan başlar. Genişlik yalnız büyür (liste yenilenince
@@ -257,7 +263,7 @@ export function KodEtiketleri({ kodlar, hat }: { kodlar: string[]; hat: RozetHat
   return (
     <View style={stil.kodlar} accessible={false}>
       {kodlar.map((k) => (
-        <Text key={k} style={[stil.kod, { backgroundColor: renk.kutu, color: renk.kutuYazi }]}>
+        <Text maxFontSizeMultiplier={YAZI_SINIRI} key={k} style={[stil.kod, { backgroundColor: renk.kutu, color: renk.kutuYazi }]}>
           {k}
         </Text>
       ))}
@@ -286,7 +292,7 @@ export function HatRozeti({
         style={[stil.daire, { width: cap, height: cap, borderRadius: cap / 2, backgroundColor: resmi.renk }]}
         accessibilityLabel={resmi.kod}
       >
-        <Text
+        <Text maxFontSizeMultiplier={YAZI_SINIRI}
           style={[
             stil.daireYazi,
             { color: resmi.yazi, fontSize: kucuk ? (uzun ? 8.5 : 10) : uzun ? 10.5 : 12.5 },
@@ -357,7 +363,7 @@ export function HatRozeti({
           style={{ width: simgeBoyu, height: simgeBoyu, tintColor: tema.vurgu }}
           accessibilityIgnoresInvertColors
         />
-        <Text
+        <Text maxFontSizeMultiplier={YAZI_SINIRI}
           style={[stil.tabelaYazi, kucuk && stil.tabelaYaziKucuk, ekHatlar?.length ? stil.tabelaYaziGenis : null, { color: tema.yazi }]}
           numberOfLines={1}
         >
@@ -372,7 +378,7 @@ export function HatRozeti({
       <View style={[stil.rozetKutu, { backgroundColor: renkler.kutu, width: boy, height: boy }]}>
         <Ionicons name={simge as IkonAdi} size={kucuk ? 12 : 14} color={renkler.kutuYazi} />
       </View>
-      <Text
+      <Text maxFontSizeMultiplier={YAZI_SINIRI}
         style={[stil.rozetYazi, kucuk && stil.rozetYaziKucuk, { color: renkler.yazi }]}
         numberOfLines={1}
       >

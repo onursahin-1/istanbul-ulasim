@@ -16,7 +16,7 @@ import { tahminiKonum, type YerlesikArac } from '@/lib/arac-konum';
 import { useCanliAralik } from '@/lib/canli-aralik';
 import type { Nokta } from '@/lib/cografya';
 import { bayatlik, enKisaAci, koniOlcusu, renkKaristir } from '@/lib/hareket';
-import { useTema } from '@/lib/tema';
+import { useTema, yaziRengi } from '@/lib/tema';
 
 /**
  * Otobüs: hat renginde yuvarlak, içinde otobüs simgesi; yönü biliniyorsa gittiği
@@ -140,7 +140,8 @@ export function OtobusIsareti({
           eski && stil.otobusEski,
         ]}
       >
-        <Ikon ad="bus" boyut={14} renkKodu="#fff" />
+        {/* Simge zemine göre koyu ya da açık: duran (sarı) ve eski (gri) otobüste beyaz okunmuyordu. */}
+        <Ikon ad="bus" boyut={14} renkKodu={yaziRengi(zemin)} />
       </View>
       {duruyor && !eski && (
         <View style={[stil.duraklatRozet, { backgroundColor: tema.uyariAcik, borderColor: tema.uyari }]}>
@@ -259,7 +260,8 @@ export function PusulaDugmesi({
     >
       <Reanimated.View style={[stil.kadran, kadran]}>
         <View style={stil.kuzeyNoktasi} />
-        <Text style={[stil.pusulaN, { color: aktif ? tema.vurguYazi : tema.yazi }]}>N</Text>
+        {/* Türkçede Kuzey: "K". */}
+        <Text style={[stil.pusulaN, { color: aktif ? tema.vurguYazi : tema.yazi }]}>K</Text>
       </Reanimated.View>
     </Pressable>
   );

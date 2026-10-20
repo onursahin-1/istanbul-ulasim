@@ -170,7 +170,7 @@ export default function AyarlarEkrani() {
           </Text>
         </View>
 
-        <Text style={s.bolumBaslik}>VASITA TÜRÜ TERCİHLERİ</Text>
+        <Text style={s.bolumBaslik}>ULAŞIM TÜRLERİ</Text>
         <View style={[s.kutu, s.liste]}>
           {VASITA_TURLERI.map((tur, i) => (
             <View key={tur} style={[s.vasitaSatiri, i > 0 && s.vasitaAyrac]}>
@@ -202,6 +202,7 @@ export default function AyarlarEkrani() {
           {!izin && (
             <Pressable
               style={s.dugme}
+              hitSlop={10}
               accessibilityRole="button"
               onPress={async () => {
                 if (await izinIste()) {
@@ -265,7 +266,7 @@ export default function AyarlarEkrani() {
                           )}
                         </View>
                         <Pressable
-                          hitSlop={10}
+                          hitSlop={13}
                           accessibilityRole="button"
                           accessibilityLabel={`${h.baslik} hatırlatıcısını kaldır`}
                           onPress={() => hatirlaticiIptal(h.id)}
@@ -277,7 +278,17 @@ export default function AyarlarEkrani() {
                   </View>
                 );
               })}
-              <Pressable style={s.dugme} onPress={hepsiniIptal} accessibilityRole="button">
+              <Pressable
+                style={s.dugme}
+                hitSlop={10}
+                onPress={() =>
+                  Alert.alert(`${hatirlaticilar.length} hatırlatıcı kaldırılsın mı?`, 'Kurulu bütün bildirimler iptal edilir.', [
+                    { text: 'Vazgeç', style: 'cancel' },
+                    { text: 'Kaldır', style: 'destructive', onPress: hepsiniIptal },
+                  ])
+                }
+                accessibilityRole="button"
+              >
                 <Ikon ad="notifications-off" boyut={16} renkKodu={tema.hata} />
                 <Text style={[s.dugmeYazi, { color: tema.hata }]}>Hepsini kaldır</Text>
               </Pressable>
@@ -309,6 +320,7 @@ export default function AyarlarEkrani() {
                 value={hatirlatmaAyari[anahtar]}
                 onValueChange={(v) => ayarDegistir({ [anahtar]: v })}
                 trackColor={{ true: tema.vurgu }}
+                accessibilityLabel={ad}
               />
             </View>
           ))}
@@ -493,7 +505,7 @@ const stiller = (t: Tema) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: 5,
-      height: 34,
+      minHeight: 34,
       paddingHorizontal: 12,
       borderRadius: 17,
       borderWidth: 1,
@@ -521,7 +533,7 @@ const stiller = (t: Tema) =>
     haplar: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
     hap: {
       paddingHorizontal: 12,
-      height: 34,
+      minHeight: 34,
       borderRadius: 17,
       justifyContent: 'center',
       backgroundColor: t.zemin,

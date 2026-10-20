@@ -9,14 +9,14 @@
 // alt şeritte tutmak hem yer yiyor hem kaydırma gerektiriyordu.
 
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Pressable } from '@/components/dokun';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import MapView, { Marker, Polyline, type MapPressEvent, type Region } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AltYaprak } from '@/components/alt-yaprak';
-import { GeriCubugu, HatRozeti, Ikon, useStiller } from '@/components/ulasim';
+import { GeriCubugu, HatRozeti, Ikon, useStiller, YAZI_SINIRI } from '@/components/ulasim';
 import { agCizgisi, agSiniri, AG_HATLARI, AG_SUZGECLERI, suzgeceUyar, type AgHatti } from '@/lib/ag';
 import { enYakinCizgi, metrePiksel } from '@/lib/cografya';
 import { durakAra, hatlariGetir, OtpHatasi } from '@/lib/otp';
@@ -154,8 +154,10 @@ export default function AgEkrani() {
       const hepsi = await hatlariGetir();
       const eş = hepsi.find((h) => (h.shortName ?? '').trim() === hat.kod);
       if (eş) ekranAc({ pathname: '/hat/[id]', params: { id: eş.gtfsId } });
+      else Alert.alert('Hat açılamadı', `${hat.kod} rota sunucusunda bulunamadı.`);
     } catch {
-      // Sunucu kapalıysa harita çalışmaya devam ediyor; sadece hat ekranına geçemiyoruz.
+      // Sunucu kapalıysa harita çalışmaya devam ediyor; yalnız hat ekranına geçilemiyor: söyle.
+      Alert.alert('Bağlantı yok', 'Hat ayrıntısı açılamadı. Harita internetsiz de çalışıyor.');
     } finally {
       setGidiliyor(false);
     }
@@ -170,8 +172,10 @@ export default function AgEkrani() {
         .filter((d) => d.lat != null && d.lon != null)
         .sort((a, b) => (a.lat! - lat) ** 2 + (a.lon! - lon) ** 2 - ((b.lat! - lat) ** 2 + (b.lon! - lon) ** 2))[0];
       if (en) ekranAc({ pathname: '/durak/[id]', params: { id: en.gtfsId } });
+      else Alert.alert('İstasyon açılamadı', `${baslikYap(ad)} rota sunucusunda bulunamadı.`);
     } catch (e) {
       if (!(e instanceof OtpHatasi)) throw e;
+      Alert.alert('Bağlantı yok', 'İstasyon açılamadı. Harita internetsiz de çalışıyor.');
     } finally {
       setGidiliyor(false);
     }
@@ -237,11 +241,12 @@ export default function AgEkrani() {
               <Pressable
                 key={x.anahtar}
                 onPress={() => suzgecDegis(x.anahtar)}
+                hitSlop={6}
                 style={[s.suzgec, acik && { backgroundColor: tema.vurgu, borderColor: tema.vurgu }]}
                 accessibilityRole="button"
                 accessibilityState={{ selected: acik }}
               >
-                <Text style={[s.suzgecYazi, acik && { color: tema.vurguYazi }]}>{x.ad}</Text>
+                <Text maxFontSizeMultiplier={YAZI_SINIRI} style={[s.suzgecYazi, acik && { color: tema.vurguYazi }]}>{x.ad}</Text>
               </Pressable>
             );
           })}
@@ -260,6 +265,7 @@ export default function AgEkrani() {
       {secili && !yaprakAcik && (
         <Pressable
           style={[s.tamami, { bottom: yaprakBoyu + 12 }]}
+          hitSlop={8}
           onPress={() => hattiSigdir(secili, yaprakBoyu)}
           accessibilityRole="button"
           accessibilityLabel="Hattın tamamını göster"
@@ -293,7 +299,7 @@ export default function AgEkrani() {
                 <Text style={s.yaprakBaslik} numberOfLines={1}>
                   {baslikYap(secili.ad)}
                 </Text>
-                <Text style={s.yaprakAlt}>{secili.duraklar.length} istasyon · sefer saatleri için dokun</Text>
+                <Text style={s.yaprakAlt}>{secili.duraklar.length} istasyon · hat ayrıntısı için dokun</Text>
               </Pressable>
               {gidiliyor ? (
                 <ActivityIndicator color={tema.vurgu} />
@@ -307,7 +313,12 @@ export default function AgEkrani() {
         >
           <View style={{ paddingBottom: kenar.bottom }}>
             {secili.duraklar.map((item, index) => (
-              <Pressable key={`${item.id}-${index}`} style={s.istSatir} onPress={() => duragaGit(item.ad, item.lat, item.lon)}>
+              <Pressable
+                key={`${item.id}-${index}`}
+                style={s.istSatir}
+                onPress={() => duragaGit(item.ad, item.lat, item.lon)}
+                accessibilityRole="button"
+              >
                 <View style={s.izKutu}>
                   <View style={[s.iz, { backgroundColor: renk(secili) }]} />
                   <View
@@ -335,15 +346,18 @@ const stiller = (t: Tema) =>
     kok: { flex: 1, backgroundColor: t.zemin },
     ust: { position: 'absolute', top: 0, left: 0, right: 0, backgroundColor: t.yuzey, paddingBottom: 8 },
     suzgecler: { paddingHorizontal: 12, gap: 8 },
+    // Hatlar sekmesindeki çiplerle aynı.
     suzgec: {
+      minHeight: 32,
       paddingHorizontal: 13,
-      paddingVertical: 7,
       borderRadius: 999,
-      borderWidth: StyleSheet.hairlineWidth,
+      borderWidth: 1,
       borderColor: t.cizgi,
-      backgroundColor: t.zemin,
+      backgroundColor: t.yuzeyIkincil,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
-    suzgecYazi: { fontSize: 13, color: t.yazi },
+    suzgecYazi: { fontSize: 13, fontWeight: '600', color: t.yazi },
     ipucu: {
       position: 'absolute',
       left: 16,
@@ -368,7 +382,7 @@ const stiller = (t: Tema) =>
     yaprakAd: { flex: 1, minWidth: 0 },
     yaprakBaslik: { fontSize: 15, fontWeight: '600', color: t.yazi },
     yaprakAlt: { fontSize: 12, color: t.soluk, marginTop: 1 },
-    istSatir: { flexDirection: 'row', alignItems: 'center', gap: 10, height: 38 },
+    istSatir: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44 },
     izKutu: { width: 14, alignItems: 'center', alignSelf: 'stretch', justifyContent: 'center' },
     iz: { position: 'absolute', top: 0, bottom: 0, width: 3, borderRadius: 2 },
     nokta: { width: 9, height: 9, borderRadius: 5, borderWidth: 2 },

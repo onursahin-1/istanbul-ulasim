@@ -214,6 +214,8 @@ export default function DurakEkrani() {
   useNabizAkisi(varislariGetir, setAracVarislari, varisDuraklari);
 
   const ad = baslikYap(durak?.name);
+  // Yalnız raylı sistem ya da vapur geçiyorsa (istasyon, iskele).
+  const rayliNokta = (durak?.routes ?? []).length > 0 && (durak?.routes ?? []).every((r) => (r.mode ?? 'BUS').toUpperCase() !== 'BUS');
 
   const hatlar = useMemo(() => {
     // Minibüs ve dolmuş çipleri hep "Minibüs" yazıyordu; onlar aşağıda güzergâhlarıyla ayrı listeleniyor.
@@ -479,7 +481,8 @@ export default function DurakEkrani() {
             <View style={{ gap: 4 }}>
               <Text style={s.baslik}>{ad}</Text>
               <Text style={s.bilgi}>
-                {[durak.code ? `Durak kodu ${durak.code}` : '', yonYaz(durak.desc)].filter(Boolean).join(' · ')}
+                {/* "Durak kodu" yalnız otobüs durağında: metro ve vapurda kodun yolcuya anlamı yok. */}
+                {[durak.code && !rayliNokta ? `Durak kodu ${durak.code}` : '', yonYaz(durak.desc)].filter(Boolean).join(' · ')}
               </Text>
             </View>
 
@@ -490,12 +493,13 @@ export default function DurakEkrani() {
                   (favoriMi ? secimTiki : basari)();
                   favoriDegistir({ gtfsId: durak.gtfsId, ad });
                 }}
+                accessibilityRole="button"
                 accessibilityState={{ selected: favoriMi }}
               >
-                <FavoriSimgesi dolu={favoriMi} tur="heart" boyut={16} renk={tema.vurgu} />
+                <FavoriSimgesi dolu={favoriMi} tur="star" boyut={16} renk={tema.vurgu} />
                 <Text style={s.eylemYazi}>{favoriMi ? 'Favorilerde' : 'Favorilere ekle'}</Text>
               </Pressable>
-              <Pressable style={[s.eylem, s.eylemDolu]} onPress={yolTarifi}>
+              <Pressable style={[s.eylem, s.eylemDolu]} onPress={yolTarifi} accessibilityRole="button">
                 <Ikon ad="navigate" boyut={16} renkKodu={tema.vurguYazi} />
                 <Text style={[s.eylemYazi, { color: tema.vurguYazi }]}>Yol tarifi</Text>
               </Pressable>
@@ -561,7 +565,7 @@ export default function DurakEkrani() {
             <View style={{ gap: 4 }}>
               <Text style={s.altBaslik}>YÖNE GÖRE SONRAKİ KALKIŞLAR</Text>
               {yonler.length === 0 && siklikliHatlar.length === 0 && (
-                <Text style={s.bos}>Önümüzdeki 24 saatte bu duraktan sefer görünmüyor.</Text>
+                <Text style={s.bos}>Önümüzdeki 24 saatte bu duraktan kalkış görünmüyor.</Text>
               )}
               {yonler.map((y, i) => (
                 <Animated.View key={y.anahtar} entering={satirGirisi(i)} exiting={FadeOut.duration(220)} layout={SATIR_YERLESIMI}>
@@ -773,7 +777,7 @@ const stiller = (t: Tema) =>
   baslik: { fontSize: 23, fontWeight: '800', color: t.yazi, letterSpacing: -0.3 },
   bilgi: { fontSize: 12.5, color: t.soluk },
   eylemler: { flexDirection: 'row', gap: 8 },
-  eylem: { flex: 1, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', height: 40, borderRadius: 11, backgroundColor: t.vurguAcik },
+  eylem: { flex: 1, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', minHeight: 44, borderRadius: 11, backgroundColor: t.vurguAcik },
   eylemDolu: { backgroundColor: t.vurgu },
   eylemYazi: { fontWeight: '700', fontSize: 13, color: t.vurgu },
   altBaslik: { fontSize: 11.5, letterSpacing: 0.8, color: t.soluk, fontWeight: '700' },

@@ -71,6 +71,14 @@ import {
 } from '@/lib/otp';
 import { hatPencereleri } from '@/lib/siklik-verisi';
 import { aracAdi, baslikYap, haritaRengi, hatRengi, useTema, yaziRengi, type Tema } from '@/lib/tema';
+import { isletmeciAdiDuzelt } from '@/lib/hat-adi';
+import { durakSozcugu } from '@/lib/yolculuk';
+
+/** Sayıların yanındaki ad: raylı sistemde "istasyon", vapurda "iskele", otobüste "durak". */
+function noktaAdi(mode?: string | null): string {
+  const a = durakSozcugu(mode).ad;
+  return a.startsWith('istasyon') ? 'istasyon' : a.startsWith('iskele') ? 'iskele' : 'durak';
+}
 import { secimTiki, vurus } from '@/lib/dokunsal';
 import { useCanliAralik, useNabizAkisi } from '@/lib/canli-aralik';
 import { ekranAc, geriDon } from '@/lib/gezinti';
@@ -358,6 +366,7 @@ export default function HatEkrani() {
                 setYon(i);
               }}
               style={[s.yon, aktif && { backgroundColor: tema.vurguAcik, borderColor: tema.vurgu }]}
+              accessibilityRole="tab"
               accessibilityState={{ selected: aktif }}
             >
               <Text style={[s.yonYazi, aktif && { color: tema.vurgu }]} numberOfLines={1}>
@@ -383,7 +392,7 @@ export default function HatEkrani() {
               {baslikYap(hat?.longName) || hat?.shortName || 'Hat'}
             </Text>
             <Text style={[s.tepeAlt, { color: sadeTepe ? tema.soluk : yaziKodu }]} numberOfLines={1}>
-              {[hat?.agency?.name, aracAdi(hat?.mode)].filter(Boolean).join(' · ')}
+              {[hat?.agency?.name ? isletmeciAdiDuzelt(hat.agency.name) : '', aracAdi(hat?.mode)].filter(Boolean).join(' · ')}
             </Text>
           </View>
         </View>
@@ -439,6 +448,7 @@ export default function HatEkrani() {
           {!yaprakAcik && cizgi.length > 1 && (
             <Pressable
               style={[s.tamami, { bottom: yaprakBoyu + 12 }]}
+              hitSlop={8}
               onPress={() => odakla(cizgi, true)}
               accessibilityRole="button"
               accessibilityLabel="Hattın tamamını göster"
@@ -473,7 +483,7 @@ export default function HatEkrani() {
                       </View>
                     ) : (
                       <Text style={[s.yaprakAlt, { marginTop: 1 }]} numberOfLines={1}>
-                        {`${duraklar.length} durak`}
+                        {`${duraklar.length} ${noktaAdi(hat?.mode)}`}
                       </Text>
                     )}
                   </View>
@@ -592,7 +602,7 @@ export default function HatEkrani() {
                         {buDurak && (
                           <Text style={[s.durakEtiket, { color: renkKodu, borderColor: renkKodu }]}>durağın</Text>
                         )}
-                        <Ikon ad="chevron-forward" boyut={15} renkKodu={tema.yurume} />
+                        <Ikon ad="chevron-forward" boyut={15} renkKodu={tema.soluk} />
                       </Pressable>
                       {(durakSonrasi.get(i) ?? []).map((o) => (
                         <Animated.View
@@ -790,7 +800,8 @@ const stiller = (t: Tema) =>
     yonlar: { gap: 8, paddingVertical: 6, paddingBottom: 12, alignItems: 'center' },
     yon: {
       maxWidth: 240,
-      height: 52,
+      minHeight: 52,
+      paddingVertical: 6,
       paddingHorizontal: 14,
       justifyContent: 'center',
       borderRadius: 12,
@@ -798,11 +809,11 @@ const stiller = (t: Tema) =>
       borderColor: t.cizgi,
       backgroundColor: t.yuzeyIkincil,
     },
-    yonYazi: { fontSize: 13.5, lineHeight: 18, fontWeight: '700', color: t.yazi },
-    yonSayi: { fontSize: 11.5, lineHeight: 15, color: t.soluk, marginTop: 2 },
+    yonYazi: { fontSize: 13.5, fontWeight: '700', color: t.yazi },
+    yonSayi: { fontSize: 11.5, color: t.soluk, marginTop: 2 },
     tekYon: { fontSize: 13, fontWeight: '600', color: t.soluk, padding: 14 },
     liste: {},
-    durak: { flexDirection: 'row', alignItems: 'center', gap: 11, height: 44 },
+    durak: { flexDirection: 'row', alignItems: 'center', gap: 11, minHeight: 44 },
     cizgiSutun: { width: 16, height: '100%', alignItems: 'center', justifyContent: 'center' },
     cizgiUst: { position: 'absolute', top: 0, height: '50%', width: 3 },
     cizgiAlt: { position: 'absolute', bottom: 0, height: '50%', width: 3 },
@@ -837,7 +848,7 @@ const stiller = (t: Tema) =>
       paddingVertical: 1,
       overflow: 'hidden',
     },
-    otobus: { flexDirection: 'row', alignItems: 'center', gap: 11, height: 34 },
+    otobus: { flexDirection: 'row', alignItems: 'center', gap: 11, minHeight: 40 },
     // Yazının kabı satır boyunca uzanır, yazıyı dikeyde ortalar (simgeyle aynı hizada).
     otobusMetin: { flex: 1, minWidth: 0, alignSelf: 'stretch', justifyContent: 'center' },
     cizgiTam: { position: 'absolute', top: 0, bottom: 0, width: 3 },

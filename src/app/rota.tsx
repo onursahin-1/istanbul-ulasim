@@ -630,15 +630,15 @@ export default function RotaEkrani() {
           <View style={s.kapaliUyari}>
             <View style={s.kapaliUyariUst}>
               <Ikon ad="alert-circle-outline" boyut={20} renkKodu={tema.uyari} />
-              <Text style={s.kapaliUyariBaslik}>Kapalı vasıta türleri yüzünden rota yok</Text>
+              <Text style={s.kapaliUyariBaslik}>Kapalı ulaşım türleri yüzünden rota yok</Text>
             </View>
             <Text style={s.kapaliUyariYazi}>
               {`Bu yolculuk ancak kapattığın türlerle yapılabiliyor: ${rotaSecenekleri.kapali
                 .map((t) => VASITA_ADLARI[t])
-                .join(', ')}. Vasıta tercihlerinden birini açarsan rotalar görünür.`}
+                .join(', ')}. Kapalı türlerden birini açarsan rotalar görünür.`}
             </Text>
             <Pressable style={s.kapaliUyariDugme} onPress={() => router.navigate('/ayarlar')} accessibilityRole="button">
-              <Text style={s.kapaliUyariDugmeYazi}>Vasıta tercihlerini aç</Text>
+              <Text style={s.kapaliUyariDugmeYazi}>Ulaşım türlerini aç</Text>
             </Pressable>
           </View>
         )}
@@ -856,7 +856,7 @@ export default function RotaEkrani() {
           <View style={s.turSecici} accessibilityRole="tablist">
             {(
               [
-                ['kalkis', 'Çıkış saati'],
+                ['kalkis', 'Kalkış saati'],
                 ['varis', 'Varış saati'],
               ] as const
             ).map(([tur, etiket]) => (
@@ -1016,7 +1016,7 @@ export default function RotaEkrani() {
 
           {rotaSecenekleri.kapali.length > 0 && (
             <>
-              <Text style={s.zamanAltBaslik}>VASITA TÜRLERİ</Text>
+              <Text style={s.zamanAltBaslik}>ULAŞIM TÜRLERİ</Text>
               <Pressable
                 style={s.tercihAnahtari}
                 onPress={() => {
@@ -1030,7 +1030,7 @@ export default function RotaEkrani() {
                     {`Kullanılmıyor: ${rotaSecenekleri.kapali.map((t) => VASITA_ADLARI[t]).join(', ')}`}
                   </Text>
                   <Text style={s.tercihAlt}>
-                    Bu türler rotalarda hiç kullanılmaz. Değiştirmek için Ayarlar › Vasıta türü tercihleri.
+                    Bu türler rotalarda hiç kullanılmaz. Değiştirmek için Ayarlar › Ulaşım türleri.
                   </Text>
                 </View>
                 <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.soluk} />
@@ -1254,8 +1254,8 @@ const stiller = (t: Tema) =>
   saatSimgesi: { width: 12, alignItems: 'center' },
   not: { fontSize: 12, color: t.soluk, textAlign: 'center', paddingTop: 6 },
   sonraki: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.cizgi, paddingTop: 10, gap: 7 },
-  sonrakiBaslik: { fontSize: 11, letterSpacing: 0.6, color: t.soluk, fontWeight: '700' },
-  bolumBaslik: { fontSize: 12, letterSpacing: 0.8, color: t.soluk, fontWeight: '700', marginTop: 10, marginBottom: 6, marginLeft: 4 },
+  sonrakiBaslik: { fontSize: 11.5, letterSpacing: 0.8, color: t.soluk, fontWeight: '700' },
+  bolumBaslik: { fontSize: 11.5, letterSpacing: 0.8, color: t.soluk, fontWeight: '700', marginTop: 10, marginBottom: 6, marginLeft: 4 },
   hapiSatiri: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   hap: { flexDirection: 'row', alignItems: 'baseline', gap: 4, borderWidth: 1, borderColor: t.cizgi, backgroundColor: t.zemin, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 5 },
   hapSaat: { fontSize: 13, fontWeight: '700', color: t.yazi, fontVariant: ['tabular-nums'] },
@@ -1298,7 +1298,7 @@ const stiller = (t: Tema) =>
     },
     simdiHapYazi: { fontSize: 13.5, fontWeight: '700', color: t.vurgu },
     cark: { alignSelf: 'stretch', height: 216, marginTop: 2 },
-    zamanAltBaslik: { fontSize: 11, letterSpacing: 0.8, fontWeight: '700', color: t.soluk, marginTop: 14, marginBottom: 6 },
+    zamanAltBaslik: { fontSize: 11.5, letterSpacing: 0.8, fontWeight: '700', color: t.soluk, marginTop: 14, marginBottom: 6 },
     zamanSatiri: { flexDirection: 'row', gap: 7, paddingRight: 8 },
     zamanHap: {
       minWidth: 46,

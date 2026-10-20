@@ -1,5 +1,6 @@
 // Kayıtlı sekmesi: Ev/İş kısayolları, favori yerler, favori duraklar ve son aranan yerler.
 
+import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Pressable } from '@/components/dokun';
@@ -7,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { KaydirmaliSatir } from '@/components/kaydirmali-satir';
 import { Dakika, Ikon, useStiller } from '@/components/ulasim';
-import { aramalariTemizle, aramaSil, favoriDegistir, favoriYerDegistir, useKayitlar, type YerTuru } from '@/lib/kayitlar';
+import { aramalariTemizle, aramaSil, favoriDegistir, yerSil, favoriYerDegistir, useKayitlar, type YerTuru } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
 import { durakDetayiGetir, type Hat } from '@/lib/otp';
 import { useCanliAralik } from '@/lib/canli-aralik';
@@ -73,6 +74,15 @@ export default function KayitliEkrani() {
   // yalnız açılışta yükleniyordu: "7 dk" değişmeden kalıyordu.
   useCanliAralik(kalkislariYukle, YENILEME_MS, favoriler.length > 0);
 
+  const evIsMenusu = (tur: YerTuru, ad: string) => {
+    Haptics.selectionAsync().catch(() => {});
+    Alert.alert(YER_ADI[tur], baslikYap(ad), [
+      { text: 'Değiştir', onPress: () => ekranAc({ pathname: '/ara', params: { kaydet: tur } }) },
+      { text: 'Kaldır', style: 'destructive', onPress: () => yerSil(tur) },
+      { text: 'Vazgeç', style: 'cancel' },
+    ]);
+  };
+
   const hedefeGit = (hedef: { ad: string; lat: number; lon: number }) =>
     ekranAc({
       pathname: '/rota',
@@ -116,14 +126,30 @@ export default function KayitliEkrani() {
                 key={tur}
                 style={s.kart}
                 onPress={() => (yer ? hedefeGit(yer) : ekranAc({ pathname: '/ara', params: { kaydet: tur } }))}
+                // Basılı tutunca değiştir ya da kaldır (eskiden kaydedilen yer değiştirilemiyordu).
+                onLongPress={yer ? () => evIsMenusu(tur, yer.ad) : undefined}
                 accessibilityRole="button"
+                accessibilityLabel={`${YER_ADI[tur]}${yer ? `: ${baslikYap(yer.ad)}` : ', ekle'}`}
+                accessibilityHint={yer ? 'Rota açılır. Değiştirmek ya da kaldırmak için basılı tut.' : undefined}
+                accessibilityActions={
+                  yer
+                    ? [
+                        { name: 'degistir', label: 'Değiştir' },
+                        { name: 'kaldir', label: 'Kaldır' },
+                      ]
+                    : undefined
+                }
+                onAccessibilityAction={(e) => {
+                  if (e.nativeEvent.actionName === 'degistir') ekranAc({ pathname: '/ara', params: { kaydet: tur } });
+                  if (e.nativeEvent.actionName === 'kaldir') yerSil(tur);
+                }}
               >
                 <View style={s.kartIkon}>
                   <Ikon ad={tur === 'ev' ? 'home' : 'briefcase'} boyut={17} renkKodu={tema.vurgu} />
                 </View>
                 <Text style={s.kartBaslik}>{YER_ADI[tur]}</Text>
                 <Text style={s.kartAlt} numberOfLines={1}>
-                  {yer ? baslikYap(yer.ad) : 'Eklemek için dokun'}
+                  {yer ? baslikYap(yer.ad) : 'Ekle'}
                 </Text>
               </Pressable>
             );
@@ -155,7 +181,7 @@ export default function KayitliEkrani() {
                       </Text>
                     )}
                   </View>
-                  <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.yurume} />
+                  <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.soluk} />
                 </Pressable>
               </KaydirmaliSatir>
             ))}
@@ -166,7 +192,7 @@ export default function KayitliEkrani() {
         {favoriler.length > 0 && <Text style={s.ipucu}>Silmek için satırı sola kaydır.</Text>}
         {favoriler.length === 0 ? (
           <Text style={s.bos}>
-            Henüz favori durağın yok. Bir durak ekranını açıp kalpli düğmeye basarak buraya ekleyebilirsin.
+            Henüz favori durağın yok. Bir durak ekranını açıp yıldızlı düğmeye basarak buraya ekleyebilirsin.
           </Text>
         ) : (
           <View style={s.liste}>
@@ -178,7 +204,7 @@ export default function KayitliEkrani() {
                   accessibilityRole="button"
                 >
                   <View style={s.satirIkon}>
-                    <Ikon ad="heart" boyut={17} renkKodu={tema.vurgu} />
+                    <Ikon ad="star" boyut={17} renkKodu={tema.vurgu} />
                   </View>
                   <View style={s.satirMetin}>
                     <Text style={s.satirBaslik} numberOfLines={1}>
@@ -237,7 +263,7 @@ export default function KayitliEkrani() {
                       </Text>
                     )}
                   </View>
-                  <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.yurume} />
+                  <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.soluk} />
                 </Pressable>
               </KaydirmaliSatir>
             ))}

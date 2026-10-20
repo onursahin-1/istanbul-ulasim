@@ -353,8 +353,10 @@ export default function AnaEkran() {
                   key={f.gtfsId}
                   style={s.favori}
                   onPress={() => ekranAc({ pathname: '/durak/[id]', params: { id: f.gtfsId } })}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Favori durak: ${f.ad}`}
                 >
-                  <Ikon ad="heart" boyut={14} renkKodu={tema.vurgu} />
+                  <Ikon ad="star" boyut={14} renkKodu={tema.vurgu} />
                   <Text style={s.favoriYazi} numberOfLines={1}>
                     {f.ad}
                   </Text>
@@ -385,6 +387,7 @@ export default function AnaEkran() {
             <Pressable
               style={s.durakBlok}
               onPress={() => ekranAc({ pathname: '/durak/[id]', params: { id: durak.gtfsId } })}
+              accessibilityRole="button"
             >
               <View style={s.durakAd}>
                 <View style={{ flex: 1 }}>
@@ -592,7 +595,7 @@ const stiller = (t: Tema) =>
     gap: 10,
     backgroundColor: t.yuzey,
     borderRadius: 16,
-    height: 52,
+    minHeight: 52,
     paddingLeft: 14,
     paddingRight: 8,
     ...golge,

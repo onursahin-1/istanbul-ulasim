@@ -17,7 +17,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Pressable } from '@/components/dokun';
-import { HataKutusu, HatRozeti, useStiller, Yukleniyor } from '@/components/ulasim';
+import { HataKutusu, HatRozeti, useStiller, YAZI_SINIRI, Yukleniyor } from '@/components/ulasim';
 import { isletmeciAdi } from '@/lib/hat-adi';
 import { secimTiki } from '@/lib/dokunsal';
 import { istanbulTarihi } from '@/lib/ozel-gunler';
@@ -186,6 +186,7 @@ export default function TarifeEkrani() {
                 key={tur}
                 geriBildirim={false}
                 style={[s.secenek, secili && s.secenekSecili]}
+                hitSlop={{ top: 6, bottom: 6 }}
                 onPress={() => {
                   if (secili) return;
                   secimTiki();
@@ -194,7 +195,7 @@ export default function TarifeEkrani() {
                 accessibilityRole="tab"
                 accessibilityState={{ selected: secili }}
               >
-                <Text style={[s.secenekYazi, secili && s.secenekYaziSecili]}>{ad}</Text>
+                <Text maxFontSizeMultiplier={YAZI_SINIRI} style={[s.secenekYazi, secili && s.secenekYaziSecili]}>{ad}</Text>
               </Pressable>
             );
           })}
@@ -378,7 +379,7 @@ const stiller = (t: Tema) =>
       borderRadius: 9,
       backgroundColor: t.cizgi,
     },
-    secenek: { flex: 1, height: 32, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
+    secenek: { flex: 1, minHeight: 32, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
     secenekSecili: {
       backgroundColor: t.yuzey,
       shadowColor: '#000',

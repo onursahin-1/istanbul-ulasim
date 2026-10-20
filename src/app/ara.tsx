@@ -21,7 +21,7 @@ import { Pressable } from '@/components/dokun';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { KaydirmaliSatir } from '@/components/kaydirmali-satir';
-import { GeriCubugu, HataKutusu, Ikon, useStiller, Yukleniyor, type IkonAdi } from '@/components/ulasim';
+import { GeriCubugu, HataKutusu, Ikon, useStiller, YAZI_SINIRI, Yukleniyor, type IkonAdi } from '@/components/ulasim';
 import { mesafeMetre } from '@/lib/cografya';
 import { aramaKaydet, aramalariTemizle, aramaSil, useKayitlar, yerKaydet, type YerTuru } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
@@ -579,7 +579,7 @@ export default function AraEkrani() {
                     accessibilityRole="button"
                   >
                     <Ikon ad={poiSimgesi(k.tur) as IkonAdi} boyut={15} renkKodu={tema.vurgu} />
-                    <Text style={s.kisayolYazi}>{k.ad}</Text>
+                    <Text maxFontSizeMultiplier={YAZI_SINIRI} style={s.kisayolYazi}>{k.ad}</Text>
                   </Pressable>
                 ))}
               </View>
@@ -690,7 +690,7 @@ export default function AraEkrani() {
               {[tur, y.semt, mesafeYaz(y.mesafe)].filter(Boolean).join(' · ')}
             </Text>
           </View>
-          <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.yurume} />
+          <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.soluk} />
         </Pressable>
       );
     }
@@ -716,7 +716,7 @@ export default function AraEkrani() {
               .join(' · ')}
           </Text>
         </View>
-        <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.yurume} />
+        <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.soluk} />
       </Pressable>
     );
   }
@@ -816,7 +816,7 @@ const stiller = (t: Tema) =>
       backgroundColor: t.zemin,
       borderRadius: 12,
       paddingHorizontal: 12,
-      height: 46,
+      minHeight: 46,
     },
     girdiYazi: { flex: 1, fontSize: 16, color: t.yazi },
     bolumBaslik: {
@@ -881,7 +881,7 @@ const stiller = (t: Tema) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: 6,
-      height: 36,
+      minHeight: 36,
       paddingHorizontal: 12,
       borderRadius: 999,
       backgroundColor: t.yuzey,

@@ -107,3 +107,17 @@ export function hatEtiketi(
   const tip = isletmeciAdi(isletmeci) || aracAdi(mode) || 'Hat';
   return { rozet: tip, ayrinti: baslikYap(ham) };
 }
+
+/** Verideki yazımı düzeltir: "IETT" → "İETT", "Şehirhatları A.Ş." → "Şehir Hatları", "Minibus" → "Minibüs". */
+export function isletmeciAdiDuzelt(ad: string): string {
+  const temiz = ad.trim().replace(/\s+A\.Ş\.?$/i, '');
+  const buyuk = temiz.toLocaleUpperCase('tr-TR').replace(/\s+/g, '');
+  if (buyuk === 'IETT' || buyuk === 'İETT') return 'İETT';
+  if (buyuk === 'IDO' || buyuk === 'İDO') return 'İDO';
+  if (buyuk === 'ŞEHİRHATLARI') return 'Şehir Hatları';
+  if (buyuk === 'MİNİBUS' || buyuk === 'MİNİBÜS') return 'Minibüs';
+  if (buyuk === 'TAKSİDOLMUS' || buyuk === 'TAKSİDOLMUŞ') return 'Taksi dolmuş';
+  // Marmaray verisinde aynı işletmeci iki adla geçiyor.
+  if (buyuk === 'TCDD') return 'TCDD Taşımacılık';
+  return temiz;
+}

@@ -414,7 +414,7 @@ function DonenOk({ acik, renk }: { acik: boolean; renk: string }) {
   );
 }
 
-/** "4 dk bekleme" (yeşil); 2 dakikadan azsa turuncu, hiç pay yoksa "yetişmek zor". */
+/** "4 dk bekleme" (yeşil; aktarmada da aynı söz); 2 dakikadan azsa turuncu, hiç pay yoksa "yetişmek zor". */
 function BeklemeHapi({ dakika, aktarma = false }: { dakika: number; aktarma?: boolean }) {
   const tema = useTema();
   const s = useStiller(stiller);
@@ -424,7 +424,7 @@ function BeklemeHapi({ dakika, aktarma = false }: { dakika: number; aktarma?: bo
       entering={FadeIn.delay(260).duration(300)}
       style={[s.hap, sikisik && { color: tema.uyari, backgroundColor: tema.uyariAcik }]}
     >
-      {dakika < 0 ? 'yetişmek zor' : dakika === 0 ? 'hemen aktarma' : `${dakika} dk ${aktarma ? 'aktarma' : 'bekleme'}`}
+      {dakika < 0 ? 'yetişmek zor' : dakika === 0 ? 'hemen bin' : `${dakika} dk bekleme`}
     </Animated.Text>
   );
 }

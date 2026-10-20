@@ -13,22 +13,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Logo, logoKoseYaricapi } from '@/components/logo';
 import { useStiller } from '@/components/ulasim';
 import { OTP_ADRESI, sunucuBilgisiGetir, type SunucuBilgisi } from '@/lib/otp';
+import { isletmeciAdiDuzelt } from '@/lib/hat-adi';
 import { poiBilgisi } from '@/lib/poi';
 import { useTema, type Tema } from '@/lib/tema';
 
-/** Verideki yazımı düzeltir: "IETT" → "İETT", "Şehirhatları A.Ş." → "Şehir Hatları", "Minibus" → "Minibüs". */
-function isletmeciAdiDuzelt(ad: string): string {
-  const temiz = ad.trim().replace(/\s+A\.Ş\.?$/i, '');
-  const buyuk = temiz.toLocaleUpperCase('tr-TR').replace(/\s+/g, '');
-  if (buyuk === 'IETT' || buyuk === 'İETT') return 'İETT';
-  if (buyuk === 'IDO' || buyuk === 'İDO') return 'İDO';
-  if (buyuk === 'ŞEHİRHATLARI') return 'Şehir Hatları';
-  if (buyuk === 'MİNİBUS' || buyuk === 'MİNİBÜS') return 'Minibüs';
-  if (buyuk === 'TAKSİDOLMUS' || buyuk === 'TAKSİDOLMUŞ') return 'Taksi dolmuş';
-  // Marmaray verisinde aynı işletmeci iki adla geçiyor.
-  if (buyuk === 'TCDD') return 'TCDD Taşımacılık';
-  return temiz;
-}
 
 const LOGO_BOYUTU = 76;
 
@@ -259,7 +247,8 @@ const stiller = (t: Tema) =>
     uygulamaAdi: { fontSize: 20, fontWeight: '700', color: t.yazi, marginTop: 12 },
     surum: { fontSize: 13.5, color: t.soluk, marginTop: 2, fontVariant: ['tabular-nums'] },
     grup: { marginTop: 18 },
-    grupBaslik: { fontSize: 12.5, color: t.soluk, paddingHorizontal: 32, paddingBottom: 6, letterSpacing: 0.3 },
+    // Öbür ekranların bölüm başlıklarıyla aynı biçim (11,5 pt, kalın, 0,8 aralık).
+    grupBaslik: { fontSize: 11.5, fontWeight: '700', color: t.soluk, paddingHorizontal: 32, paddingBottom: 6, letterSpacing: 0.8 },
     kutu: { marginHorizontal: 16, backgroundColor: t.yuzey, borderRadius: 12, overflow: 'hidden' },
     satir: {
       minHeight: 46,

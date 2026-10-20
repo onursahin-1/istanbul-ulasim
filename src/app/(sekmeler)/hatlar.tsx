@@ -8,7 +8,8 @@ import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Pressable } from '@/components/dokun';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { HataKutusu, HatRozeti, Ikon, ROZET_SUTUNU, useStiller, Yukleniyor } from '@/components/ulasim';
+import { HataKutusu, HatRozeti, Ikon, ROZET_SUTUNU, useStiller, YAZI_SINIRI, Yukleniyor } from '@/components/ulasim';
+import { isletmeciAdiDuzelt } from '@/lib/hat-adi';
 import { hatlariGetir, OtpHatasi, type HatOzeti } from '@/lib/otp';
 import { hatlariTekille, modSirasi } from '@/lib/hat-tekil';
 import { sadelestir } from '@/lib/poi';
@@ -78,8 +79,9 @@ export default function HatlarEkrani() {
   // İETT her yönü ayrı güzergâh olarak yayımlıyor (T2 iki kez görünüyordu); hat başına bir satır.
   const tekil = useMemo(() => (hatlar ? hatlariTekille(hatlar) : null), [hatlar]);
 
-  const satirlar = useMemo<Satir[]>(() => {
-    if (!tekil) return [];
+  // Liste ve aramaya uyan hat sayısı: kesildiyse dipnot söylesin.
+  const { satirlar, eslesen } = useMemo<{ satirlar: Satir[]; eslesen: number }>(() => {
+    if (!tekil) return { satirlar: [], eslesen: 0 };
     const secili = SUZGECLER.find((x) => x.anahtar === suzgec) ?? SUZGECLER[0];
     const aranan = sadelestir(metin);
 
@@ -113,8 +115,10 @@ export default function HatlarEkrani() {
         sayac++;
       }
     }
-    return liste;
+    return { satirlar: liste, eslesen: suzulmus.length };
   }, [tekil, metin, suzgec]);
+  const gosterilen = satirlar.filter((x) => x.tip === 'hat').length;
+  const suzgecAdi = SUZGECLER.find((x) => x.anahtar === suzgec)?.ad ?? '';
 
   const toplam = tekil?.length ?? 0;
 
@@ -126,6 +130,7 @@ export default function HatlarEkrani() {
           <Pressable
             onPress={() => ekranAc('/ag')}
             style={s.haritaDugmesi}
+            hitSlop={8}
             accessibilityRole="button"
             accessibilityLabel="Ağ haritası"
           >
@@ -166,7 +171,7 @@ export default function HatlarEkrani() {
               hitSlop={6}
               accessibilityState={{ selected: secili }}
             >
-              <Text style={[s.suzgecYazi, secili && { color: tema.vurguYazi }]}>{item.ad}</Text>
+              <Text maxFontSizeMultiplier={YAZI_SINIRI} style={[s.suzgecYazi, secili && { color: tema.vurguYazi }]}>{item.ad}</Text>
             </Pressable>
           );
         }}
@@ -175,7 +180,21 @@ export default function HatlarEkrani() {
       {hata && <HataKutusu mesaj={hata} tekrarDene={yukle} />}
       {!hatlar && !hata && <Yukleniyor metin="Hatlar yükleniyor…" />}
       {hatlar && satirlar.length === 0 && (
-        <Text style={s.bos}>{metin.trim() ? `“${metin.trim()}” için hat bulunamadı.` : 'Bu tipte hat yok.'}</Text>
+        <View>
+          <Text style={s.bos}>
+            {metin.trim()
+              ? suzgec !== 'tumu'
+                ? `“${metin.trim()}” ${suzgecAdi} hatlarında bulunamadı.`
+                : `“${metin.trim()}” için hat bulunamadı.`
+              : 'Bu tipte hat yok.'}
+          </Text>
+          {/* Süzgeç yüzünden bulunamıyorsa: bütün hatlarda ara. */}
+          {!!metin.trim() && suzgec !== 'tumu' && (
+            <Pressable style={s.tumundeAra} onPress={() => setSuzgec('tumu')} accessibilityRole="button">
+              <Text style={s.tumundeAraYazi}>Tümünde ara</Text>
+            </Pressable>
+          )}
+        </View>
       )}
 
       <FlatList
@@ -188,9 +207,11 @@ export default function HatlarEkrani() {
         ListFooterComponent={
           hatlar && satirlar.length > 0 ? (
             <Text style={s.dipnot}>
-              {metin.trim()
-                ? `${satirlar.filter((x) => x.tip === 'hat').length} hat gösteriliyor`
-                : `Ağda toplam ${toplam.toLocaleString('tr-TR')} hat var. Aramak için yukarıya yaz.`}
+              {gosterilen < eslesen
+                ? `İlk ${gosterilen.toLocaleString('tr-TR')} hat gösteriliyor (${eslesen.toLocaleString('tr-TR')} hattan). Aradığını bulmak için yukarıya yaz.`
+                : metin.trim()
+                  ? `${gosterilen} hat gösteriliyor`
+                  : `Ağda toplam ${toplam.toLocaleString('tr-TR')} hat var.`}
             </Text>
           ) : null
         }
@@ -211,10 +232,10 @@ export default function HatlarEkrani() {
                   {baslikYap(h.longName) || h.shortName || h.gtfsId}
                 </Text>
                 <Text style={s.satirAlt} numberOfLines={1}>
-                  {h.agency?.name ?? aracAdi(h.mode)}
+                  {h.agency?.name ? isletmeciAdiDuzelt(h.agency.name) : aracAdi(h.mode)}
                 </Text>
               </View>
-              <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.yurume} />
+              <Ikon ad="chevron-forward" boyut={16} renkKodu={tema.soluk} />
             </Pressable>
           );
         }}
@@ -252,7 +273,7 @@ const stiller = (t: Tema) =>
     suzgecSeridi: { flexGrow: 0, backgroundColor: t.yuzey, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.cizgi },
     suzgecler: { gap: 7, paddingHorizontal: 16, paddingBottom: 12 },
     suzgec: {
-      height: 32,
+      minHeight: 32,
       paddingHorizontal: 13,
       borderRadius: 999,
       borderWidth: 1,
@@ -262,6 +283,16 @@ const stiller = (t: Tema) =>
       justifyContent: 'center',
     },
     suzgecSecili: { backgroundColor: t.vurgu, borderColor: t.vurgu },
+    tumundeAra: {
+      alignSelf: 'center',
+      height: 44,
+      paddingHorizontal: 18,
+      borderRadius: 12,
+      justifyContent: 'center',
+      backgroundColor: t.vurgu,
+      marginTop: -8,
+    },
+    tumundeAraYazi: { fontSize: 14, fontWeight: '700', color: t.vurguYazi },
     suzgecYazi: { fontSize: 13, fontWeight: '600', color: t.yazi },
     bolumBaslik: {
       fontSize: 11.5,
