@@ -96,7 +96,8 @@ import {
 import { kayitBaslat, kayitBitir, kayitEkle } from '@/lib/yolculuk-kaydi';
 import { bacakZamanlari, gecikmeyiYansit, yenidenZamanla, zamanlamayiUygula, type SecilenKalkis } from '@/lib/zamanlama';
 import { adimlariYaz } from '@/lib/yuruyus';
-import { isodanSaniye, saatYaz } from '@/lib/zaman';
+import { gunEtiketi, isodanSaniye, istanbulSaatiYaz, saatYaz } from '@/lib/zaman';
+import { trBuyuk } from '@/lib/metin';
 import { geriDon } from '@/lib/gezinti';
 import { metrobusMu } from '@/lib/metin';
 
@@ -1033,6 +1034,30 @@ export default function RotaDetayEkrani() {
     });
   };
 
+  // Plan başka bir güne ya da 90 dakikadan uzaksa: özetteki gün etiketi ve başlatmadan önce soru.
+  // (Yarın 08:00 için aranan plan bugün başlatılınca adımlar bugünkü saatlere göre ilerlemiyordu.)
+  const planAni = anOku(guzergah?.start);
+  const istGunu = (ms: number) => Math.floor((ms + 3 * 3600_000) / 86_400_000);
+  const gunFarki = planAni != null ? istGunu(planAni) - istGunu(simdi) : 0;
+  const planGunu = gunFarki > 0 ? trBuyuk(gunEtiketi(gunFarki)) : null;
+  const planUzak = planAni != null && planAni - simdi > ZAMANLAMA_UFKU_MS;
+  const baslatSor = () => {
+    if (!planUzak || planAni == null) {
+      takibiBaslat();
+      return;
+    }
+    const saat = istanbulSaatiYaz(Math.round(planAni / 1000));
+    Alert.alert(
+      gunFarki > 0 ? `Bu plan ${gunEtiketi(gunFarki).toLocaleLowerCase('tr-TR')} ${saat} için` : `Bu plan ${saat} için`,
+      'Şimdi başlatırsan yol tarifi bugünkü saatlere göre ilerlemez. Bunun yerine hatırlatıcı kurmak ister misin?',
+      [
+        { text: 'Hatırlatıcı kur', onPress: () => setHatirlatAcik(true) },
+        { text: 'Yine de başlat', onPress: () => takibiBaslat() },
+        { text: 'Vazgeç', style: 'cancel' },
+      ],
+    );
+  };
+
   const takibiBaslat = async () => {
     const izin = await Location.requestForegroundPermissionsAsync();
     if (izin.status !== 'granted') {
@@ -1505,6 +1530,7 @@ export default function RotaDetayEkrani() {
                 yurume={guzergah.walkTime}
                 ucret={ucret.toplam > 0 || ucret.ucretsizGun ? ucretKisa(ucret) : null}
                 bacaklar={bacaklar}
+                gun={planGunu}
               />
             }
           >
@@ -1577,7 +1603,7 @@ export default function RotaDetayEkrani() {
           </Pressable>
           <Pressable
             style={[s.baslat, takipAcik && s.bitir]}
-            onPress={takipAcik ? takibiDurdur : takibiBaslat}
+            onPress={takipAcik ? takibiDurdur : baslatSor}
             onLongPress={simulasyonuBaslat}
             accessibilityRole="button"
           >

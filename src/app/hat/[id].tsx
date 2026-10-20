@@ -813,7 +813,9 @@ const stiller = (t: Tema) =>
     yonSayi: { fontSize: 11.5, color: t.soluk, marginTop: 2 },
     tekYon: { fontSize: 13, fontWeight: '600', color: t.soluk, padding: 14 },
     liste: {},
-    durak: { flexDirection: 'row', alignItems: 'center', gap: 11, minHeight: 44 },
+    // Sabit yükseklik gerekli: çizgi sütunu satırın %100'ü. minHeight olunca yükseklik belirsiz
+    // kalıyor, ilk satır kaydırma alanı kadar uzayıp bütün listeyi boş gösteriyordu.
+    durak: { flexDirection: 'row', alignItems: 'center', gap: 11, height: 44 },
     cizgiSutun: { width: 16, height: '100%', alignItems: 'center', justifyContent: 'center' },
     cizgiUst: { position: 'absolute', top: 0, height: '50%', width: 3 },
     cizgiAlt: { position: 'absolute', bottom: 0, height: '50%', width: 3 },
@@ -848,7 +850,7 @@ const stiller = (t: Tema) =>
       paddingVertical: 1,
       overflow: 'hidden',
     },
-    otobus: { flexDirection: 'row', alignItems: 'center', gap: 11, minHeight: 40 },
+    otobus: { flexDirection: 'row', alignItems: 'center', gap: 11, height: 34 },
     // Yazının kabı satır boyunca uzanır, yazıyı dikeyde ortalar (simgeyle aynı hizada).
     otobusMetin: { flex: 1, minWidth: 0, alignSelf: 'stretch', justifyContent: 'center' },
     cizgiTam: { position: 'absolute', top: 0, bottom: 0, width: 3 },

@@ -680,19 +680,39 @@ export default function RotaEkrani() {
               layout={KART_YERLESIMI}
             >
             {baslik && <Text style={s.bolumBaslik}>{baslik}</Text>}
-            <Pressable style={[s.kart, oneri && !kalkti && s.kartOneri, kalkti && s.kartKalkti]} onPress={() => detayaGit(sira, hatlar)}>
+            <Pressable
+              style={[s.kart, oneri && !kalkti && s.kartOneri, kalkti && s.kartKalkti]}
+              onPress={() => detayaGit(sira, hatlar)}
+              // VoiceOver: kart tek cümle; içindeki "sonraki kalkış" hapları kartın eylemleri.
+              accessibilityRole="button"
+              accessibilityLabel={[
+                etiket ? etiket.toLocaleLowerCase('tr-TR') : '',
+                sureYaz(g.duration),
+                `${saatYaz(g.start)} – ${saatYaz(g.end)}`,
+                g.numberOfTransfers === 0 ? 'aktarmasız' : `${g.numberOfTransfers} aktarma`,
+                `${sureYaz(g.walkTime)} yürüme`,
+                ilkArac ? `${hatYazisi(ilkArac)} ${saatYaz(ilkArac.start.estimated?.time ?? ilkArac.start.scheduledTime)}${ilkArac.start.estimated ? ', canlı' : ''}` : '',
+              ]
+                .filter(Boolean)
+                .join(', ')}
+              accessibilityActions={sonrakiler.map((x, k) => ({
+                name: `sonraki${k}`,
+                label: `${saatYaz(binisSaati(x.g))} kalkışını aç`,
+              }))}
+              onAccessibilityAction={(e) => {
+                const k = Number(e.nativeEvent.actionName.replace('sonraki', ''));
+                if (sonrakiler[k]) detayaGit(sonrakiler[k].sira, hatlar);
+              }}
+            >
+              {/* Etiket sürenin üstünde; saat aralığı her kartta sağ üstte (eskiden önerilende yer değiştiriyordu). */}
+              {!!etiket && <Text style={[s.etiket, s.etiketUst, kalkti && s.etiketKalkti]}>{etiket}</Text>}
               <View style={s.kartUst}>
                 <KayanMetin metin={sureYaz(g.duration)} style={s.sure} />
-                {etiket ? (
-                  <Text style={[s.etiket, kalkti && s.etiketKalkti]}>{etiket}</Text>
-                ) : (
-                  <KayanMetin metin={`${saatYaz(g.start)}–${saatYaz(g.end)}`} style={s.saat} />
-                )}
+                <KayanMetin metin={`${saatYaz(g.start)}–${saatYaz(g.end)}`} style={s.saat} />
               </View>
               <BacakZinciri bacaklar={g.legs} alternatifler={alternatifler} />
               <SureSeridi bacaklar={g.legs} akar gecikme={sessizGeldi ? 0 : 200 + Math.min(i, 8) * 60} />
               <View style={s.kartAlt}>
-                {etiket && <KayanMetin metin={`${saatYaz(g.start)}–${saatYaz(g.end)}`} style={[s.altYazi, s.kalin]} />}
                 <Text style={s.altYazi}>{sureYaz(g.walkTime)} yürüme</Text>
                 <Text style={s.altYazi}>{g.numberOfTransfers === 0 ? 'Aktarmasız' : `${g.numberOfTransfers} aktarma`}</Text>
                 {ucretler[sira] && <Text style={[s.altYazi, s.ucret]}>{ucretler[sira]}</Text>}
@@ -710,6 +730,10 @@ export default function RotaEkrani() {
                   // Kalkış saati ilk satırda, hiç kesilmez; hat ve durak ikinci satırda, sığmazsa
                   // sondan kısalır. (Eskiden tek cümleydi ve dar ekranda kesilen kısım saatti.)
                   const hatDurak = `${hatlarYazisi} · ${baslikYap(ilkArac.from.name)} durağından`;
+                  // "Şimdi" aramasında binişe kaç dakika var (bir saate kadar; daha uzaksa üstteki
+                  // "Şu an sefer yok" kutusu söylüyor).
+                  const kalanDk = Math.round((binisMs - simdiAn) / 60_000);
+                  const sonraEki = !zaman && kalanDk >= 1 && kalanDk <= 60 ? ` · ${kalanDk} dk sonra` : '';
                   if (kalkti) {
                     return (
                       <View style={s.canliBlok}>
@@ -740,6 +764,7 @@ export default function RotaEkrani() {
                           <Text style={[s.kalkisSatiri, s.esnek]} numberOfLines={1}>
                             {otobus ? `~${saat}` : `Kalkış ${saat}`}
                             {otobus && <Text style={s.tarifeEki}> · tarifeye göre</Text>}
+                            {!!sonraEki && <Text style={s.tarifeEki}>{sonraEki}</Text>}
                           </Text>
                         </View>
                         <Text style={s.hatDurak} numberOfLines={1}>
@@ -765,6 +790,7 @@ export default function RotaEkrani() {
                         <NabizNoktasi renk={renk} />
                         <Text style={[s.kalkisSatiri, s.esnek, { color: renk }]} numberOfLines={1}>
                           {Number.isFinite(binisAni) ? `Canlı · ${durakVarisMetni(binisAni)}` : `Canlı · ${saat}`}
+                          {!!sonraEki && <Text style={s.tarifeEki}>{sonraEki}</Text>}
                         </Text>
                       </View>
                       <Text style={s.hatDurak} numberOfLines={1}>
@@ -1247,6 +1273,7 @@ const stiller = (t: Tema) =>
   esnek: { flex: 1, minWidth: 0 },
   tarifeNotu: { fontSize: 11.5, color: t.soluk, paddingLeft: 16 },
   kartKalkti: { opacity: 0.5 },
+  etiketUst: { alignSelf: 'flex-start', marginBottom: -4 },
   etiketKalkti: { color: t.soluk, backgroundColor: t.yuzeyIkincil },
   kalkisSatiri: { fontSize: 13.5, fontWeight: '700', color: t.yazi, fontVariant: ['tabular-nums'] },
   tarifeEki: { fontSize: 12.5, fontWeight: '400', color: t.soluk },

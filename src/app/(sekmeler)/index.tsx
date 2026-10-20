@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, StyleSheet, Text, View } from 'react-native';
 import { Pressable } from '@/components/dokun';
 import { ModalSayfa } from '@/components/modal-sayfa';
-import MapView, { Marker, type LongPressEvent } from 'react-native-maps';
+import MapView, { Callout, Marker, type LongPressEvent } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AltYaprak } from '@/components/alt-yaprak';
@@ -110,6 +110,7 @@ export default function AnaEkran() {
     });
   }, [duraklar, aracVarislari]);
   const [hata, setHata] = useState<string | null>(null);
+  const [panelBaslikBoyu, setPanelBaslikBoyu] = useState(0);
   // Elde liste varken yenileme başarısız olursa: son başarılı yüklemenin anı (sarı şerit).
   // Kırmızı hata kutusu yalnız hiç veri yokken.
   const [cevrimdisi, setCevrimdisi] = useState<number | null>(null);
@@ -199,6 +200,9 @@ export default function AnaEkran() {
 
   const buradan = { kLat: String(latitude), kLon: String(longitude), kAd: konum.tur === 'gercek' ? 'Konumum' : 'Kadıköy (örnek konum)' };
 
+  const favoriYereGit = (y: { ad: string; lat: number; lon: number }) =>
+    ekranAc({ pathname: '/rota', params: { ...buradan, vLat: String(y.lat), vLon: String(y.lon), vAd: y.ad } });
+
   const kisayolaGit = (tur: YerTuru) => {
     const yer = yerler[tur];
     if (!yer) {
@@ -254,7 +258,7 @@ export default function AnaEkran() {
         onTouchMove={() => {
           haritaTakip.current = false;
         }}
-        mapPadding={{ top: 150, right: 0, bottom: yaprakBoyu, left: 0 }}
+        mapPadding={{ top: aramaAlti || 150, right: 0, bottom: yaprakBoyu, left: 0 }}
       >
         {konum.tur === 'varsayilan' && <Marker coordinate={konum.nokta} title="Örnek konum" pinColor={tema.konum} />}
         {secim && <Marker coordinate={{ latitude: secim.lat, longitude: secim.lon }} pinColor={tema.hata} />}
@@ -269,16 +273,46 @@ export default function AnaEkran() {
             <PingHalkasi renk={tema.konum} />
           </Marker>
         )}
+        {/* Favori yerler haritada küçük yıldızla. */}
+        {favoriYerler.map((y) => (
+          <Marker
+            key={`fy-${y.lat},${y.lon}`}
+            coordinate={{ latitude: y.lat, longitude: y.lon }}
+            anchor={{ x: 0.5, y: 0.5 }}
+            title={y.ad}
+            description={y.alt}
+            onCalloutPress={() => favoriYereGit(y)}
+            zIndex={1}
+          >
+            <View style={s.favoriIsaret}>
+              <Ikon ad="star" boyut={11} renkKodu={tema.vurguYazi} />
+            </View>
+          </Marker>
+        ))}
         {duraklar?.map(({ durak }) =>
           durak.lat != null && durak.lon != null ? (
             <Marker
               key={durak.gtfsId}
               coordinate={{ latitude: durak.lat, longitude: durak.lon }}
-              title={baslikYap(durak.name)}
-              description={yonYaz(durak.desc)}
               pinColor={tema.vurgu}
-              onCalloutPress={() => ekranAc({ pathname: '/durak/[id]', params: { id: durak.gtfsId } })}
-            />
+            >
+              {/* Baloncuk dokunulacağını söylüyor ("Kalkışlar ›"); eskiden yalnız ad ve yön vardı. */}
+              <Callout onPress={() => ekranAc({ pathname: '/durak/[id]', params: { id: durak.gtfsId } })}>
+                <View style={s.balon} accessibilityRole="button" accessibilityLabel={`${baslikYap(durak.name)}, kalkışları gör`}>
+                  <View style={{ flexShrink: 1 }}>
+                    <Text style={s.balonAd} numberOfLines={1}>
+                      {baslikYap(durak.name)}
+                    </Text>
+                    {!!yonYaz(durak.desc) && (
+                      <Text style={s.balonYon} numberOfLines={1}>
+                        {yonYaz(durak.desc)}
+                      </Text>
+                    )}
+                  </View>
+                  <Text style={s.balonGit}>Kalkışlar ›</Text>
+                </View>
+              </Callout>
+            </Marker>
           ) : null,
         )}
       </MapView>
@@ -335,19 +369,41 @@ export default function AnaEkran() {
         <AltYaprak
           kapsayiciYukseklik={ekranBoyu}
           ustPay={aramaAlti + 12}
+          // Kapalıyken başlık ve ipucu görünsün (büyük yazıda da): tutamaç ve boşluklar ~52 pt.
+          kapaliYukseklik={Math.max(76, panelBaslikBoyu + 52)}
           onDurum={(_, boy) => setYaprakBoyu(boy)}
           erisilebilirlikEtiketi="Yakındaki durakları aç ya da kapat"
           baslik={
-            <View style={s.panelBaslik}>
+            <View style={s.panelBaslik} onLayout={(e) => setPanelBaslikBoyu(Math.ceil(e.nativeEvent.layout.height))}>
               <Text style={s.panelBaslikYazi} numberOfLines={1}>
                 {konum.tur === 'varsayilan' ? 'Kadıköy çevresindeki duraklar' : 'Yakındaki duraklar'}
               </Text>
-              <Text style={s.ipucu}>Hedef seçmek için haritaya basılı tut</Text>
+              <Text style={s.ipucu} numberOfLines={1}>
+                Hedef seçmek için haritaya basılı tut
+              </Text>
             </View>
           }
         >
-          {favoriler.length > 0 && (
+          {(favoriYerler.length > 0 || favoriler.length > 0) && (
+            <Text style={s.favoriBaslik}>FAVORİLER</Text>
+          )}
+          {(favoriYerler.length > 0 || favoriler.length > 0) && (
             <View style={s.favoriler}>
+              {/* Önce favori yerler (dokununca oraya rota), sonra favori duraklar. */}
+              {favoriYerler.map((y) => (
+                <Pressable
+                  key={`y-${y.lat},${y.lon}`}
+                  style={[s.favori, s.favoriYer]}
+                  onPress={() => favoriYereGit(y)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Favori yer: ${y.ad}, rota`}
+                >
+                  <Ikon ad="location" boyut={14} renkKodu={tema.vurgu} />
+                  <Text style={s.favoriYazi} numberOfLines={1}>
+                    {y.ad}
+                  </Text>
+                </Pressable>
+              ))}
               {favoriler.map((f) => (
                 <Pressable
                   key={f.gtfsId}
@@ -631,10 +687,28 @@ const stiller = (t: Tema) =>
   },
   uyariDugme: { fontSize: 12.5, fontWeight: '700', color: t.vurgu },
   uyariYazi: { flex: 1, fontSize: 12, color: t.yazi, lineHeight: 16 },
-  panelBaslik: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 },
+  // İpucu başlığın altında: ikisi aynı satıra sığmıyordu.
+  panelBaslik: { gap: 1, marginBottom: 8 },
   panelBaslikYazi: { fontSize: 18, fontWeight: '700', color: t.yazi },
   ipucu: { fontSize: 11, color: t.soluk },
   favoriler: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingVertical: 6 },
+  favoriBaslik: { fontSize: 11.5, letterSpacing: 0.8, fontWeight: '700', color: t.soluk, marginTop: 2 },
+  favoriYer: { backgroundColor: t.yuzeyIkincil, borderWidth: StyleSheet.hairlineWidth, borderColor: t.cizgi },
+  favoriIsaret: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: t.vurgu,
+    borderWidth: 2,
+    borderColor: t.yuzey,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Durak baloncuğu (iOS'ta açık zeminli sistem baloncuğu: renkler sabit).
+  balon: { flexDirection: 'row', alignItems: 'center', gap: 10, maxWidth: 260, paddingVertical: 2 },
+  balonAd: { fontSize: 14, fontWeight: '700', color: '#111' },
+  balonYon: { fontSize: 12, color: '#555' },
+  balonGit: { fontSize: 13, fontWeight: '700', color: '#1d8f82' },
   favori: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: t.vurguAcik, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, maxWidth: '100%' },
   favoriYazi: { fontSize: 12.5, fontWeight: '600', color: t.yazi, flexShrink: 1 },
   bos: { color: t.soluk, paddingVertical: 16, textAlign: 'center' },

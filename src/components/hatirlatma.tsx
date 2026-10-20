@@ -200,7 +200,7 @@ export function CikisOrnegi({ once, cikis }: { once: number; cikis?: number }) {
       ? `Örnek: ${yaz(cikisAni)} çıkman gerekiyorsa bildirim tam o dakika gelir.`
       : `Örnek: ${yaz(cikisAni)} çıkman gerekiyorsa bildirim ${yaz(bildirim)} gelir.`
     : gecti
-      ? 'Bu süre geçti; daha kısa bir süre seç ya da öbür bildirimlerle yetin.'
+      ? 'Bu bildirimin zamanı geçti; daha kısa bir süre seç.'
       : once === 0
         ? `Bildirim ${yaz(bildirim)} gelir: yola çıkman gereken dakika.`
         : `Bildirim ${yaz(bildirim)} gelir · yola ${yaz(cikisAni)} çıkman gerekiyor.`;
@@ -366,7 +366,7 @@ function KuruluGorunum({
                 </View>
                 <Text style={s.olayMetin} numberOfLines={3}>
                   {kayma !== 0 && (
-                    <Text style={[s.etiket, s.etiketKayma]}>{` ${Math.abs(kayma)} DK ${kayma > 0 ? 'GEÇE' : 'ÖNE'} KAYDI `}</Text>
+                    <Text style={[s.etiket, s.etiketKayma]}>{` ${Math.abs(kayma)} DK ${kayma > 0 ? 'SONRAYA KAYDI' : 'ÖNE ALINDI'} `}</Text>
                   )}
                   {kayma !== 0 ? ' ' : ''}
                   {h.metin}

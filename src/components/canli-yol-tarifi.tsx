@@ -516,7 +516,8 @@ export function AdimKartlari({
   const liste = useRef<ScrollView>(null);
   const kaydiriliyor = useRef(false);
   // Kart sayfalarının yüksekliği: içerik daha uzunsa (bütün duraklar, bütün tarif) kayar.
-  const sayfaBoyu = Math.max(250, Math.round(height * 0.4));
+  // Kısa ekranda (iPhone SE) kart en az 190 pt: haritaya ~125 pt kalıyordu. İçerik kendi içinde kayar.
+  const sayfaBoyu = Math.max(height < 700 ? 190 : 250, Math.round(height * 0.4));
 
   // Bakılan adım dışarıdan değişince (sekme, kendiliğinden geçiş) kart oraya kaysın.
   useEffect(() => {
@@ -1038,6 +1039,8 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
 
   const kalkis = an(b, 'start');
   const dk = Math.max(0, Math.round((kalkis - v.simdi) / 60_000));
+  // Kalkışın üstünden bir dakika geçti, binilmedi: sayaç "Şimdi"de takılmasın, "kalktı" desin.
+  const kacti = !bitti && !icinde && kalkis - v.simdi < -60_000;
   // Aynı yolu giden birden çok hat: Moovit'teki gibi her biri ayrı satırda, ilk gelene binilir.
   if (secenekler.length >= 2 && !bitti && !icinde) {
     const bindimGorunur =
@@ -1143,16 +1146,32 @@ function AdimKarti({ v, sira, boy }: { v: YolTarifiVerisi; sira: number; boy: nu
           <View
             style={s.sayacSatir}
             accessible
-            accessibilityLabel={uzak ? `Kalkış ${saatYaz(iso(b, 'start'))}` : dk === 0 ? 'Kalkıyor' : `Kalkışa ${dk} dakika`}
+            accessibilityLabel={
+              kacti ? `${b.route?.shortName ?? ''} kalktı` : uzak ? `Kalkış ${saatYaz(iso(b, 'start'))}` : dk === 0 ? 'Kalkıyor' : `Kalkışa ${dk} dakika`
+            }
           >
-            {canli && <NabizNoktasi renk={tema.vurgu} />}
-            <Text style={s.sayac}>
-              <Text style={s.sayacBirim}>{uzak ? 'Kalkış ' : dk === 0 ? '' : 'Kalkışa '}</Text>
-              {uzak ? saatYaz(iso(b, 'start')) : dk === 0 ? 'Şimdi' : dk}
-              <Text style={s.sayacBirim}>{uzak || dk === 0 ? '' : ' dk'}</Text>
-            </Text>
+            {canli && !kacti && <NabizNoktasi renk={tema.vurgu} />}
+            {kacti ? (
+              <Text style={[s.sayac, { color: tema.soluk }]}>Kalktı</Text>
+            ) : (
+              <Text style={s.sayac}>
+                <Text style={s.sayacBirim}>{uzak ? 'Kalkış ' : dk === 0 ? '' : 'Kalkışa '}</Text>
+                {uzak ? saatYaz(iso(b, 'start')) : dk === 0 ? 'Şimdi' : dk}
+                <Text style={s.sayacBirim}>{uzak || dk === 0 ? '' : ' dk'}</Text>
+              </Text>
+            )}
           </View>
-          <Text style={[s.detay, canli && { color: tema.vurgu, fontWeight: '600' }]}>{kalkisYazisi}</Text>
+          <Text style={[s.detay, canli && !kacti && { color: tema.vurgu, fontWeight: '600' }]}>
+            {kacti
+              ? `${saatYaz(iso(b, 'start'))} seferi geçti${
+                  sonrakiDk.length
+                    ? ` · sıradaki ${sonrakiDk[0]} dk sonra`
+                    : sonrakiSefer != null
+                      ? ` · sıradaki ${saniyedenSaat(sonrakiSefer)}`
+                      : ''
+                }`
+              : kalkisYazisi}
+          </Text>
         </View>
         {otobus && <YaklasmaSeridi kalan={otobus.kalan} renk={renk} soluk={otobus.otobus.sinif === 'eski'} />}
       </View>
@@ -1792,7 +1811,9 @@ export function TumAdimlar({
         <View style={s.tutamac} />
         <Text style={s.sayfaBaslik}>{v.hedef ? `${baslikYap(v.hedef)} yolculuğu` : 'Yolculuk'}</Text>
         <Text style={s.detay}>
-          {`Varış ${saatYaz(son ? iso(son, 'end') : null)} · ${varisDk} dk kaldı`}
+          {v.durum.faz === 'vardi'
+            ? `Vardın · ${saatYaz(son ? iso(son, 'end') : null)}`
+            : `Varış ${saatYaz(son ? iso(son, 'end') : null)} · ${sureYaz(varisDk * 60)} kaldı`}
           {aktarma > 0 ? ` · ${aktarma} aktarma` : ''}
         </Text>
         {/* Liste sayfaya sığmazsa kendi içinde kayar (flexShrink); sığıyorsa sayfa içerik kadar. */}

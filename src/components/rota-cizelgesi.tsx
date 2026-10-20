@@ -58,7 +58,10 @@ export function RotaOzeti({
   yurume,
   ucret,
   bacaklar,
+  gun,
 }: {
+  /** Plan başka bir gün içinse "YARIN", "CUMARTESİ"; bugünse yok. */
+  gun?: string | null;
   sure: number | null;
   bas: string | null;
   bitis: string | null;
@@ -89,6 +92,7 @@ export function RotaOzeti({
         </View>
         <View style={{ alignItems: 'flex-end', flexShrink: 1 }}>
           <View style={s.tabanSatir}>
+            {!!gun && <Text style={s.gunEtiketi}>{gun}</Text>}
             <KayanMetin metin={saatYaz(bas)} style={s.ozetAralik} />
             <Text style={s.ozetAralik}>{' → '}</Text>
             <KayanMetin metin={saatYaz(bitis)} style={s.ozetAralik} />
@@ -324,7 +328,7 @@ export function RotaCizelgesi({
             <View style={[s.icerik, sonSatir && { paddingBottom: 4 }]}>
               {!!x.ad && (
                 <View style={s.durakSatiri}>
-                  <Text style={[s.durakAdi, x.tur === 'varis' && s.varisAdi]} numberOfLines={1}>
+                  <Text style={[s.durakAdi, x.tur === 'varis' && s.varisAdi]} numberOfLines={2}>
                     {x.ad}
                   </Text>
                   {x.bekleme != null && <BeklemeHapi dakika={x.bekleme} aktarma />}
@@ -475,7 +479,10 @@ function AracKarti({
         accessibilityLabel={`${b.route?.shortName ?? ''}, ${yon}, ${durakSayisi} durak. ${acik ? 'Durakları gizle' : 'Durakları göster'}`}
       >
         <View style={s.kartUst}>
-          <HatRozeti hat={b.route} kucuk ekHatlar={esdeger} />
+          {/* Rozette yalnız binilen hat ve "+2": "97M / 141M / 41ST" yön yazısını siliyordu.
+              Öbür hatlar kart açılınca yazıyor. Metrobüste kodlar zaten yön satırında. */}
+          <HatRozeti hat={b.route} kucuk ekHatlar={metrobus ? esdeger : undefined} />
+          {!metrobus && !!esdeger?.length && <Text style={s.ekSayi}>{`+${esdeger.length}`}</Text>}
           <Text style={s.kartYon} numberOfLines={1}>
             {yon}
           </Text>
@@ -673,8 +680,31 @@ const stiller = (t: Tema) =>
     dugumKucuk: { width: 9, height: 9, borderRadius: 5, marginTop: 5, marginBottom: 4 },
     dugumVaris: { width: 13, height: 13, borderRadius: 3, marginTop: 3 },
     icerik: { flex: 1, minWidth: 0, paddingBottom: 14 },
-    durakSatiri: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    // Ad iki satıra kadar; sığmazsa bekleme hapı alta iner.
+    durakSatiri: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8, rowGap: 3 },
     durakAdi: { flexShrink: 1, fontSize: 15, fontWeight: '700', color: t.yazi },
+    gunEtiketi: {
+      fontSize: 11,
+      fontWeight: '800',
+      letterSpacing: 0.4,
+      color: t.zemin,
+      backgroundColor: t.uyari,
+      borderRadius: 6,
+      paddingHorizontal: 6,
+      marginRight: 6,
+      overflow: 'hidden',
+      alignSelf: 'center',
+    },
+    ekSayi: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: t.soluk,
+      borderWidth: 1,
+      borderColor: t.cizgi,
+      borderRadius: 6,
+      paddingHorizontal: 5,
+      overflow: 'hidden',
+    },
     varisAdi: { fontWeight: '800' },
     hap: {
       fontSize: 11,

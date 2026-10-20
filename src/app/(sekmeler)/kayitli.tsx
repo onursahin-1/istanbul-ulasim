@@ -10,6 +10,7 @@ import { KaydirmaliSatir } from '@/components/kaydirmali-satir';
 import { Dakika, Ikon, useStiller } from '@/components/ulasim';
 import { aramalariTemizle, aramaSil, favoriDegistir, yerSil, favoriYerDegistir, useKayitlar, type YerTuru } from '@/lib/kayitlar';
 import { useKonum } from '@/lib/konum';
+import { yolTarifiAc } from '@/lib/yol-tarifi-ac';
 import { durakDetayiGetir, type Hat } from '@/lib/otp';
 import { useCanliAralik } from '@/lib/canli-aralik';
 import { baslikYap, hatEtiketi, rozetRenkleri, useTema, type Tema } from '@/lib/tema';
@@ -83,18 +84,7 @@ export default function KayitliEkrani() {
     ]);
   };
 
-  const hedefeGit = (hedef: { ad: string; lat: number; lon: number }) =>
-    ekranAc({
-      pathname: '/rota',
-      params: {
-        kLat: String(konum.nokta.latitude),
-        kLon: String(konum.nokta.longitude),
-        kAd: konum.tur === 'gercek' ? 'Konumum' : 'Kadıköy (örnek konum)',
-        vLat: String(hedef.lat),
-        vLon: String(hedef.lon),
-        vAd: hedef.ad,
-      },
-    });
+  const hedefeGit = (hedef: { ad: string; lat: number; lon: number }) => yolTarifiAc(konum, hedef);
 
   // Kaydırılan içerik durum çubuğunun altında başlar ve orada kesilir: eskiden başlık
   // kaydırılınca saatin üstüne biniyordu. (Yenileme göstergesi de durum çubuğunun altında.)

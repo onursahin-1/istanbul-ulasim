@@ -27,6 +27,7 @@ import {
   KodEtiketleri,
 } from '@/components/ulasim';
 import { FavoriSimgesi } from '@/components/hareketli-simgeler';
+import { yolTarifiAc } from '@/lib/yol-tarifi-ac';
 import { IskeletSatirlari } from '@/components/iskelet';
 import { KayanMetin } from '@/components/kayan-metin';
 import {
@@ -413,17 +414,7 @@ export default function DurakEkrani() {
 
   const yolTarifi = () => {
     if (durak?.lat == null || durak.lon == null) return;
-    ekranAc({
-      pathname: '/rota',
-      params: {
-        kLat: String(konum.nokta.latitude),
-        kLon: String(konum.nokta.longitude),
-        kAd: konum.tur === 'gercek' ? 'Konumum' : 'Kadıköy (örnek konum)',
-        vLat: String(durak.lat),
-        vLon: String(durak.lon),
-        vAd: ad,
-      },
-    });
+    yolTarifiAc(konum, { ad, lat: durak.lat, lon: durak.lon });
   };
 
   // Harita işareti, duraktan geçen ilk hattın rengini alır (metro durağı mavi, vapur iskelesi lacivert…).
