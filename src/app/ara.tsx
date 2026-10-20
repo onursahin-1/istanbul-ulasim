@@ -138,6 +138,11 @@ export default function AraEkrani() {
   const [kategori, setKategori] = useState<PoiTuru | null>(null);
   const [hata, setHata] = useState<string | null>(null);
   const [yukleniyor, setYukleniyor] = useState(false);
+  // Durak araması sunucuda: ulaşılamazsa yerler yine gelir, ama bunu söylemek gerekiyor
+  // (eskiden sessizce boş dönüyordu, hiç yer yoksa "sonuç bulunamadı" yazıyordu).
+  const [durakHatasi, setDurakHatasi] = useState(false);
+  // "Tekrar dene": aynı metinle aramayı yeniden çalıştırır.
+  const [deneme, setDeneme] = useState(0);
   // "+6 mahalle daha" ile açılan sokaklar (sade adla); arama değişince kapanır.
   const [acikSokaklar, setAcikSokaklar] = useState<Set<string>>(new Set());
   useEffect(() => setAcikSokaklar(new Set()), [metin]);
@@ -161,6 +166,7 @@ export default function AraEkrani() {
       setYerSonuclari(null);
       setKategori(null);
       setHata(null);
+      setDurakHatasi(false);
       return;
     }
     const iptal = new AbortController();
@@ -169,17 +175,22 @@ export default function AraEkrani() {
       try {
         const kat = await kategoriEslesmesi(aranan);
         setKategori(kat);
+        let durakAranamadi = false;
         // Yer araması telefonda yapılır, durak araması sunucuya gider: ikisi paralel.
         const [yerler, durakListesi] = await Promise.all([
           kat ? poiTureGore(kat.anahtar, merkez, 25) : poiAra(aranan, merkez, 40),
           durakAra(trBuyuk(aranan), iptal.signal).catch((e) => {
-            if (e instanceof OtpHatasi) return [] as Durak[];
+            if (e instanceof OtpHatasi) {
+              durakAranamadi = true;
+              return [] as Durak[];
+            }
             throw e;
           }),
         ]);
         if (iptal.signal.aborted) return;
         setYerSonuclari(yerler);
         setDuraklar(duraklariHazirla(durakListesi, merkez));
+        setDurakHatasi(durakAranamadi);
         setHata(null);
       } catch (e) {
         if ((e as Error).name !== 'AbortError' && !iptal.signal.aborted) {
@@ -193,7 +204,7 @@ export default function AraEkrani() {
       clearTimeout(zamanlayici);
       iptal.abort();
     };
-  }, [metin, merkez]);
+  }, [metin, merkez, deneme]);
 
   const hedefSec = useCallback(
     async (hedef: Konum, alt?: string) => {
@@ -251,7 +262,12 @@ export default function AraEkrani() {
 
   const kaydetSor = (hedef: Konum) => {
     vurus();
-    Alert.alert(hedef.ad, 'Bu yeri kısayol olarak kaydet', [
+    // Kayıtlı adresin üstüne yazılacaksa bunu söyle.
+    const eskiler = (['ev', 'is'] as YerTuru[])
+      .filter((t) => yerler[t])
+      .map((t) => `${YER_ADI[t]}: ${baslikYap(yerler[t]!.ad)}`);
+    const not = eskiler.length ? `\n\nSeçtiğin, kayıtlı adresin yerine geçer (${eskiler.join(', ')}).` : '';
+    Alert.alert(hedef.ad, `Ev ya da İş olarak kaydedilsin mi?${not}`, [
       { text: 'Ev olarak kaydet', onPress: () => yerKaydet('ev', hedef) },
       { text: 'İş olarak kaydet', onPress: () => yerKaydet('is', hedef) },
       { text: 'Vazgeç', style: 'cancel' },
@@ -264,7 +280,13 @@ export default function AraEkrani() {
       ? 'Nereden yola çıkıyorsun?'
       : 'Nereye gidiyorsun?';
   const kisa = metin.trim().length < 3;
-  const bosSonuc = !kisa && !yukleniyor && !hata && (yerSonuclari?.length ?? 0) === 0 && (duraklar?.length ?? 0) === 0;
+  // Arama bitmiş olmalı (sonuçlar null değil): yoksa 3. harfte, istek gitmeden bir an
+  // "sonuç bulunamadı" yanıp sönüyordu.
+  const aramaBitti = yerSonuclari !== null && duraklar !== null;
+  const hicSonucYok = !kisa && !yukleniyor && !hata && aramaBitti && yerSonuclari.length === 0 && duraklar.length === 0;
+  const bosSonuc = hicSonucYok && !durakHatasi;
+  const durakAranamadiKutusu = hicSonucYok && durakHatasi;
+  const durakAranamadiSeridi = !kisa && !hata && durakHatasi && (yerSonuclari?.length ?? 0) > 0;
 
   // Tek bir listede iki bölüm: önce yerler, sonra duraklar.
   type Satir =
@@ -328,7 +350,17 @@ export default function AraEkrani() {
   return (
     <View style={[s.kok, { paddingTop: kenar.top + 4 }]}>
       <View style={s.ust}>
-        <GeriCubugu baslik={baslik} />
+        <GeriCubugu
+          baslik={baslik}
+          sag={
+            p.kaydet ? (
+              // Kaydetme modundan normal aramaya dön (geri gitmek aramayı kapatıyordu).
+              <Pressable hitSlop={10} onPress={() => router.setParams({ kaydet: undefined })} accessibilityRole="button">
+                <Text style={s.vazgec}>Vazgeç</Text>
+              </Pressable>
+            ) : undefined
+          }
+        />
         <Animated.View style={s.girdi} entering={GIRDI_GIRISI}>
           <Ikon ad="search" renkKodu={tema.soluk} />
           <TextInput
@@ -356,8 +388,16 @@ export default function AraEkrani() {
         <Animated.ScrollView
           entering={FadeInDown.delay(120).duration(320).easing(Easing.out(Easing.cubic))}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets
           contentContainerStyle={{ paddingBottom: kenar.bottom + 20 }}
         >
+          {!!p.kaydet && (
+            <View style={s.ipucu}>
+              <Ikon ad={p.kaydet === 'ev' ? 'home-outline' : 'briefcase-outline'} boyut={16} renkKodu={tema.vurgu} />
+              <Text style={s.ipucuYazi}>{`Aradığın yere dokun: ${YER_ADI[p.kaydet]} olarak kaydedilir.`}</Text>
+            </View>
+          )}
           {p.alan === 'baslangic' && (
             <Pressable style={s.satir} onPress={konumaDon} accessibilityRole="button">
               <View style={s.satirIkon}>
@@ -421,8 +461,8 @@ export default function AraEkrani() {
                     </View>
                     <View style={s.satirMetin}>
                       <Text style={s.satirBaslik}>{YER_ADI[tur]}</Text>
-                      <Text style={s.satirAlt} numberOfLines={1}>
-                        {yer ? baslikYap(yer.ad) : 'Kaydetmek için dokun'}
+                      <Text style={[s.satirAlt, !yer && s.ekleYazi]} numberOfLines={1}>
+                        {yer ? baslikYap(yer.ad) : 'Ekle'}
                       </Text>
                     </View>
                   </Pressable>
@@ -477,7 +517,7 @@ export default function AraEkrani() {
                     </View>
                     {/* Adı kutuya yazar: aramayı değiştirip yeniden arayabilirsin. */}
                     <Pressable
-                      hitSlop={10}
+                      hitSlop={14}
                       onPress={() => setMetin(a.ad)}
                       accessibilityRole="button"
                       accessibilityLabel={`${a.ad} adını arama kutusuna yaz`}
@@ -525,7 +565,7 @@ export default function AraEkrani() {
             </>
           )}
 
-          <Text style={s.bolumBaslik}>YAKINIMDA NE VAR?</Text>
+          <Text style={s.bolumBaslik}>YAKINDA NE VAR?</Text>
           {KATEGORI_GRUPLARI.map((g) => (
             <View key={g.ad}>
               <Text style={s.grupAdi}>{g.ad}</Text>
@@ -546,16 +586,38 @@ export default function AraEkrani() {
             </View>
           ))}
 
-          <View style={s.ipucu}>
-            <Ikon ad="bulb-outline" boyut={16} renkKodu={tema.soluk} />
-            <Text style={s.ipucuYazi}>Bir sonuca basılı tutarsan Ev ya da İş olarak kaydedilir.</Text>
-          </View>
+          {!p.kaydet && (
+            <View style={s.ipucu}>
+              <Ikon ad="bulb-outline" boyut={16} renkKodu={tema.soluk} />
+              <Text style={s.ipucuYazi}>Bir sonuca basılı tutarsan Ev ya da İş olarak kaydedilir.</Text>
+            </View>
+          )}
         </Animated.ScrollView>
       )}
 
-      {hata && <HataKutusu mesaj={hata} />}
+      {hata && <HataKutusu mesaj={hata} tekrarDene={() => setDeneme((x) => x + 1)} />}
       {yukleniyor && satirlar.length === 0 && <Yukleniyor metin="Aranıyor…" />}
       {bosSonuc && <Text style={s.bos}>“{metin.trim()}” için sonuç bulunamadı.</Text>}
+      {durakAranamadiSeridi && (
+        <View style={s.durakSeridi}>
+          <Ikon ad="cloud-offline-outline" boyut={16} renkKodu={tema.soluk} />
+          <Text style={s.durakSeridiYazi}>Duraklar şu an aranamıyor; yalnız yerler gösteriliyor.</Text>
+          <Pressable hitSlop={8} onPress={() => setDeneme((x) => x + 1)} accessibilityRole="button">
+            <Text style={s.tekrarYazi}>Tekrar dene</Text>
+          </Pressable>
+        </View>
+      )}
+      {durakAranamadiKutusu && (
+        <View style={s.durakKutusu}>
+          <Text style={s.durakKutusuBaslik}>Duraklar aranamadı</Text>
+          <Text style={s.durakKutusuYazi}>
+            Sunucuya ulaşılamıyor. Yer ve adres araması internetsiz çalışıyor; durak araması için bağlantı gerekiyor.
+          </Text>
+          <Pressable hitSlop={8} onPress={() => setDeneme((x) => x + 1)} accessibilityRole="button">
+            <Text style={[s.tekrarYazi, { marginTop: 8 }]}>Tekrar dene</Text>
+          </Pressable>
+        </View>
+      )}
 
       {!kisa && (
         <Animated.FlatList
@@ -565,6 +627,7 @@ export default function AraEkrani() {
           keyExtractor={(x) => x.anahtar}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets
           contentContainerStyle={{ paddingBottom: kenar.bottom + 20 }}
           renderItem={({ item }) => (
             <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)}>
@@ -575,6 +638,21 @@ export default function AraEkrani() {
       )}
     </View>
   );
+
+  /** VoiceOver'da satırın eylemleri: basılı tutmanın yerine "Ev / İş olarak kaydet". */
+  function kaydetmeEylemleri(hedef: Konum) {
+    return {
+      accessibilityRole: 'button' as const,
+      accessibilityActions: [
+        { name: 'ev', label: 'Ev olarak kaydet' },
+        { name: 'is', label: 'İş olarak kaydet' },
+      ],
+      onAccessibilityAction: (e: { nativeEvent: { actionName: string } }) => {
+        const t = e.nativeEvent.actionName;
+        if (t === 'ev' || t === 'is') yerKaydet(t, hedef);
+      },
+    };
+  }
 
   function satirCiz(item: (typeof satirlar)[number]) {
     if (item.tip === 'baslik') return <Text style={s.bolumBaslik}>{item.yazi}</Text>;
@@ -601,6 +679,7 @@ export default function AraEkrani() {
           style={s.satir}
           onPress={() => hedefSec(hedef, [tur, y.semt].filter(Boolean).join(' · '))}
           onLongPress={() => kaydetSor(hedef)}
+          {...kaydetmeEylemleri(hedef)}
         >
           <View style={s.satirIkon}>
             <Ikon ad={poiSimgesi(y.tur) as IkonAdi} boyut={18} renkKodu={tema.vurgu} />
@@ -624,6 +703,7 @@ export default function AraEkrani() {
         style={s.satir}
         onPress={() => hedefSec(hedef, istasyon?.ad ?? 'Durak')}
         onLongPress={() => kaydetSor(hedef)}
+        {...kaydetmeEylemleri(hedef)}
       >
         <View style={[s.satirIkon, { backgroundColor: tema.vurguAcik }]}>
           <Ikon ad={istasyon?.ikon ?? 'bus-outline'} boyut={18} renkKodu={tema.vurgu} />
@@ -811,5 +891,23 @@ const stiller = (t: Tema) =>
     kisayolYazi: { fontSize: 13, fontWeight: '600', color: t.yazi },
     ipucu: { flexDirection: 'row', gap: 8, padding: 16 },
     ipucuYazi: { flex: 1, fontSize: 13, color: t.soluk, lineHeight: 19 },
+    vazgec: { fontSize: 15, fontWeight: '600', color: t.vurgu },
+    ekleYazi: { color: t.vurgu, fontWeight: '600' },
+    durakSeridi: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginHorizontal: 14,
+      marginBottom: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 9,
+      borderRadius: 12,
+      backgroundColor: t.uyariAcik,
+    },
+    durakSeridiYazi: { flex: 1, fontSize: 12.5, lineHeight: 17, color: t.yazi },
+    tekrarYazi: { fontSize: 13, fontWeight: '700', color: t.vurgu },
+    durakKutusu: { margin: 14, padding: 16, borderRadius: 14, backgroundColor: t.uyariAcik, alignItems: 'center' },
+    durakKutusuBaslik: { fontSize: 15, fontWeight: '700', color: t.yazi, marginBottom: 4 },
+    durakKutusuYazi: { fontSize: 13.5, lineHeight: 19, color: t.yazi, textAlign: 'center' },
     bos: { color: t.soluk, textAlign: 'center', padding: 20 },
   });
