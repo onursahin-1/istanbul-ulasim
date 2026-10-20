@@ -122,6 +122,8 @@ export default function TarifeEkrani() {
   // sefer ve "şu an her 5 dk" açıldığı dakikada donmasın.
   const [, setTik] = useState(0);
   useCanliAralik(() => setTik((x) => x + 1), 60_000);
+  // Başlıkta durak adı ve yön varsa alt satır kısa kalır ("Bu duraktan kalkışlar").
+  const baslikDurakli = !!(aciklamalar.length && isaretli?.anaHedef && p.durakAd);
   // İstanbul saatiyle gün başından saniye.
   const simdi = Math.floor((Date.now() / 1000 + 3 * 3600) % 86_400);
   const siradaki = bugunMu ? siradakiKalkis(satirlar, simdi) : null;
@@ -160,15 +162,18 @@ export default function TarifeEkrani() {
         <View style={s.ust}>
           <HatRozeti hat={hat} />
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={s.baslik} numberOfLines={1}>
-              {aciklamalar.length && isaretli?.anaHedef && p.durakAd
-                ? `${baslikYap(p.durakAd)} → ${isaretli.anaHedef} yönü`
-                : p.baslik || kisaAd}
+            <Text style={s.baslik} numberOfLines={2}>
+              {baslikDurakli ? `${baslikYap(p.durakAd)} → ${isaretli!.anaHedef} yönü` : p.baslik || kisaAd}
             </Text>
             <Text style={s.alt} numberOfLines={1}>
               {yalnizSiklik
                 ? `${tasit || 'Hat'} · belli aralıklarla`
-                : `${baslikYap(p.durakAd) || 'Bu durak'} durağından ${siklikModu ? '· belli aralıklarla' : 'kalkışlar'}`}
+                : siklikModu
+                  ? // Dipnottaki gibi: sıklık saatleri hattın başından, bu duraktan değil.
+                    'Belli aralıklarla · hattın başına göre'
+                  : baslikDurakli || !p.durakAd
+                    ? 'Bu duraktan kalkışlar'
+                    : `${baslikYap(p.durakAd)} durağından kalkışlar`}
             </Text>
           </View>
         </View>
@@ -219,7 +224,7 @@ export default function TarifeEkrani() {
             {aciklamalar.map((a) => (
               <View key={a.harf} style={s.lejantSatir}>
                 <Text style={s.lejantHarf}>{a.harf}</Text>
-                <Text style={s.lejantYazi} numberOfLines={1}>
+                <Text style={s.lejantYazi} numberOfLines={2}>
                   {`Son durak: ${a.hedef}${a.kisa ? ' (kısa dönüş)' : ''}`}
                 </Text>
               </View>

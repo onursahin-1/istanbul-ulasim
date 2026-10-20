@@ -503,11 +503,12 @@ export default function HatEkrani() {
                 >
                   <Ikon ad="time-outline" boyut={20} renkKodu={tema.vurguYazi} />
                   <View style={{ flex: 1, minWidth: 0 }}>
+                    {/* Asıl söz başta: "…durağından tarife" uzun durak adında kesiliyordu. */}
                     <Text style={s.tarifeBaslik} numberOfLines={1}>
-                      {`${baslikYap(tarifeDuragi.name)} durağından tarife`}
+                      Tarife
                     </Text>
                     <Text style={s.tarifeAlt} numberOfLines={1}>
-                      Hafta içi, Cumartesi, Pazar · bütün gün
+                      {`${baslikYap(tarifeDuragi.name)} durağından · bütün gün`}
                     </Text>
                   </View>
                   <Ikon ad="chevron-forward" boyut={17} renkKodu={tema.vurguYazi} />
@@ -617,8 +618,10 @@ export default function HatEkrani() {
                 })}
               </View>
               <Text style={[s.dipnot, { paddingBottom: kenar.bottom }]}>
-                Durak sırası rota motorundaki güzergâh desenine göredir. Bir durağa dokunarak yaklaşan seferlerini
-                görebilirsin.
+                Durak sırası rota motorundaki güzergâh desenine göredir.
+                {tarifeVar
+                  ? ' Bir durağa dokununca yaklaşan seferleri, basılı tutunca o durağın tarifesi açılır.'
+                  : ' Bir durağa dokunarak yaklaşan seferlerini görebilirsin.'}
                 {otobusler.length > 0 &&
                   " Otobüs konumları İETT'den iki dakikada bir geliyor; 5 dakikadan eski konumlar soluk, 10 dakikadan eskileri gösterilmiyor. Otobüse dokununca harita ona gider."}
               </Text>

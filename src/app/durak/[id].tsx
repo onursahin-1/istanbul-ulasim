@@ -77,6 +77,12 @@ const ACILIS_MS = 1200;
  * "● 01:59 (43 dk)". Önceden ikinci canlı otobüs tarife saatleriyle aynı gri yazılıyordu;
  * Keşfet'te "43 dk" diye görünen otobüs burada yok sanılıyordu. Tarife saatleri gri kalır.
  */
+/** İki ad aynı mı (büyük-küçük harf, boşluk ve tire farkı sayılmaz). */
+function ayniAd(a: string, b: string): boolean {
+  const sade = (x: string) => x.toLocaleLowerCase('tr-TR').replace(/[\s\-–—.]/g, '');
+  return !!a && sade(a) === sade(b);
+}
+
 function SonrakiSaatler({
   kalkislar,
   ayrac,
@@ -91,8 +97,9 @@ function SonrakiSaatler({
       <Fragment key={i}>
         {i > 0 && ayrac}
         {k.canli ? (
+          // Bölünmez boşluklar: "● 01:59 (43 dk)" tek parça, satır yalnız "·"den kırılır.
           <Text style={{ color: tema.vurgu, fontWeight: '600' }}>
-            {`● ${saniyedenSaat(k.saniye)}${g.birim ? ` (${g.metin} ${g.birim})` : ''}`}
+            {`● ${saniyedenSaat(k.saniye)}${g.birim ? ` (${g.metin} ${g.birim})` : ''}`.replace(/ /g, '\u00a0')}
           </Text>
         ) : (
           saniyedenSaat(k.saniye)
@@ -554,7 +561,7 @@ export default function DurakEkrani() {
             <View style={{ gap: 4 }}>
               <Text style={s.altBaslik}>YÖNE GÖRE SONRAKİ KALKIŞLAR</Text>
               {yonler.length === 0 && siklikliHatlar.length === 0 && (
-                <Text style={s.bos}>Önümüzdeki 3 saatte bu duraktan sefer görünmüyor.</Text>
+                <Text style={s.bos}>Önümüzdeki 24 saatte bu duraktan sefer görünmüyor.</Text>
               )}
               {yonler.map((y, i) => (
                 <Animated.View key={y.anahtar} entering={satirGirisi(i)} exiting={FadeOut.duration(220)} layout={SATIR_YERLESIMI}>
@@ -585,10 +592,11 @@ export default function DurakEkrani() {
                     <HatRozeti hat={y.hat} />
                   </RozetHucresi>
                   <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={s.seferYon} numberOfLines={1}>
+                    <Text style={s.seferYon} numberOfLines={2}>
                       {y.yon || 'Yön bilgisi yok'}
                     </Text>
-                    {!!y.guzergah && (
+                    {/* Güzergâh yön adını tekrarlıyorsa yazılmaz ("Eminönü - 15 Temmuz" iki kez). */}
+                    {!!y.guzergah && !ayniAd(y.guzergah, y.yon) && (
                       <Text style={s.seferGuzergah} numberOfLines={1}>
                         {y.guzergah}
                       </Text>
@@ -724,15 +732,15 @@ export default function DurakEkrani() {
                 <NabizNoktasi renk={tema.vurgu} boyut={6} />
                 <Text style={s.tarifeYazi}>
                   Canlı saatler İETT araç konumundan geliyor, 2 dakikada bir tazeleniyor. Metro, Marmaray, vapur ve
-                  henüz öğrenilmemiş hatlar tarifeye göre.
+                  henüz canlı görünmeyen hatlar tarifeye göre.
                 </Text>
               </View>
             ) : (
               <View style={s.tarife}>
                 <View style={s.tarifeNokta} />
                 <Text style={s.tarifeYazi}>
-                  Süreler tarifeye göre. Metro, Marmaray ve vapur saatleri İBB'nin eski verisinden geldiği için
-                  yaklaşık.
+                  Otobüs saatleri İETT tarifesinden, trafiğe göre değişebilir. Metro, tramvay, Marmaray ve vapur
+                  saatleri işletmecilerin tarifesinden.
                 </Text>
               </View>
             )}
