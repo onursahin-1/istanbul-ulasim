@@ -76,7 +76,7 @@ import {
   sureYaz,
 } from '@/lib/zaman';
 import { secimTiki } from '@/lib/dokunsal';
-import { ekranAc } from '@/lib/gezinti';
+import { ekranAc, geriDon } from '@/lib/gezinti';
 
 type Parametreler = { kLat: string; kLon: string; kAd: string; vLat: string; vLon: string; vAd: string };
 type Sirali = { g: Guzergah; sira: number };
@@ -105,36 +105,35 @@ const TERCIHLER: { anahtar: RotaTercihi; ad: string; kisa: string; aciklama: str
     anahtar: 'dengeli',
     ad: 'Önerilen',
     kisa: 'Önerilen',
-    aciklama:
-      'Süre, yürüme ve aktarma birlikte tartılır. Trafiğe takılmayan metro, Marmaray, tramvay ve vapur biraz öne alınır.',
+    aciklama: 'Süre, yürüme ve aktarma birlikte; raylı sistem biraz önde',
     simge: 'sparkles-outline',
   },
   {
     anahtar: 'hizli',
     ad: 'En hızlı',
     kisa: 'En hızlı',
-    aciklama: 'Yalnız varış süresine bakılır. Liste süreye göre sıralanır.',
+    aciklama: 'En erken varan rotalar önce',
     simge: 'flash-outline',
   },
   {
     anahtar: 'azYurume',
-    ad: 'Az yürüyeyim',
+    ad: 'Az yürüme',
     kisa: 'Az yürüme',
-    aciklama: 'Yürüme rota motorunda daha maliyetli sayılır ve liste yürüme süresine göre sıralanır.',
+    aciklama: 'Daha az yürüyen rotalar önce',
     simge: 'walk-outline',
   },
   {
     anahtar: 'azAktarma',
-    ad: 'Az aktarma yapayım',
+    ad: 'Az aktarma',
     kisa: 'Az aktarma',
-    aciklama: 'Her aktarma 15 dakikalık ceza sayılır ve liste aktarma sayısına göre sıralanır.',
+    aciklama: 'Aktarması az olan rotalar önce',
     simge: 'git-compare-outline',
   },
   {
     anahtar: 'rayli',
     ad: 'Raylı sistem ve vapur',
     kisa: 'Raylı öncelikli',
-    aciklama: 'Metro, Marmaray, tramvay ve vapur tercih edilir; otobüs ancak belirgin biçimde kısaysa seçilir.',
+    aciklama: 'Metro, Marmaray, tramvay ve vapur öncelikli',
     simge: 'subway-outline',
   },
 ];
@@ -193,13 +192,46 @@ const BOLUM_BASLIKLARI: Record<Exclude<RotaBolumu, 'genel'>, string> = {
 // Rota motorunun İngilizce hata kodları için Türkçe açıklamalar.
 const HATA_METINLERI: Record<string, string> = {
   NO_TRANSIT_CONNECTION: 'Bu iki nokta arasında toplu taşıma bağlantısı bulunamadı.',
-  NO_TRANSIT_CONNECTION_IN_SEARCH_WINDOW: 'Seçilen saatte uygun sefer yok. Biraz sonra tekrar dene.',
+  NO_TRANSIT_CONNECTION_IN_SEARCH_WINDOW: 'Seçtiğin saat için uygun bir sefer bulunamadı.',
   OUTSIDE_SERVICE_PERIOD: 'Seçilen tarih, sefer tarifesinin kapsamı dışında.',
   OUTSIDE_BOUNDS: 'Seçilen nokta haritanın kapsamı dışında.',
   LOCATION_NOT_FOUND: 'Başlangıç ya da varış noktası yol ağına bağlanamadı. Yakındaki bir durağı seçmeyi dene.',
   NO_STOPS_IN_RANGE: 'Yürüme mesafesinde durak bulunamadı.',
-  WALKING_BETTER_THAN_TRANSIT: 'Bu mesafe için yürümek toplu taşımadan daha hızlı.',
+  WALKING_BETTER_THAN_TRANSIT: 'Bu mesafeyi yürümek toplu taşımadan daha hızlı.',
 };
+
+/** İlk rota aranan kalkış saatinden bundan geç başlıyorsa "şu an sefer yok" denir. */
+const GECE_BOSLUGU_MS = 30 * 60_000;
+
+/** Boş sonucun türü: hangi düğmelerin çıkacağını belirler. */
+type BosSonuc = { tur: 'saat' | 'nokta' | 'yuruyus'; baslik: string; metin: string };
+/** Noktalardan kaynaklanan hatalar: "Noktaları değiştir" bir önceki ekrana döner. */
+const NOKTA_HATALARI = new Set(['NO_TRANSIT_CONNECTION', 'OUTSIDE_BOUNDS', 'LOCATION_NOT_FOUND', 'NO_STOPS_IN_RANGE']);
+
+function bosSonucYap(kod: string | undefined): BosSonuc {
+  if (kod === 'WALKING_BETTER_THAN_TRANSIT') {
+    return { tur: 'yuruyus', baslik: 'Yürümek daha hızlı', metin: HATA_METINLERI[kod] };
+  }
+  if (kod && NOKTA_HATALARI.has(kod)) {
+    return {
+      tur: 'nokta',
+      baslik: 'Bu iki nokta arasında rota yok',
+      metin:
+        kod === 'LOCATION_NOT_FOUND'
+          ? 'Başlangıç ya da varış yol ağına bağlanamadı. Yakındaki bir durağı ya da caddeyi seçmeyi dene.'
+          : HATA_METINLERI[kod],
+    };
+  }
+  if (kod === 'OUTSIDE_SERVICE_PERIOD') {
+    return { tur: 'saat', baslik: 'Bu tarih tarifenin dışında', metin: HATA_METINLERI[kod] };
+  }
+  return {
+    tur: 'saat',
+    baslik: 'Bu saatte sefer yok',
+    metin: `${(kod && HATA_METINLERI[kod]) || 'Bu saatte uygun bir rota bulunamadı.'} Başka bir saat seç ya da tercihi gevşet.`,
+  };
+}
+
 
 export default function RotaEkrani() {
   const kenar = useSafeAreaInsets();
@@ -208,6 +240,13 @@ export default function RotaEkrani() {
   const p = useLocalSearchParams<Parametreler>();
   const [guzergahlar, setGuzergahlar] = useState<Guzergah[] | null>(null);
   const [bilgi, setBilgi] = useState<string | null>(null);
+  // Rota bulunamadı: nedene göre başlık, açıklama ve düğmeler (eskiden yalnız gri bir cümle).
+  const [bosSonuc, setBosSonuc] = useState<BosSonuc | null>(null);
+  // Kalkış saatine göre aramanın anı (ms); varışa göre aramada null. Gece "Şimdi" ile
+  // aranınca rota motoru sabahın ilk seferlerini buluyor: aradaki boşluk kutuda söylenir.
+  const [kalkisAramasi, setKalkisAramasi] = useState<number | null>(null);
+  // Rota tercihlerinde "Basamaksız" uzun açıklaması.
+  const [basamakAyrinti, setBasamakAyrinti] = useState(false);
   /** Rota yok çünkü Ayarlar'da kapatılan türler olmadan gidilemiyor. */
   const [kapaliUyarisi, setKapaliUyarisi] = useState(false);
   const [hata, setHata] = useState<string | null>(null);
@@ -271,6 +310,7 @@ export default function RotaEkrani() {
         setGuzergahlar(null);
         setHata(null);
         setBilgi(null);
+        setBosSonuc(null);
         setKapaliUyarisi(false);
         // Çevrimdışı şeridi sonuç gelene kadar kalır: arada silinirse "bağlantı geri geldi"
         // diye yanlış bir an gösterirdi.
@@ -304,11 +344,13 @@ export default function RotaEkrani() {
         if (sessiz && sonuc.guzergahlar.length === 0) return;
         setSessizGeldi(sessiz);
         setGuzergahlar(sonuc.guzergahlar);
+        setKalkisAramasi(aramaZamani.tur === 'kalkis' ? Date.parse(aramaZamani.an) : null);
         if (sessiz) setAramaSaati(istekSaati);
         if (sonuc.cevrimdisi == null) sonBasari.current = Date.now();
         if (sessiz) {
           setHata(null);
           setBilgi(null);
+          setBosSonuc(null);
           setKapaliUyarisi(false);
         }
         // Listedeki otobüs hatlarını canlı veri köprüsüne bildir: otobüsleri birkaç dakika
@@ -322,15 +364,8 @@ export default function RotaEkrani() {
         if (sonuc.guzergahlar.length === 0 && sonuc.kapaliYuzunden) {
           setKapaliUyarisi(true);
         } else if (sonuc.guzergahlar.length === 0) {
-          const kod = sonuc.hatalar[0]?.code;
-          const temel = (kod && HATA_METINLERI[kod]) ?? 'Bu saatte uygun bir rota bulunamadı.';
-          // Tercihler sonucu daraltmış olabilir; kullanıcı neyi gevşetebileceğini bilsin.
-          const ipucu = rotaSecenekleri.erisilebilir
-            ? ' Basamaksız güzergâh açık; kapatırsan daha çok seçenek çıkabilir.'
-            : rotaSecenekleri.tercih !== 'dengeli'
-              ? ' Rota tercihini "Önerilen"e almayı deneyebilirsin.'
-              : '';
-          setBilgi(temel + ipucu);
+          // Tercihler sonucu daraltmış olabilir: kutudaki düğmeler neyin gevşetilebileceğini söylüyor.
+          setBosSonuc(bosSonucYap(sonuc.hatalar[0]?.code));
         } else if (sonuc.yurumeAsildi) {
           setBilgi('20 dakikadan az yürümeli bir rota bulunamadı; en az yürüyenler gösteriliyor.');
         }
@@ -434,6 +469,25 @@ export default function RotaEkrani() {
     });
   };
 
+  // İlk rota aranan saatten bu kadar geç başlıyorsa "şu an sefer yok" kutusu.
+  const ilkRota = useMemo(() => {
+    if (kalkisAramasi == null || !guzergahlar?.length) return null;
+    const ilk = Math.min(...guzergahlar.map((g) => Date.parse(g.start ?? '')).filter(Number.isFinite));
+    return Number.isFinite(ilk) && ilk - kalkisAramasi > GECE_BOSLUGU_MS ? { an: ilk, fark: ilk - kalkisAramasi } : null;
+  }, [guzergahlar, kalkisAramasi]);
+
+  const zamanSecimiAc = () => {
+    setTaslak(
+      zaman ?? {
+        tur: 'kalkis',
+        gun: 0,
+        saat: Number(istanbulSaat().slice(0, 2)),
+        dakika: Number(istanbulSaat().slice(3, 5)),
+      },
+    );
+    setZamanAcik(true);
+  };
+
   return (
     <View style={s.kok}>
       <View style={[s.ust, { paddingTop: kenar.top + 4 }]}>
@@ -487,17 +541,7 @@ export default function RotaEkrani() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filtreler}>
           <Pressable hitSlop={6}
             style={[s.filtre, s.filtreKoyu]}
-            onPress={() => {
-              setTaslak(
-                zaman ?? {
-                  tur: 'kalkis',
-                  gun: 0,
-                  saat: Number(istanbulSaat().slice(0, 2)),
-                  dakika: Number(istanbulSaat().slice(3, 5)),
-                },
-              );
-              setZamanAcik(true);
-            }}
+            onPress={zamanSecimiAc}
             accessibilityRole="button"
             accessibilityLabel="Kalkış ya da varış zamanını seç"
           >
@@ -526,6 +570,62 @@ export default function RotaEkrani() {
         {hata && <HataKutusu mesaj={hata} tekrarDene={() => ara()} />}
         {!hata && !guzergahlar && <IskeletListesi />}
         {bilgi && <Text style={s.bilgi}>{bilgi}</Text>}
+        {ilkRota && (
+          <View style={s.seferYokKutusu}>
+            <Ikon ad="moon-outline" boyut={18} renkKodu={tema.uyari} />
+            <View style={{ flex: 1, gap: 3 }}>
+              <Text style={s.seferYokBaslik}>{zaman ? 'Bu saatte sefer yok' : 'Şu an sefer yok'}</Text>
+              <Text style={s.seferYokYazi}>
+                {`İlk rota ${saatEkli(ilkRota.an / 1000)} yola çıkıyor, ${sureYaz(ilkRota.fark / 1000)} sonra. Aşağıdakiler ilk seferler.`}
+              </Text>
+              <Pressable hitSlop={8} onPress={zamanSecimiAc} accessibilityRole="button" style={{ alignSelf: 'flex-start' }}>
+                <Text style={s.seferYokDugme}>Başka bir saat seç</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+        {bosSonuc && (
+          <View style={s.bosKutu}>
+            <View style={s.kapaliUyariUst}>
+              <Ikon
+                ad={bosSonuc.tur === 'nokta' ? 'location-outline' : bosSonuc.tur === 'yuruyus' ? 'walk-outline' : 'time-outline'}
+                boyut={19}
+                renkKodu={tema.vurgu}
+              />
+              <Text style={s.kapaliUyariBaslik}>{bosSonuc.baslik}</Text>
+            </View>
+            <Text style={s.bosYazi}>{bosSonuc.metin}</Text>
+            <View style={s.bosDugmeler}>
+              {bosSonuc.tur === 'saat' ? (
+                <Pressable style={[s.bosDugme, s.bosDugmeAna]} onPress={zamanSecimiAc} accessibilityRole="button">
+                  <Text style={[s.bosDugmeYazi, { color: tema.vurguYazi }]}>Saati değiştir</Text>
+                </Pressable>
+              ) : (
+                <Pressable style={[s.bosDugme, s.bosDugmeAna]} onPress={geriDon} accessibilityRole="button">
+                  <Text style={[s.bosDugmeYazi, { color: tema.vurguYazi }]}>Noktaları değiştir</Text>
+                </Pressable>
+              )}
+              {bosSonuc.tur !== 'yuruyus' && rotaSecenekleri.tercih !== 'dengeli' && (
+                <Pressable
+                  style={s.bosDugme}
+                  onPress={() => rotaSecenekleriKaydet({ ...rotaSecenekleri, tercih: 'dengeli' })}
+                  accessibilityRole="button"
+                >
+                  <Text style={s.bosDugmeYazi}>"Önerilen"e dön</Text>
+                </Pressable>
+              )}
+              {bosSonuc.tur !== 'yuruyus' && rotaSecenekleri.erisilebilir && (
+                <Pressable
+                  style={s.bosDugme}
+                  onPress={() => rotaSecenekleriKaydet({ ...rotaSecenekleri, erisilebilir: false })}
+                  accessibilityRole="button"
+                >
+                  <Text style={s.bosDugmeYazi}>Basamaksızı kapat</Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+        )}
         {kapaliUyarisi && (
           <View style={s.kapaliUyari}>
             <View style={s.kapaliUyariUst}>
@@ -857,9 +957,12 @@ export default function RotaEkrani() {
       </ModalSayfa>
 
       <ModalSayfa acik={tercihAcik} kapat={() => setTercihAcik(false)}>
-        <View style={[s.zamanSayfa, { paddingBottom: kenar.bottom + 16 }]}>
+        {/* Ortası kaydırılır, düğme hep altta: eskiden içerik ~850 pt'ydi ve düğme her
+            iPhone'da ekranın altında kalıyordu. */}
+        <View style={[s.zamanSayfa, s.tercihSayfa, { paddingBottom: kenar.bottom + 16 }]}>
           <View style={s.zamanTutamac} />
           <Text style={s.zamanBaslik}>Rota tercihleri</Text>
+          <ScrollView style={s.tercihKaydirma} contentContainerStyle={{ gap: 4, paddingBottom: 4 }} bounces={false}>
 
           <Text style={s.zamanAltBaslik}>NEYE GÖRE ARANSIN</Text>
           <View style={s.tercihListesi}>
@@ -892,8 +995,16 @@ export default function RotaEkrani() {
             <View style={{ flex: 1 }}>
               <Text style={s.tercihBaslik}>Basamaksız güzergâh</Text>
               <Text style={s.tercihAlt}>
-                Merdivenli yollardan ve basamaklı araçlardan (T2, T3 nostaljik tramvay) kaçınılır; metro, Marmaray ve
-                modern tramvay istasyonları öne alınır. Metrobüs basamaksız sayılır; öbür otobüslerin ve vapurun erişim bilgisi yok: elenmez, geride sayılır.
+                Merdivenlerden ve basamaklı araçlardan kaçınılır.
+                {basamakAyrinti &&
+                  '\n\nBasamaklı nostaljik tramvaylar (T2, T3) kullanılmaz; metro, Marmaray ve modern tramvay istasyonları öne alınır. Metrobüs basamaksız sayılır. Öbür otobüslerin ve vapurun erişim bilgisi yok: elenmez, geride sayılır.'}{' '}
+                <Text
+                  style={s.ayrintiBag}
+                  onPress={() => setBasamakAyrinti((x) => !x)}
+                  accessibilityRole="button"
+                >
+                  {basamakAyrinti ? 'Kısalt' : 'Nasıl çalışır?'}
+                </Text>
               </Text>
             </View>
             <Switch
@@ -927,6 +1038,7 @@ export default function RotaEkrani() {
             </>
           )}
 
+          </ScrollView>
           <Pressable style={s.zamanOnayla} onPress={() => setTercihAcik(false)} accessibilityRole="button">
             <Text style={s.zamanOnaylaYazi}>Bu tercihlerle ara</Text>
           </Pressable>
@@ -1050,6 +1162,41 @@ const stiller = (t: Tema) =>
   filtreYazi: { fontSize: 12.5, fontWeight: '600', color: t.soluk },
   sonuclar: { padding: 12, gap: 10 },
   bilgi: { color: t.soluk, textAlign: 'center', padding: 20, lineHeight: 20 },
+  seferYokKutusu: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'flex-start',
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: t.uyariAcik,
+  },
+  seferYokBaslik: { fontSize: 15, fontWeight: '700', color: t.yazi },
+  seferYokYazi: { fontSize: 13, lineHeight: 18, color: t.yazi },
+  seferYokDugme: { fontSize: 13.5, fontWeight: '700', color: t.vurgu, marginTop: 5 },
+  bosKutu: {
+    marginTop: 4,
+    padding: 16,
+    gap: 8,
+    borderRadius: 16,
+    backgroundColor: t.yuzey,
+    borderWidth: 1,
+    borderColor: t.cizgi,
+  },
+  bosYazi: { fontSize: 13.5, lineHeight: 19, color: t.soluk },
+  bosDugmeler: { gap: 8, marginTop: 4 },
+  bosDugme: {
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: t.cizgi,
+  },
+  bosDugmeAna: { backgroundColor: t.vurgu, borderColor: t.vurgu },
+  bosDugmeYazi: { fontSize: 14, fontWeight: '700', color: t.yazi },
+  tercihSayfa: { flexShrink: 1 },
+  tercihKaydirma: { flexShrink: 1 },
+  ayrintiBag: { color: t.vurgu, fontWeight: '700' },
   kapaliUyari: {
     margin: 16,
     padding: 14,

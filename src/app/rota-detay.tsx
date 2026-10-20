@@ -1341,7 +1341,10 @@ export default function RotaDetayEkrani() {
     return (
       <View style={[s.kok, { paddingTop: kenar.top + 4, paddingHorizontal: 14 }]}>
         <GeriCubugu baslik="Rota detayı" />
-        <Text style={s.bos}>Bu rota artık bellekte değil. Rota listesine dönüp tekrar seç.</Text>
+        <Text style={s.bos}>Bu rota artık açılamıyor. Rota listesine dönüp yeniden seç.</Text>
+        <Pressable style={s.bosDugme} onPress={geriDon} accessibilityRole="button">
+          <Text style={s.bosDugmeYazi}>Rota listesine dön</Text>
+        </Pressable>
       </View>
     );
   }
@@ -1641,6 +1644,15 @@ const stiller = (t: Tema) =>
   StyleSheet.create({
   kok: { flex: 1, backgroundColor: t.zemin },
   bos: { color: t.soluk, padding: 20, textAlign: 'center' },
+  bosDugme: {
+    alignSelf: 'center',
+    height: 44,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+    justifyContent: 'center',
+    backgroundColor: t.vurgu,
+  },
+  bosDugmeYazi: { fontSize: 14, fontWeight: '700', color: t.vurguYazi },
   geri: { position: 'absolute', left: 14 },
   pusulaKonumu: { position: 'absolute', right: 12 },
   sekmeKonumu: { position: 'absolute', left: 64, right: 12, alignItems: 'flex-start' },
